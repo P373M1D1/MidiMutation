@@ -1,0 +1,37 @@
+# Build output
+build/
+mx.scratch
+
+# IDE and editor files
+.vscode/
+*.code-workspace
+*.swp
+*.swo
+
+# CubeMX backup files
+*.orig
+*.bak
+
+# Compiled object files and binaries
+*.o
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.a
+*.d
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# Debugger
+*.jdebug
+*.jlink
+
+# OS
+Thumbs.db
+.DS_Store
