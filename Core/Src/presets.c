@@ -29,19 +29,18 @@ static const Preset_t preset_table[PRESET_COUNT] = {
     { "Soft Reverb",          {{ 11}, {11}, {0xFF}},  {1, 0, 0} },
     { "Perfect Tape",         {{ 7}, {11}, {0xFF}},  {1, 0, 0} },
     { "Deep Cave",            {{11},{12},{0xFF}}, {0, 0, 0} },
-    { "Tap to Freeze",        {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
-    { "Preset 05",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
-    { "Preset 06",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
-    { "Preset 07",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
-    { "Preset 08",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
-    { "Preset 09",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
-    { "Preset 10",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
-    { "Preset 11",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
-    { "Preset 12",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
-    { "Preset 13",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
-    { "Preset 14",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
-    { "Preset 15",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
-    { "Preset 16",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
+    { "Empty Preset",        {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
+    { "Empty Preset",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
+    { "Empty Preset",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
+    { "Empty Preset",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
+    { "Empty Preset",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
+    { "Empty Preset",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
+    { "Empty Preset",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
+    { "Empty Preset",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
+    { "Empty Preset",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
+    { "Empty Preset",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
+    { "Empty Preset",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
+    { "Empty Preset",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
 };
 
 /* Fallback returned when index is out of range */
@@ -50,6 +49,26 @@ static const Preset_t blank_preset = {
     .dev   = { {0xFFU}, {0xFFU}, {0xFFU} },
     .relay = { 0U, 0U, 0U },
 };
+
+/* -------------------------------------------------------------------------- */
+
+bool Presets_DeviceProgramIsShared(uint8_t slot, uint8_t program)
+{
+    if (program == 0xFFU || slot >= PRESET_DEVICE_SLOTS)
+        return false;
+
+    uint8_t count = 0U;
+    for (uint8_t i = 0U; i < PRESET_COUNT; i++)
+    {
+        if (preset_table[i].dev[slot].program == program)
+            count++;
+
+        if (count > 1U)
+            return true;
+    }
+
+    return false;
+}
 
 /* -------------------------------------------------------------------------- */
 
@@ -71,6 +90,8 @@ void App_ActivatePreset(uint8_t idx)
 {
     if (idx >= Presets_Count())
         return;
+
+    Display_ScreensaverDismiss();
 
     active_preset_index = idx;
     active_preset = Presets_Get(idx);

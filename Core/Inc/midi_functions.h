@@ -11,8 +11,8 @@
  *   GND               → MIDI OUT pin 2
  *
  * Usage:
- *   MIDI_InitPort(0, UART4, GPIOC, GPIO_PIN_10, GPIO_AF8_UART4);
- *   MIDI_InitPort(1, UART5, GPIOC, GPIO_PIN_12, GPIO_AF8_UART5);
+ *   MIDI_InitPort(0, UART4, GPIOC, GPIO_PIN_10, GPIO_AF8_UART4);  // Echosystem
+ *   MIDI_InitPort(1, UART5, GPIOC, GPIO_PIN_12, GPIO_AF8_UART5);  // Reverb
  *   ...
  *   MIDI_SendCC(0, channel, cc, value);
  */

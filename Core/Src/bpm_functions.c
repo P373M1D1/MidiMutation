@@ -48,8 +48,13 @@ static uint8_t flash_state_read(FlashState_t *state)
  *
  * STM32F4 has a single-bank Flash: while any erase or program is in
  * progress ALL Flash reads stall, including instruction fetches.
- * Running from RAM lets the CPU keep executing; disabling interrupts
- * for the duration prevents ISR code (in Flash) from stalling mid-erase.
+ * Running from RAM lets the CPU keep executing throughout.
+ *
+ * Interrupts are left ENABLED.  SysTick_Handler and HAL_IncTick also run
+ * from RAM (stm32f4xx_it.c) so the tick counter stays accurate.  Other ISRs
+ * whose handlers are in Flash will stall until the current operation
+ * completes, but that stall is bounded (~200 µs per word program; the sector
+ * erase is the long pole) and safe — the hardware serialises flash accesses.
  *
  * Direct register access is used deliberately — calling HAL functions
  * would require fetching their code from Flash, defeating the purpose.
@@ -57,8 +62,6 @@ static uint8_t flash_state_read(FlashState_t *state)
 __attribute__((noinline, section(".RamFunc")))
 void BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx)
 {
-    __disable_irq();
-
     /* Unlock Flash control register */
     FLASH->KEYR = FLASH_KEY1;
     FLASH->KEYR = FLASH_KEY2;
@@ -91,8 +94,6 @@ void BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx)
 
     /* Lock */
     FLASH->CR |= FLASH_CR_LOCK;
-
-    __enable_irq();
 }
 
 uint16_t BPM_Flash_Load(void)

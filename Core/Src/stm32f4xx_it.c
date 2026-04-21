@@ -53,6 +53,18 @@
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+/*
+ * HAL_IncTick and SysTick_Handler are placed in .RamFunc so they keep
+ * executing while BPM_Flash_Save erases/programs flash.  On STM32F4 a
+ * single-bank flash stalls ALL flash reads (including instruction fetches)
+ * during any erase or program cycle; running from RAM avoids that stall.
+ */
+__attribute__((section(".RamFunc")))
+void HAL_IncTick(void)
+{
+    uwTick += (uint32_t)uwTickFreq;
+}
+
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
@@ -181,6 +193,7 @@ void PendSV_Handler(void)
 /**
   * @brief This function handles System tick timer.
   */
+__attribute__((section(".RamFunc")))
 void SysTick_Handler(void)
 {
   /* USER CODE BEGIN SysTick_IRQn 0 */

@@ -7,69 +7,126 @@
 #include <stdio.h>
 #include <string.h>
 
+/* ── display_functions.c ─────────────────────────────────────────────────────
+ *
+ * All visual output for the ST7796 480×320 TFT display and the DAC backlight.
+ *
+ * Hardware connections (configured in main.cpp MX_GPIO_Init / MX_SPI1_Init):
+ *   SPI1  – display data bus
+ *     SCK  = PA5   (SPI1_SCK,  AF5)
+ *     MOSI = PA7   (SPI1_MOSI, AF5)
+ *   Control pins (push-pull outputs, high speed):
+ *     RST  = PF12  (ST7796_RST_Pin  / ST7796_RST_GPIO_Port)
+ *     CS   = PD14  (ST7796_CS_Pin   / ST7796_CS_GPIO_Port)
+ *     DC   = PD15  (ST7796_DC_Pin   / ST7796_DC_GPIO_Port)
+ *   SPI1 baud rate = PCLK2 / 2 = 96 MHz / 2 = 48 MHz
+ *     (PCLK2 = SYSCLK / 1 per main.cpp SystemClock_Config APB2 divider)
+ *
+ *   Backlight – DAC1 CH1 on PA4 (12-bit, 0–4095 → 0–3.3 V → LED driver)
+ *     DAC and GPIOA clocks are enabled here in Display_BL_Init because
+ *     the backlight must be brought up before ST7796_Init is called.
+ *     (GPIOA clock is also enabled by MX_GPIO_Init in main.cpp; enabling
+ *     it twice is harmless — the HAL macro is idempotent.)
+ *
+ * Screen coordinates: origin (0,0) is top-left, x→right, y→down.
+ * Landscape orientation: width = 480 px, height = 320 px.
+ *
+ * Screen layout (see Display_DrawMainLayout / Display_DrawMainScreen):
+ *   y=   0 ..  34 :  BPM value,     Font_Consolas15x35, right side (x=365)
+ *   y=  85 .. 133 :  Preset name,   Font_Consolas23x49, centred, 20 chars wide
+ *   y= 184 .. 291 :  3 info rows,   Font_Consolas15x35
+ *                      left  (x= 30): "CH n: ppp"  MIDI channel + program number
+ *                      right (x=220): "Relay_n: open/closed"
+ *   y= 298 .. 319 :  Footer bar,    dark grey, "MIDI / RELAY STATUS"
+ * ─────────────────────────────────────────────────────────────────────────── */
+
 /* ── Backlight ───────────────────────────────────────────────────────────── */
-/* DAC1 CH1 on PA4, 12-bit (0..4095).
- * 100 fade steps × 48000-cycle spin ≈ 0.5 ms each → ~50 ms total.          */
+/* DAC1 CH1 on PA4.  The DAC is 12-bit (0 = off, 4095 = full brightness).
+ *
+ * Fade timing:
+ *   BL_SPIN_DELAY = 48 000 busy-wait cycles.
+ *   At SYSCLK = 96 MHz each cycle ≈ 10.4 ns → 48 000 cycles ≈ 0.5 ms per step.
+ *   100 steps × 0.5 ms = ~50 ms total fade duration.
+ *
+ * The spin loop uses a volatile counter to prevent the compiler from
+ * optimising the delay away.
+ */
 
 #define BL_STEPS      100U
-#define BL_SPIN_DELAY 48000U   /* cycles @ 96 MHz ≈ 0.5 ms */
+#define BL_SPIN_DELAY 48000U   /* busy-wait cycles @ 96 MHz ≈ 0.5 ms per step */
 
+/* ── Display_BL_Init ─────────────────────────────────────────────────────────
+ * Configures PA4 as an analog output and enables DAC1 channel 1.
+ * Must be called before Display_BL_FadeIn / FadeOut.
+ * Called early in main.cpp (before ST7796_Init) so the backlight can be
+ * kept off while the display initialises, avoiding a white flash.
+ * ─────────────────────────────────────────────────────────────────────────── */
 void Display_BL_Init(void)
 {
-    __HAL_RCC_GPIOA_CLK_ENABLE();
-    __HAL_RCC_DAC_CLK_ENABLE();
+    __HAL_RCC_GPIOA_CLK_ENABLE();  /* PA4 – DAC1_OUT1 (backlight analog output) */
+    __HAL_RCC_DAC_CLK_ENABLE();    /* DAC peripheral clock                       */
 
     GPIO_InitTypeDef gpio = {0};
     gpio.Pin  = GPIO_PIN_4;
-    gpio.Mode = GPIO_MODE_ANALOG;
+    gpio.Mode = GPIO_MODE_ANALOG;  /* analog mode disables the digital driver    */
     gpio.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOA, &gpio);
 
-    DAC->CR      = DAC_CR_EN1;
-    DAC->DHR12R1 = 0U;   /* start with backlight off */
+    DAC->CR      = DAC_CR_EN1;     /* enable channel 1, no trigger, no buffer    */
+    DAC->DHR12R1 = 0U;             /* start with backlight fully off             */
 }
 
+/* ── Display_BL_FadeIn ───────────────────────────────────────────────────────
+ * Ramps the DAC output from 0 to 4095 over ~50 ms.
+ * Blocking – call only from main-loop context, not from an ISR.
+ * ─────────────────────────────────────────────────────────────────────────── */
 void Display_BL_FadeIn(void)
 {
     for (uint32_t step = 0U; step <= BL_STEPS; step++)
     {
-        DAC->DHR12R1 = (step * 4095U) / BL_STEPS;
+        DAC->DHR12R1 = (step * 4095U) / BL_STEPS;          /* linear ramp up    */
         for (volatile uint32_t d = 0U; d < BL_SPIN_DELAY; d++) {}
     }
 }
 
+/* ── Display_BL_FadeOut ──────────────────────────────────────────────────────
+ * Ramps the DAC output from 4095 down to 0 over ~50 ms.
+ * The loop counts down using an unsigned counter; the 'if (step==0) break'
+ * guard prevents underflow wrap-around (uint32 wrapping to 0xFFFFFFFF).
+ * ─────────────────────────────────────────────────────────────────────────── */
 void Display_BL_FadeOut(void)
 {
     for (uint32_t step = BL_STEPS; ; step--)
     {
-        DAC->DHR12R1 = (step * 4095U) / BL_STEPS;
+        DAC->DHR12R1 = (step * 4095U) / BL_STEPS;          /* linear ramp down  */
         for (volatile uint32_t d = 0U; d < BL_SPIN_DELAY; d++) {}
-        if (step == 0U) break;
+        if (step == 0U) break;                              /* avoid uint underflow */
     }
 }
 
-/* ── Screen layout (480 × 320 px, landscape) ─────────────────────────────── */
-/*
- *   y=  0 ..  34  :  BPM value, Font_Consolas15x35, right-aligned
- *   y= 85 .. 133  :  Preset name, Font_Consolas23x49, centred (padded to 20)
- *   y=184 .. 291  :  3 tightly-spaced info rows, Font_Consolas15x35
- *                      left  (x= 30) : CH1:   5
- *                      right (x=220) : Relay_1: open/closed
- *   y=298 .. 319  :  thin grey foot bar
- */
-
-#define MAIN_FOOTBAR_Y       298U
-#define MAIN_FOOTBAR_H       (ST7796_HEIGHT - MAIN_FOOTBAR_Y)
+/* ── Screen layout constants ─────────────────────────────────────────────── */
+#define MAIN_FOOTBAR_Y       298U                        /* top of footer bar    */
+#define MAIN_FOOTBAR_H       (ST7796_HEIGHT - MAIN_FOOTBAR_Y)  /* = 22 px        */
 #define MAIN_FOOTBAR_COLOR   ST7796_DARKGRAY
-#define MAIN_INFO_LEFT_X      30U
-#define MAIN_INFO_RIGHT_X    220U
+#define MAIN_INFO_LEFT_X      30U                        /* left column x origin  */
+#define MAIN_INFO_RIGHT_X    220U                        /* right column x origin */
 #define MAIN_FOOTBAR_TEXT    "MIDI / RELAY STATUS"
 
+/* Set to 1 whenever the static elements (footer bar) need to be redrawn –
+ * e.g. after the screensaver has painted over them. */
 static uint8_t main_layout_dirty = 1U;
 
+/* ── Display_DrawMainLayout ──────────────────────────────────────────────────
+ * Draws the parts of the screen that don't change between presets:
+ *   • Dark-grey footer bar at the bottom.
+ *   • Centred "MIDI / RELAY STATUS" label inside the bar.
+ * Called automatically by Display_DrawMainScreen when main_layout_dirty is set.
+ * ─────────────────────────────────────────────────────────────────────────── */
 static void Display_DrawMainLayout(void)
 {
     ST7796_DrawFilledRectangle(0U, MAIN_FOOTBAR_Y, ST7796_WIDTH, MAIN_FOOTBAR_H, MAIN_FOOTBAR_COLOR);
+
+    /* Centre the label: total pixel width = number_of_chars × font_char_width */
     ST7796_WriteString((uint16_t)((ST7796_WIDTH - ((sizeof(MAIN_FOOTBAR_TEXT) - 1U) * Font_11x18.width)) / 2U),
                        (uint16_t)(MAIN_FOOTBAR_Y + ((MAIN_FOOTBAR_H - Font_11x18.height) / 2U)),
                        MAIN_FOOTBAR_TEXT,
@@ -79,6 +136,20 @@ static void Display_DrawMainLayout(void)
     main_layout_dirty = 0U;
 }
 
+/* ── Display_DrawMainScreen ──────────────────────────────────────────────────
+ * Full refresh of the main screen for a given preset + BPM value.
+ * Called by App_ActivatePreset() in presets.c and by the screensaver wakeup.
+ *
+ * Sections drawn:
+ *   1. Footer bar (only if dirty — avoids a needless SPI burst every call).
+ *   2. BPM display (top-right).
+ *   3. Preset name (centred, padded to exactly 20 characters so the previous
+ *      name is fully overwritten even if it was longer).
+ *   4. Three info rows: one per device slot.
+ *        Left  column: MIDI channel + program number sent to that device.
+ *        Right column: relay state for that slot (open / closed).
+ *      program == 0xFF means that slot is unused — shown as "CH -: ---".
+ * ─────────────────────────────────────────────────────────────────────────── */
 void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
 {
     char buf[32];
@@ -88,12 +159,14 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
 
     Display_UpdateBPM(bpm);
 
-    /* Preset name – centred, padded to exactly 20 chars */
+    /* Preset name – padded to exactly 20 chars so the old name is always
+     * fully erased (the font background colour fills unused pixels in each
+     * character cell, so no separate erase rectangle is needed). */
     {
         char    padded[21];
         uint8_t len   = (uint8_t)strnlen(p->name, 20U);
-        uint8_t pad_l = (uint8_t)((20U - len) / 2U);
-        uint8_t pad_r = (uint8_t)(20U - len - pad_l);
+        uint8_t pad_l = (uint8_t)((20U - len) / 2U);   /* left padding to centre */
+        uint8_t pad_r = (uint8_t)(20U - len - pad_l);   /* right padding          */
         memset(padded,               ' ', pad_l);
         memcpy(padded + pad_l,       p->name, len);
         memset(padded + pad_l + len, ' ', pad_r);
@@ -101,48 +174,90 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
         ST7796_WriteString32(10U, 85U, padded, Font_Consolas23x49, ST7796_WHITE, ST7796_BLACK);
     }
 
-    /* Info rows */
+    /* Three device-info rows, one per preset slot (Echosystem, Reverb, spare).
+     * row_y values are chosen so the 35-px-tall font rows sit tightly inside
+     * the 184–291 px band without overlapping. */
     static const uint16_t row_y[3] = {184U, 220U, 256U};
     for (uint8_t i = 0U; i < PRESET_DEVICE_SLOTS; i++)
     {
         const MidiDevice_t *dev = MidiDevices_Get(i);
-        if (p->dev[i].program != 0xFFU)
-            snprintf(buf, sizeof(buf), "CH %u: %3u", dev->channel, p->dev[i].program);
-        else
+        uint8_t program = p->dev[i].program;
+        if (program != 0xFFU) {
+            // Format: "CH n: ppp" (ppp = program number, always 3 chars)
+            snprintf(buf, sizeof(buf), "CH %u: %3u", dev->channel, program);
+            // Find where the program number starts in the string
+            char *prog_ptr = buf + strlen(buf) - 3;
+            // If duplicate, draw the number region with black-on-darkgray
+            if (Presets_DeviceProgramIsShared(i, program)) {
+                // Draw the prefix ("CH n: ") as usual
+                char prefix[16];
+                size_t prefix_len = prog_ptr - buf;
+                strncpy(prefix, buf, prefix_len);
+                prefix[prefix_len] = '\0';
+                ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y[i], prefix, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
+                // Draw the number with black text on dark gray background, offset by prefix width
+                uint16_t prefix_px = Font_Consolas15x35.width * (uint16_t)prefix_len;
+                ST7796_WriteString32(MAIN_INFO_LEFT_X + prefix_px, row_y[i], prog_ptr, Font_Consolas15x35, ST7796_BLACK, ST7796_DARKGRAY);
+            } else {
+                // Normal: all darkgray on black
+                ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y[i], buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
+            }
+        } else {
             snprintf(buf, sizeof(buf), "CH -: ---");
-        ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y[i], buf, Font_Consolas15x35, ST7796_WHITE, ST7796_BLACK);
+            ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y[i], buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
+        }
 
+        // Right column: relay state for this slot
         snprintf(buf, sizeof(buf), "Relay_%u: %s", i + 1U,
                  p->relay[i] ? "closed" : "open");
-        ST7796_WriteString32(MAIN_INFO_RIGHT_X, row_y[i], buf, Font_Consolas15x35, ST7796_WHITE, ST7796_BLACK);
+        ST7796_WriteString32(MAIN_INFO_RIGHT_X, row_y[i], buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
     }
 }
 
+/* ── Display_UpdateBPM ───────────────────────────────────────────────────────
+ * Redraws only the BPM value in the top-right corner.
+ * Called both from Display_DrawMainScreen and from Handle_Tap_Tempo()
+ * (bpm_functions.c) on every tap so the number updates immediately without
+ * redrawing the whole screen.
+ * ─────────────────────────────────────────────────────────────────────────── */
 void Display_UpdateBPM(uint16_t bpm)
 {
     char buf[10];
     snprintf(buf, sizeof(buf), "%3u BPM", (unsigned)bpm);
+    /* x=365 places the 7-char string (7×15=105 px) flush to x=480 right edge */
     ST7796_WriteString32(365U, 7U, buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
 }
 
-/* ── Loading bar ────────────────────────────────────────────────────────────
- * Draws a progress bar in the lower quarter of the screen and blocks for
- * duration_ms, filling it left-to-right over that time.                     */
+/* ── Loading bar ─────────────────────────────────────────────────────────────
+ * Draws a progress bar that fills left-to-right over duration_ms milliseconds.
+ * This is a blocking call — it does not return until the timer expires.
+ * Used during startup while the system waits for devices to power up.
+ *
+ * The bar is split into three text phases to keep the user entertained:
+ *   0 %–33 % : "... waiting for DNA match"
+ *   33%      : "DNA match found"         (shown for 1 s)
+ *   33%+1 s  : "..accessing genetic markers"  (shown for 1 s)
+ *   ~66%+    : text cleared
+ *
+ * Only the newly filled strip is drawn each iteration (fill > prev_fill),
+ * so SPI traffic is proportional to progress not to loop frequency.
+ */
 
-#define LB_X        10U    /* left margin (10px from edge) */
-#define LB_Y       262U    /* top of bar (lower quarter)   */
-#define LB_W       460U    /* total bar width (480-10-10)  */
-#define LB_H        28U    /* bar height                   */
-#define LB_COLOR  0x000EU  /* dark red BGR565              */
+#define LB_X        10U    /* left margin (10 px from screen edge)  */
+#define LB_Y       262U    /* top of bar, lower quarter of screen   */
+#define LB_W       460U    /* total bar width (480 - 10 left - 10 right) */
+#define LB_H        28U    /* bar height in pixels                  */
+#define LB_COLOR  0x000EU  /* dark red in BGR565 format             */
 
-/* text row above the bar — right-aligned, 7px char width */
+/* Text row sits just above the bar */
 #define LB_TXT_Y    246U
+/* Right-align text: start x = screen_width - (chars × char_width) - margin */
 #define LB_TXT_X(chars)  ((uint16_t)(480U - (uint16_t)(chars) * 7U - 10U))
 
+/* Erase the full text row then write a new message right-aligned. */
 static void lb_set_text(const char *txt, uint8_t len, uint16_t color)
 {
-    /* Erase the full text row first, then write new message */
-    ST7796_DrawFilledRectangle(0U, LB_TXT_Y, 480U, 10U, ST7796_BLACK);
+    ST7796_DrawFilledRectangle(0U, LB_TXT_Y, 480U, 10U, ST7796_BLACK);  /* clear row */
     ST7796_WriteString(LB_TXT_X(len), LB_TXT_Y, txt, Font_7x10, color, ST7796_BLACK);
 }
 
@@ -150,19 +265,20 @@ void Display_LoadingBar(uint32_t duration_ms)
 {
     lb_set_text("... waiting for DNA match", 25, ST7796_WHITE);
 
-    /* Black background for bar */
-    ST7796_DrawFilledRectangle(LB_X, LB_Y, LB_W, LB_H, ST7796_BLACK);
+    ST7796_DrawFilledRectangle(LB_X, LB_Y, LB_W, LB_H, ST7796_BLACK);  /* empty bar */
 
     uint32_t start     = HAL_GetTick();
-    uint16_t prev_fill = 0U;
-    uint8_t  phase     = 0U;
-    uint32_t phase_ts  = 0U;
+    uint16_t prev_fill = 0U;   /* tracks how many pixels have been filled so far */
+    uint8_t  phase     = 0U;   /* which text message is currently showing        */
+    uint32_t phase_ts  = 0U;   /* HAL tick when the current phase started        */
 
     for (;;)
     {
         uint32_t elapsed = HAL_GetTick() - start;
-        if (elapsed >= duration_ms) elapsed = duration_ms;
+        if (elapsed >= duration_ms) elapsed = duration_ms;  /* clamp at end */
 
+        /* Fill only the new strip since last iteration — avoids redrawing
+         * pixels that are already the correct colour. */
         uint16_t fill = (uint16_t)((elapsed * LB_W) / duration_ms);
         if (fill > prev_fill)
         {
@@ -173,99 +289,143 @@ void Display_LoadingBar(uint32_t duration_ms)
 
         uint32_t now = HAL_GetTick();
 
-        /* ~33% — show "DNA match found" in white */
+        /* Phase transitions — check sequentially so they can't be skipped */
         if (phase == 0U && elapsed >= duration_ms / 3U)
         {
             lb_set_text("DNA match found", 15, ST7796_WHITE);
             phase    = 1U;
             phase_ts = now;
         }
-        /* after 1000 ms — show "..accessing genetic markers" */
         if (phase == 1U && now - phase_ts >= 1000U)
         {
             lb_set_text("..accessing genetic markers", 27, ST7796_WHITE);
             phase    = 2U;
             phase_ts = now;
         }
-        /* after another 1000 ms — clear text */
         if (phase == 2U && now - phase_ts >= 1000U)
         {
             ST7796_DrawFilledRectangle(0U, LB_TXT_Y, 480U, 10U, ST7796_BLACK);
-            phase = 3U;
+            phase = 3U;  /* text cleared — stay here until bar finishes */
         }
 
         if (elapsed >= duration_ms) break;
     }
-
 }
 
+/* ── Display_LoadingBarClear ─────────────────────────────────────────────────
+ * Clears the loading bar and shows a brief "mutation complete" message.
+ * Called after Display_LoadingBar() returns, just before the fade-out.
+ * ─────────────────────────────────────────────────────────────────────────── */
 void Display_LoadingBarClear(void)
 {
     ST7796_DrawFilledRectangle(LB_X, LB_Y, LB_W, LB_H, ST7796_BLACK);
     lb_set_text("mutation complete", 17, ST7796_WHITE);
-    HAL_Delay(1000U);
+    HAL_Delay(1000U);  /* leave message visible for 1 s before fade */
     ST7796_DrawFilledRectangle(0U, LB_TXT_Y, 480U, 10U, ST7796_BLACK);
 }
 
 /* ── Screensaver ─────────────────────────────────────────────────────────────
- * DVD-style bouncing sprite.  Changes colour on every wall bounce.
- * Flicker-free: only the strips vacated by the sprite each step are erased,
- * then the sprite is drawn at its new position — no full-box erase.
- * Swap ST7796_DrawFilledRectangle for ST7796_DrawImage once image is ready.
+ * DVD-style bouncing sprite (umbrella image from umbrella_image.h).
+ *
+ * Activation: triggers after SS_TIMEOUT_MS of inactivity.
+ *   Any call to Display_ScreensaverActivity() resets the inactivity timer —
+ *   called from button presses, tap tempo, and preset changes.
+ *
+ * Deactivation: the first Display_ScreensaverUpdate() call after
+ *   ss_last_activity has been refreshed redraws the main screen and exits.
+ *
+ * Flicker-free movement:
+ *   Only the thin strips vacated by the sprite (left/right or top/bottom)
+ *   are erased each step.  The rest of the sprite's previous position is
+ *   overwritten by the new sprite draw, so no full-box erase is needed.
+ *
+ * Bounce: when the sprite hits a wall its velocity component is negated.
+ *   Both x and y walls are checked every step — corner hits reverse both.
+ *
+ * Call Display_ScreensaverUpdate() from the main loop on every iteration.
+ * It returns early (no SPI traffic) if the step interval hasn't elapsed.
  */
 
-#define SS_TIMEOUT_MS   (10UL * 60UL * 1000UL)  /* 10 minutes */
-#define SS_BOX_W        UMBRELLA_W       /* sprite size           */
-#define SS_BOX_H        UMBRELLA_H
-#define SS_STEP_MS      40U              /* move every 40 ms      */
-#define SS_VX            6               /* pixels per step       */
-#define SS_VY            4
+//#define SS_TIMEOUT_MS   (10UL * 60UL * 1000UL)  /* 10 minutes of inactivity */ 
+#define SS_TIMEOUT_MS   (5000UL)  /* 5 second of inactivity */ 
+#define SS_BOX_W        UMBRELLA_W               /* sprite width  (px)       */
+#define SS_BOX_H        UMBRELLA_H               /* sprite height (px)       */
+#define SS_STEP_MS      40U                      /* move every 40 ms = 25 fps */
+#define SS_VX            6                       /* horizontal pixels / step */
+#define SS_VY            4                       /* vertical   pixels / step */
 
-static uint32_t  ss_last_activity = 0U;
-static uint8_t   ss_active        = 0U;
-static uint32_t  ss_last_move     = 0U;
-static int16_t   ss_x             = 0;
-static int16_t   ss_y             = 0;
-static int8_t    ss_vx            = SS_VX;
-static int8_t    ss_vy            = SS_VY;
+static uint32_t  ss_last_activity = 0U;   /* tick of last user interaction */
+static uint8_t   ss_active        = 0U;   /* 1 while screensaver is running */
+static uint32_t  ss_last_move     = 0U;   /* tick of last sprite move       */
+static int16_t   ss_x             = 0;    /* current sprite top-left x      */
+static int16_t   ss_y             = 0;    /* current sprite top-left y      */
+static int8_t    ss_vx            = SS_VX; /* signed velocity: positive = right */
+static int8_t    ss_vy            = SS_VY; /* signed velocity: positive = down  */
 
+static void Display_ScreensaverEraseSprite(void)
+{
+    ST7796_DrawFilledRectangle((uint16_t)ss_x, (uint16_t)ss_y, SS_BOX_W, SS_BOX_H, ST7796_BLACK);
+}
+
+/* ── Display_ScreensaverActivity ─────────────────────────────────────────────
+ * Records the current tick as the last user activity.
+ * Call this from any event that should reset the screensaver timer:
+ *   button presses (button_functions.c), tap tempo (main.cpp EXTI callback),
+ *   preset changes (presets.c App_ActivatePreset).
+ * ─────────────────────────────────────────────────────────────────────────── */
 void Display_ScreensaverActivity(void)
 {
     ss_last_activity = HAL_GetTick();
 }
 
+void Display_ScreensaverDismiss(void)
+{
+    if (!ss_active)
+        return;
+
+    ss_active = 0U;
+    main_layout_dirty = 1U;
+    Display_ScreensaverEraseSprite();
+}
+
+/* ── Display_ScreensaverUpdate ───────────────────────────────────────────────
+ * Called from the main while(1) loop every iteration.
+ * When inactive: checks if timeout has elapsed and activates if so.
+ * When active:   moves the sprite and checks for wake events.
+ * ─────────────────────────────────────────────────────────────────────────── */
 void Display_ScreensaverUpdate(const Preset_t *p, uint16_t bpm)
 {
     uint32_t now = HAL_GetTick();
 
     if (!ss_active)
     {
+        /* Not yet active — check if we've been idle long enough */
         if (now - ss_last_activity >= SS_TIMEOUT_MS)
         {
             ss_active    = 1U;
-            ss_x         = (ST7796_WIDTH  - SS_BOX_W) / 2;
+            ss_x         = (ST7796_WIDTH  - SS_BOX_W) / 2;  /* start at screen centre */
             ss_y         = (ST7796_HEIGHT - SS_BOX_H) / 2;
             ss_vx        = SS_VX;
             ss_vy        = SS_VY;
             ss_last_move = now;
-            main_layout_dirty = 1U;
-            ST7796_FillScreen(ST7796_BLACK);
+            main_layout_dirty = 1U;          /* main screen must be redrawn on wake */
+            ST7796_FillScreen(ST7796_BLACK); /* blank screen before first sprite draw */
             ST7796_DrawImage((uint16_t)ss_x, (uint16_t)ss_y,
                              SS_BOX_W, SS_BOX_H, umbrella_data);
         }
         return;
     }
 
-    /* Wake on activity */
+    /* Screensaver is active — check for a wake event */
     if (now - ss_last_activity < SS_TIMEOUT_MS)
     {
-        ss_active = 0U;
-        main_layout_dirty = 1U;
-        ST7796_FillScreen(ST7796_BLACK);
+        /* Activity was recorded since we went to sleep — wake up */
+        Display_ScreensaverDismiss();
         Display_DrawMainScreen(p, bpm);
         return;
     }
 
+    /* Rate-limit: only move the sprite every SS_STEP_MS milliseconds */
     if (now - ss_last_move < SS_STEP_MS) return;
     ss_last_move = now;
 
@@ -275,31 +435,32 @@ void Display_ScreensaverUpdate(const Preset_t *p, uint16_t bpm)
     ss_x += ss_vx;
     ss_y += ss_vy;
 
-    /* Bounce — change colour on each wall hit */
+    /* Bounce off each wall — clamp position to legal range and flip velocity */
     uint8_t bounced = 0U;
-    if (ss_x <= 0)                                    { ss_x = 0;                               ss_vx = -ss_vx; bounced = 1U; }
+    if (ss_x <= 0)                                    { ss_x = 0;                                 ss_vx = -ss_vx; bounced = 1U; }
     if (ss_x + (int16_t)SS_BOX_W >= ST7796_WIDTH)    { ss_x = ST7796_WIDTH  - (int16_t)SS_BOX_W; ss_vx = -ss_vx; bounced = 1U; }
-    if (ss_y <= 0)                                    { ss_y = 0;                               ss_vy = -ss_vy; bounced = 1U; }
+    if (ss_y <= 0)                                    { ss_y = 0;                                 ss_vy = -ss_vy; bounced = 1U; }
     if (ss_y + (int16_t)SS_BOX_H >= ST7796_HEIGHT)   { ss_y = ST7796_HEIGHT - (int16_t)SS_BOX_H; ss_vy = -ss_vy; bounced = 1U; }
 
-    (void)bounced;
+    (void)bounced;  /* reserved: could change sprite colour on bounce */
 
-    /* Partial erase: only wipe the thin strip the sprite moved away from.
-     * This removes the flicker caused by a full erase before redraw.        */
+    /* Partial erase: only clear the thin strip the sprite has moved away from.
+     * dx/dy are the displacement this step.  The strip dimensions are chosen
+     * so the erased area exactly matches the vacated pixels — no over-erase. */
     int16_t dx = ss_x - old_x;
     int16_t dy = ss_y - old_y;
 
-    if (dx > 0)  /* moved right – erase left strip */
+    if (dx > 0)       /* moved right — erase the left strip at the old position */
         ST7796_DrawFilledRectangle((uint16_t)old_x, (uint16_t)ss_y, (uint16_t)dx, SS_BOX_H, ST7796_BLACK);
-    else if (dx < 0)  /* moved left – erase right strip */
+    else if (dx < 0)  /* moved left  — erase the right strip */
         ST7796_DrawFilledRectangle((uint16_t)(ss_x + SS_BOX_W), (uint16_t)ss_y, (uint16_t)(-dx), SS_BOX_H, ST7796_BLACK);
 
-    if (dy > 0)  /* moved down – erase top strip */
+    if (dy > 0)       /* moved down  — erase the top strip at the old position  */
         ST7796_DrawFilledRectangle((uint16_t)old_x, (uint16_t)old_y, SS_BOX_W, (uint16_t)dy, ST7796_BLACK);
-    else if (dy < 0)  /* moved up – erase bottom strip */
+    else if (dy < 0)  /* moved up    — erase the bottom strip */
         ST7796_DrawFilledRectangle((uint16_t)old_x, (uint16_t)(ss_y + SS_BOX_H), SS_BOX_W, (uint16_t)(-dy), ST7796_BLACK);
 
-    /* Draw sprite at new position */
+    /* Draw sprite at new position — overwrites any overlap with the old position */
     ST7796_DrawImage((uint16_t)ss_x, (uint16_t)ss_y,
                      SS_BOX_W, SS_BOX_H, umbrella_data);
 }

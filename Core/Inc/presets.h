@@ -1,6 +1,7 @@
 #ifndef PRESETS_H
 #define PRESETS_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -56,6 +57,14 @@ const Preset_t *Presets_Get(uint8_t index);
  * @brief  Return the number of presets defined in the table.
  */
 uint8_t Presets_Count(void);
+
+/**
+ * @brief  Returns true if the given program number is used in more than one preset
+ *         for the given device slot (ignores 0xFF/unused).
+ * @param  slot      Device slot index (0..PRESET_DEVICE_SLOTS-1).
+ * @param  program   Program number to check (0..127).
+ */
+bool Presets_DeviceProgramIsShared(uint8_t slot, uint8_t program);
 
 /**
  * @brief  Activate preset @p idx: update active state, send MIDI program
