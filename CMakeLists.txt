@@ -63,7 +63,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Custom application sources
     Core/Src/display_functions.c
-    Core/Src/bpm_flash.c
+    Core/Src/bpm_functions.c
     Core/Src/led_functions.c
     Core/Src/midi_functions.c
     Core/Src/midi_devices.c
@@ -74,6 +74,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/ST7796/font_consolas_15x35.c
     Drivers/ST7796/font_consolas_23x49.c
     Drivers/ST7796/font_consolas_24x40.c
+    Core/Src/button_functions.c
 )
 
 # Add include paths

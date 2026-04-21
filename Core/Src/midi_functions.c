@@ -104,3 +104,14 @@ void MIDI_SendCC(uint8_t port, uint8_t channel, uint8_t cc_number, uint8_t value
     };
     HAL_UART_Transmit(&huart[port], msg, sizeof(msg), 10U);
 }
+
+void Midi_LoadPreset(const Preset_t *preset)
+{
+    if (!preset) return;
+    for (uint8_t i = 0U; i < PRESET_DEVICE_SLOTS; i++)
+    {
+        if (preset->dev[i].program == 0xFFU) continue;
+        const MidiDevice_t *dev = MidiDevices_Get(i);
+        MIDI_SendProgramChange(dev->midi_port, dev->channel, preset->dev[i].program);
+    }
+}

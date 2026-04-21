@@ -59,6 +59,13 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define USER_Btn_Pin GPIO_PIN_13
 #define USER_Btn_GPIO_Port GPIOC
+#define TAP_Pin GPIO_PIN_15
+#define TAP_GPIO_Port GPIOG
+#define PRESET_BTN1_Pin GPIO_PIN_0
+#define PRESET_BTN2_Pin GPIO_PIN_1
+#define PRESET_BTN3_Pin GPIO_PIN_2
+#define PRESET_BTN4_Pin GPIO_PIN_3
+#define PRESET_BTN_GPIO_Port GPIOE
 #define MCO_Pin GPIO_PIN_0
 #define MCO_GPIO_Port GPIOH
 #define LD1_Pin GPIO_PIN_0

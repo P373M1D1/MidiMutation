@@ -6,7 +6,7 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | Nucleo Pin  | Function                                              | Connected To                  |
 |-------------|-------------------------------------------------------|-------------------------------|
 | **Buttons & LEDs**                                                                            |
-| PC13        | User button input (active-low, falling edge)          | Blue pushbutton (on-board)    |
+| PC13        | User button input (unused — tap tempo moved to PG15)  | Blue pushbutton (on-board)    |
 | PB0         | LD1 — green LED output                                | Green LED (on-board)          |
 | PB7         | LD2 — blue LED output                                 | Blue LED (on-board)           |
 | PB14        | LD3 — red LED output                                  | Red LED (on-board)            |
@@ -69,6 +69,8 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PF15        | MIDI In activity LED output                           | MIDI In indicator LED         |
 | PG0         | MIDI Out activity LED output                          | MIDI Out indicator LED        |
 | PG1         | Spare LED output                                      | Spare indicator LED           |
+| **Tap Tempo Input**                                                                           |
+| PG15        | Tap tempo footswitch — INPUT_PULLUP, EXTI15 (EXTI15_10_IRQn) | Footswitch to GND      |
 | **Pushbutton Inputs (GPIO_INPUT_PULLUP + EXTI interrupt)**                                    |
 | PE0         | Button 1  — INPUT_PULLUP, EXTI0  (EXTI0_IRQn)         | Pushbutton 1                  |
 | PE1         | Button 2  — INPUT_PULLUP, EXTI1  (EXTI1_IRQn)         | Pushbutton 2                  |
@@ -91,13 +93,11 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 > **Note on STLK pin naming:** `STLK_TX_Pin` (PD8) and `STLK_RX_Pin` (PD9) are labelled from the
 > ST-LINK's perspective. On the MCU, PD8 = USART3_TX and PD9 = USART3_RX. Wiring is correct.
 
-> **\* EXTI15_10_IRQn shared ISR:** PE10, PE11, PE12 share `EXTI15_10_IRQn` with the existing PC13
-> user button. The ISR must check `__HAL_GPIO_EXTI_GET_IT()` for each line to identify the source.
+> **\* EXTI15_10_IRQn shared ISR:** PE10, PE11, PE12, and PG15 share `EXTI15_10_IRQn`. The ISR checks `__HAL_GPIO_EXTI_GET_IT()` for each line to identify the source.
 
 > **EXTI9_5_IRQn shared ISR:** PE5–PE9 share `EXTI9_5_IRQn`. Same rule — check each pending flag.
 
-> **† Encoder push buttons polled:** EXTI lines 0–13 are fully consumed by PE0–PE12 and PC13.
-> Only EXTI14 and EXTI15 remain free. Encoder buttons are polled in SysTick (1 ms) with software
+> **† Encoder push buttons polled:** EXTI lines 0–13 are fully consumed by PE0–PE12. EXTI14 remains free. EXTI15 is used by PG15 tap tempo. Encoder buttons are polled in SysTick (1 ms) with software
 > debounce — fully sufficient for push-button response times.
 
 > **Encoder timer mode:** TIM2/TIM3/TIM4/TIM8 configured in encoder interface mode. The timer

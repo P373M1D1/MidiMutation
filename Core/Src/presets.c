@@ -1,5 +1,15 @@
 #include "presets.h"
+#include "display_functions.h"
+#include "midi_functions.h"
+#include "bpm_functions.h"
+#include "stm32f4xx_hal.h"
 #include <string.h>
+
+/* ── Application state owned by main.cpp ─────────────────────────────────── */
+extern volatile uint16_t  g_bpm;
+extern volatile uint32_t  bpm_save_tick;
+extern const Preset_t    *active_preset;
+extern uint8_t            active_preset_index;
 
 /* ── Preset table ────────────────────────────────────────────────────────────
  *
@@ -16,10 +26,10 @@
 //     name                  Echosystem  Reverb  spare   relay1 relay2 relay3
 //                             ch1 pg ch2 pg  pg      r1  r2  r3
 static const Preset_t preset_table[PRESET_COUNT] = {
-    { "Perfect Tape",         {{ 5}, {12}, {0xFF}},  {0, 0, 0} },
-    { "Liquid Crystal Dream", {{ 7}, { 3}, {0xFF}},  {1, 0, 0} },
-    { "Preset 03",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
-    { "Preset 04",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
+    { "Soft Reverb",          {{ 11}, {11}, {0xFF}},  {1, 0, 0} },
+    { "Perfect Tape",         {{ 7}, {11}, {0xFF}},  {1, 0, 0} },
+    { "Deep Cave",            {{11},{12},{0xFF}}, {0, 0, 0} },
+    { "Tap to Freeze",        {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
     { "Preset 05",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
     { "Preset 06",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
     { "Preset 07",            {{0xFF},{0xFF},{0xFF}}, {0, 0, 0} },
@@ -53,4 +63,19 @@ const Preset_t *Presets_Get(uint8_t index)
 uint8_t Presets_Count(void)
 {
     return PRESET_COUNT;
+}
+
+/* -------------------------------------------------------------------------- */
+
+void App_ActivatePreset(uint8_t idx)
+{
+    if (idx >= Presets_Count())
+        return;
+
+    active_preset_index = idx;
+    active_preset = Presets_Get(idx);
+    Midi_LoadPreset(active_preset);
+    Display_DrawMainScreen(active_preset, g_bpm);
+    Display_ScreensaverActivity();
+    bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
 }

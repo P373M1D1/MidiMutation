@@ -213,8 +213,13 @@ void TIM6_DAC_IRQHandler(void)
     DAC->SR |= (DAC_SR_DMAUDR1 | DAC_SR_DMAUDR2);
 }
 
+void EXTI0_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN1_Pin); }
+void EXTI1_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN2_Pin); }
+void EXTI2_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN3_Pin); }
+void EXTI3_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN4_Pin); }
+
 void EXTI15_10_IRQHandler(void)
 {
-  HAL_GPIO_EXTI_IRQHandler(USER_Btn_Pin);
+  HAL_GPIO_EXTI_IRQHandler(TAP_Pin);
 }
 /* USER CODE END 1 */

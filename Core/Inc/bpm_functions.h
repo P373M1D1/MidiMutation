@@ -1,0 +1,51 @@
+#ifndef BPM_FUNCTIONS_H
+#define BPM_FUNCTIONS_H
+
+#include <stdint.h>
+
+#define BPM_FLASH_ADDR    0x080E0000UL  /* first word of sector 11       */
+#define BPM_FLASH_SECTOR  FLASH_SECTOR_11
+#define BPM_SAVE_DELAY_MS 2000U         /* save 2 s after last tap       */
+#define BPM_DEFAULT       120U          /* used when Flash is blank      */
+#define PRESET_DEFAULT    0U
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief  Erase Flash sector 11 and write BPM + preset index.
+ * @param  bpm          BPM value to persist (expected range 20–240).
+ * @param  preset_idx   Preset index to persist.
+ */
+void    BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx);
+
+/**
+ * @brief  Read BPM from Flash sector 11.
+ * @return Stored value if valid (20–240), BPM_DEFAULT otherwise.
+ */
+uint16_t BPM_Flash_Load(void);
+
+/**
+ * @brief  Read preset index from Flash sector 11.
+ * @return Stored index if valid, PRESET_DEFAULT otherwise.
+ */
+uint8_t  BPM_Flash_LoadPresetIndex(void);
+
+/**
+ * @brief  Check whether Flash sector 11 contains a valid BPM value.
+ * @return 1 if a valid value is stored, 0 if blank or out of range.
+ */
+uint8_t  BPM_Flash_IsValid(void);
+
+/**
+ * @brief  Process BPM display update, deferred Flash save, LED update,
+ *         and screensaver refresh. Call from the main while(1) loop.
+ */
+void Handle_Tap_Tempo(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* BPM_FUNCTIONS_H */

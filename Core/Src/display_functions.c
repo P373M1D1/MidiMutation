@@ -52,14 +52,39 @@ void Display_BL_FadeOut(void)
 /*
  *   y=  0 ..  34  :  BPM value, Font_Consolas15x35, right-aligned
  *   y= 85 .. 133  :  Preset name, Font_Consolas23x49, centred (padded to 20)
- *   y=199 .. 310  :  3 info rows, Font_Consolas15x35
- *                      left  (x= 10) : CH1:   5
- *                      right (x=248) : Relay_N: open/closed
+ *   y=184 .. 291  :  3 tightly-spaced info rows, Font_Consolas15x35
+ *                      left  (x= 30) : CH1:   5
+ *                      right (x=220) : Relay_1: open/closed
+ *   y=298 .. 319  :  thin grey foot bar
  */
+
+#define MAIN_FOOTBAR_Y       298U
+#define MAIN_FOOTBAR_H       (ST7796_HEIGHT - MAIN_FOOTBAR_Y)
+#define MAIN_FOOTBAR_COLOR   ST7796_DARKGRAY
+#define MAIN_INFO_LEFT_X      30U
+#define MAIN_INFO_RIGHT_X    220U
+#define MAIN_FOOTBAR_TEXT    "MIDI / RELAY STATUS"
+
+static uint8_t main_layout_dirty = 1U;
+
+static void Display_DrawMainLayout(void)
+{
+    ST7796_DrawFilledRectangle(0U, MAIN_FOOTBAR_Y, ST7796_WIDTH, MAIN_FOOTBAR_H, MAIN_FOOTBAR_COLOR);
+    ST7796_WriteString((uint16_t)((ST7796_WIDTH - ((sizeof(MAIN_FOOTBAR_TEXT) - 1U) * Font_11x18.width)) / 2U),
+                       (uint16_t)(MAIN_FOOTBAR_Y + ((MAIN_FOOTBAR_H - Font_11x18.height) / 2U)),
+                       MAIN_FOOTBAR_TEXT,
+                       Font_11x18,
+                       ST7796_LIGHTGRAY,
+                       MAIN_FOOTBAR_COLOR);
+    main_layout_dirty = 0U;
+}
 
 void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
 {
     char buf[32];
+
+    if (main_layout_dirty)
+        Display_DrawMainLayout();
 
     Display_UpdateBPM(bpm);
 
@@ -77,7 +102,7 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
     }
 
     /* Info rows */
-    static const uint16_t row_y[3] = {199U, 237U, 275U};
+    static const uint16_t row_y[3] = {184U, 220U, 256U};
     for (uint8_t i = 0U; i < PRESET_DEVICE_SLOTS; i++)
     {
         const MidiDevice_t *dev = MidiDevices_Get(i);
@@ -85,11 +110,11 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
             snprintf(buf, sizeof(buf), "CH %u: %3u", dev->channel, p->dev[i].program);
         else
             snprintf(buf, sizeof(buf), "CH -: ---");
-        ST7796_WriteString32(10U, row_y[i], buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
+        ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y[i], buf, Font_Consolas15x35, ST7796_WHITE, ST7796_BLACK);
 
         snprintf(buf, sizeof(buf), "Relay_%u: %s", i + 1U,
                  p->relay[i] ? "closed" : "open");
-        ST7796_WriteString32(248U, row_y[i], buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
+        ST7796_WriteString32(MAIN_INFO_RIGHT_X, row_y[i], buf, Font_Consolas15x35, ST7796_WHITE, ST7796_BLACK);
     }
 }
 
@@ -223,6 +248,7 @@ void Display_ScreensaverUpdate(const Preset_t *p, uint16_t bpm)
             ss_vx        = SS_VX;
             ss_vy        = SS_VY;
             ss_last_move = now;
+            main_layout_dirty = 1U;
             ST7796_FillScreen(ST7796_BLACK);
             ST7796_DrawImage((uint16_t)ss_x, (uint16_t)ss_y,
                              SS_BOX_W, SS_BOX_H, umbrella_data);
@@ -234,6 +260,7 @@ void Display_ScreensaverUpdate(const Preset_t *p, uint16_t bpm)
     if (now - ss_last_activity < SS_TIMEOUT_MS)
     {
         ss_active = 0U;
+        main_layout_dirty = 1U;
         ST7796_FillScreen(ST7796_BLACK);
         Display_DrawMainScreen(p, bpm);
         return;

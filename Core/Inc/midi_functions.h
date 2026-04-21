@@ -18,6 +18,8 @@
  */
 
 #include <stdint.h>
+#include "presets.h"
+#include "midi_devices.h"
 #include "stm32f4xx_hal.h"
 
 #ifdef __cplusplus
@@ -57,6 +59,12 @@ void MIDI_SendProgramChange(uint8_t port, uint8_t channel, uint8_t program);
  * @param  value      Controller value, 0–127.
  */
 void MIDI_SendCC(uint8_t port, uint8_t channel, uint8_t cc_number, uint8_t value);
+
+/**
+ * @brief  Send Program Changes for all devices in a preset.
+ *         Skips any device slot where program == 0xFF.
+ */
+void Midi_LoadPreset(const Preset_t *preset);
 
 #ifdef __cplusplus
 }

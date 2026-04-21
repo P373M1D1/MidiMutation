@@ -57,6 +57,12 @@ const Preset_t *Presets_Get(uint8_t index);
  */
 uint8_t Presets_Count(void);
 
+/**
+ * @brief  Activate preset @p idx: update active state, send MIDI program
+ *         changes, and refresh the display.
+ */
+void App_ActivatePreset(uint8_t idx);
+
 #ifdef __cplusplus
 }
 #endif

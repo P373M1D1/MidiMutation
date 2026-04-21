@@ -1,3 +1,5 @@
+// Activate preset by index (0-3)
+
 /* USER CODE BEGIN Header */
 /**
   ******************************************************************************
@@ -25,7 +27,8 @@
 #include "fonts.h"
 #include "image.h"
 #include "display_functions.h"
-#include "bpm_flash.h"
+#include "button_functions.h"
+#include "bpm_functions.h"
 #include "led_functions.h"
 #include "midi_functions.h"
 #include "midi_devices.h"
@@ -65,10 +68,11 @@ PCD_HandleTypeDef hpcd_USB_OTG_FS;
 static volatile uint32_t tap_ts[TAP_BUF_SIZE]; /* tap timestamps (ms)      */
 static volatile uint8_t  tap_count = 0U;        /* valid entries in buffer  */
 static volatile uint8_t  tap_head  = 0U;        /* circular write pointer   */
-static volatile uint16_t g_bpm     = 120U;      /* live BPM value           */
-static volatile uint8_t  bpm_dirty    = 0U;  /* set by ISR, read by main */
-static volatile uint32_t bpm_save_tick = 0U;  /* HAL_GetTick target to save BPM to Flash */
-static const Preset_t   *active_preset = NULL; /* current preset, needed by screensaver wake */
+volatile uint16_t g_bpm     = 120U;      /* live BPM value           */
+volatile uint8_t         bpm_dirty    = 0U;  /* set by ISR, read by main */
+volatile uint32_t bpm_save_tick = 0U;  /* HAL_GetTick target to save BPM to Flash */
+const Preset_t   *active_preset = NULL; /* current preset, needed by screensaver wake */
+uint8_t active_preset_index = PRESET_DEFAULT;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -79,7 +83,6 @@ static void MX_USART3_UART_Init(void);
 static void MX_USB_OTG_FS_PCD_Init(void);
 /* USER CODE BEGIN PFP */
 static void MX_TIM6_Init(uint16_t bpm);
-static void App_Process(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -142,10 +145,11 @@ int main(void)
       /* Flash blank or corrupt — using default BPM */
       g_bpm = BPM_DEFAULT;
   }
-  active_preset  = Presets_Get(0U);
+  active_preset_index = BPM_Flash_LoadPresetIndex();
   MX_TIM6_Init(g_bpm);
   HAL_TIM_Base_Start_IT(&htim6);
-  Display_DrawMainScreen(active_preset, g_bpm);
+  App_ActivatePreset(active_preset_index);
+  bpm_save_tick = 0U;
   Display_ScreensaverActivity();  /* seed inactivity timer from boot */
 
   /* USER CODE END 2 */
@@ -155,7 +159,8 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-    App_Process();
+    Handle_Tap_Tempo();
+    Button_CheckAndHandle();
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -325,6 +330,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOG_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
@@ -340,11 +346,24 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(ST7796_CS_GPIO_Port,  ST7796_CS_Pin,  GPIO_PIN_SET);   /* CS high = deselected */
   HAL_GPIO_WritePin(ST7796_DC_GPIO_Port,  ST7796_DC_Pin,  GPIO_PIN_SET);   /* DC high = data */
 
-  /*Configure GPIO pin : USER_Btn_Pin (PC13, active-low – falling edge = press) */
-  GPIO_InitStruct.Pin = USER_Btn_Pin;
+
+  /*Configure GPIO pin : PG15 tap tempo footswitch (active-low, falling edge = press) */
+  GPIO_InitStruct.Pin = TAP_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(USER_Btn_GPIO_Port, &GPIO_InitStruct);
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(TAP_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PE0-PE3 preset switches (active-low, falling edge, pull-up) */
+  GPIO_InitStruct.Pin = PRESET_BTN1_Pin | PRESET_BTN2_Pin | PRESET_BTN3_Pin | PRESET_BTN4_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(PRESET_BTN_GPIO_Port, &GPIO_InitStruct);
+
+  /* Enable EXTI IRQs for PE0-PE3 */
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 3U, 0U); HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 3U, 0U); HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+  HAL_NVIC_SetPriority(EXTI2_IRQn, 3U, 0U); HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+  HAL_NVIC_SetPriority(EXTI3_IRQn, 3U, 0U); HAL_NVIC_EnableIRQ(EXTI3_IRQn);
 
   /*Configure GPIO pins : LD1_Pin LD3_Pin LD2_Pin */
   GPIO_InitStruct.Pin = LD1_Pin|LD3_Pin|LD2_Pin;
@@ -367,7 +386,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(USB_OverCurrent_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
-  /* EXTI15_10: PC13 USER_Btn tap tempo (priority below TIM6) */
+  /* EXTI15_10: PG15 tap tempo footswitch (priority below TIM6) */
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 3U, 0U);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
   /* ST7796 control pins: RST=PF12, CS=PD14, DC=PD15 */
@@ -386,24 +405,6 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
-static void App_Process(void)
-{
-  if (bpm_dirty)
-  {
-    bpm_dirty = 0U;
-    Display_UpdateBPM(g_bpm);
-    bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
-  }
-  if (bpm_save_tick && HAL_GetTick() >= bpm_save_tick)
-  {
-    bpm_save_tick = 0U;
-    BPM_Flash_Save(g_bpm);
-    LED_FlashPulse();  /* brief blue blink to confirm write */
-  }
-  LED_Update();
-  Display_ScreensaverUpdate(active_preset, g_bpm);
-}
 
 /* ── TIM6 init: APB1 timer clock = 96 MHz ────────────────────────────────────
  * Prescaler 9600-1 → 10 kHz tick (0.1 ms resolution).
@@ -436,7 +437,10 @@ static void MX_TIM6_Init(uint16_t bpm)
  */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-  if (GPIO_Pin != USER_Btn_Pin) return;
+
+  // Preset switches: PE0-PE3
+
+  if (GPIO_Pin != TAP_Pin) return;
 
   Display_ScreensaverActivity();  /* any tap = user activity */
 
