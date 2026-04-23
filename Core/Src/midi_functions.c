@@ -1,4 +1,6 @@
 #include "midi_functions.h"
+#include "led_functions.h"
+#include "main.h"
 
 /* ── midi_functions.c ────────────────────────────────────────────────────────
  *
@@ -28,9 +30,15 @@
 
 /* One HAL handle per port; indexed by the port number passed to MIDI_InitPort */
 static UART_HandleTypeDef huart[MIDI_PORT_COUNT];
+static UART_HandleTypeDef midi_input_uart;
 
 /* Prevents Send functions from running before Init has completed for a port */
 static uint8_t            port_ready[MIDI_PORT_COUNT];
+static uint8_t            midi_clock_pulse_count = 0U;
+static uint32_t           midi_clock_quarter_start_ms = 0U;
+static volatile uint8_t   midi_transport_running = 0U;
+static volatile MidiTransportEvent_t midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
+static void               midi_clock_reset_sync(void);
 
 /* ── Clock helpers ───────────────────────────────────────────────────────────
  * These two functions are kept here rather than relying on MX_GPIO_Init /
@@ -114,6 +122,28 @@ void MIDI_InitPort(uint8_t port, USART_TypeDef *uart,
     port_ready[port] = 1U;
 }
 
+void MidiInitInput(void)
+{
+    midi_input_uart.Instance          = USART2;
+    midi_input_uart.Init.BaudRate     = 31250;
+    midi_input_uart.Init.WordLength   = UART_WORDLENGTH_8B;
+    midi_input_uart.Init.StopBits     = UART_STOPBITS_1;
+    midi_input_uart.Init.Parity       = UART_PARITY_NONE;
+    midi_input_uart.Init.Mode         = UART_MODE_RX;
+    midi_input_uart.Init.HwFlowCtl    = UART_HWCONTROL_NONE;
+    midi_input_uart.Init.OverSampling = UART_OVERSAMPLING_16;
+    if (HAL_UART_Init(&midi_input_uart) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    HAL_NVIC_SetPriority(USART2_IRQn, 2U, 1U);
+    HAL_NVIC_EnableIRQ(USART2_IRQn);
+    __HAL_UART_ENABLE_IT(&midi_input_uart, UART_IT_RXNE);
+    __HAL_UART_ENABLE_IT(&midi_input_uart, UART_IT_ERR);
+    midi_clock_reset_sync();
+}
+
 /* ── MIDI_SendProgramChange ──────────────────────────────────────────────────
  * Sends a 2-byte Program Change message:
  *   Byte 0:  0xC0 | (channel-1)   — status byte, upper nibble 0xC = Program Change
@@ -154,18 +184,137 @@ void MIDI_SendCC(uint8_t port, uint8_t channel, uint8_t cc_number, uint8_t value
 
 /* ── Midi_LoadPreset ─────────────────────────────────────────────────────────
  * Iterates all device slots in the preset and sends a Program Change to each
- * device whose slot is not skipped (program != 0xFF).
+ * device whose slot is not skipped (program != 0xFF), then emits any extra
+ * per-preset CC messages whose channel/CC fields are populated.
  * Called by App_ActivatePreset() in presets.c whenever a new preset is loaded.
  * ─────────────────────────────────────────────────────────────────────────── */
+static uint8_t Midi_TryResolvePortForChannel(uint8_t channel, uint8_t *port)
+{
+    if (channel == 0U || !port)
+        return 0U;
+
+    for (uint8_t i = 0U; i < MidiDevices_Count(); i++)
+    {
+        const MidiDevice_t *dev = MidiDevices_Get(i);
+        if (dev->channel == channel)
+        {
+            *port = dev->midi_port;
+            return 1U;
+        }
+    }
+
+    return 0U;
+}
+
+static void midi_clock_reset_sync(void)
+{
+    midi_clock_pulse_count = 0U;
+    midi_clock_quarter_start_ms = 0U;
+}
+
+void MidiReceive(uint8_t byte)
+{
+    if (byte == 0xFAU)
+    {
+        midi_transport_running = 1U;
+        midi_transport_event = MIDI_TRANSPORT_EVENT_START;
+        LED_MidiInPulse();
+        midi_clock_reset_sync();
+        return;
+    }
+
+    if (byte == 0xFBU)
+    {
+        midi_transport_running = 1U;
+        midi_transport_event = MIDI_TRANSPORT_EVENT_CONTINUE;
+        midi_clock_reset_sync();
+        return;
+    }
+
+    if (byte == 0xFCU)
+    {
+        midi_transport_running = 0U;
+        midi_transport_event = MIDI_TRANSPORT_EVENT_STOP;
+        midi_clock_reset_sync();
+        return;
+    }
+
+    if (byte != 0xF8U)
+        return;
+
+    uint32_t now = HAL_GetTick();
+
+    if (midi_clock_pulse_count == 0U)
+    {
+        midi_clock_quarter_start_ms = now;
+    }
+
+    midi_clock_pulse_count++;
+    if (midi_clock_pulse_count < 24U)
+        return;
+
+    midi_clock_pulse_count = 0U;
+    if (midi_clock_quarter_start_ms == 0U)
+    {
+        midi_clock_quarter_start_ms = now;
+        return;
+    }
+
+    midi_clock_quarter_start_ms = now;
+    LED_MidiClockPulse();
+}
+
+uint8_t MidiTransportIsRunning(void)
+{
+    return midi_transport_running;
+}
+
+MidiTransportEvent_t MidiTransportConsumeEvent(void)
+{
+    MidiTransportEvent_t event = midi_transport_event;
+    midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
+    return event;
+}
+
+void USART2_IRQHandler(void)
+{
+    uint32_t status = USART2->SR;
+
+    if (status & (USART_SR_RXNE | USART_SR_ORE | USART_SR_NE | USART_SR_FE | USART_SR_PE))
+    {
+        uint8_t byte = (uint8_t)USART2->DR;
+
+        if (status & USART_SR_RXNE)
+        {
+            MidiReceive(byte);
+        }
+    }
+}
+
 void Midi_LoadPreset(const Preset_t *preset)
 {
     if (!preset) return;
+
     for (uint8_t i = 0U; i < PRESET_DEVICE_SLOTS; i++)
     {
         /* 0xFF in the program field means "don't send anything to this device" */
-        if (preset->dev[i].program == 0xFFU) continue;
+        if (preset->prg[i].program == 0xFFU) continue;
 
         const MidiDevice_t *dev = MidiDevices_Get(i);  /* look up port, channel etc. */
-        MIDI_SendProgramChange(dev->midi_port, dev->channel, preset->dev[i].program);
+        MIDI_SendProgramChange(dev->midi_port, dev->channel, preset->prg[i].program);
+    }
+
+    for (uint8_t i = 0U; i < PRESET_CC_SLOT_COUNT; i++)
+    {
+        const PresetCCSlot_t *cc = &preset->cc[i];
+        uint8_t midi_port = 0U;
+
+        if (cc->channel == 0U || cc->cc_number == 0xFFU)
+            continue;
+
+        if (!Midi_TryResolvePortForChannel(cc->channel, &midi_port))
+            continue;
+
+        MIDI_SendCC(midi_port, cc->channel, cc->cc_number, cc->value);
     }
 }

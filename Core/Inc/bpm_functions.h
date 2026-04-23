@@ -14,11 +14,12 @@ extern "C" {
 #endif
 
 /**
- * @brief  Erase Flash sector 11 and write BPM + preset index.
+ * @brief  Erase Flash sector 11 and write BPM + preset index + bank index.
  * @param  bpm          BPM value to persist (expected range 20–240).
  * @param  preset_idx   Preset index to persist.
+ * @param  bank_idx     Bank index to persist.
  */
-void    BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx);
+void    BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx, uint8_t bank_idx);
 
 /**
  * @brief  Read BPM from Flash sector 11.
@@ -31,6 +32,12 @@ uint16_t BPM_Flash_Load(void);
  * @return Stored index if valid, PRESET_DEFAULT otherwise.
  */
 uint8_t  BPM_Flash_LoadPresetIndex(void);
+
+/**
+ * @brief  Read bank index from Flash sector 11.
+ * @return Stored bank index if valid, or the bank implied by PRESET_DEFAULT.
+ */
+uint8_t  BPM_Flash_LoadBankIndex(void);
 
 /**
  * @brief  Check whether Flash sector 11 contains a valid BPM value.

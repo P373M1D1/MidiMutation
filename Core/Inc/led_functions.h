@@ -18,6 +18,18 @@ void LED_BeatPulse(void);
 void LED_FlashPulse(void);
 
 /**
+ * @brief  Turn on the MIDI-clock LED (LD3, red) for 50 ms.
+ *         Call on each received MIDI quarter note.
+ */
+void LED_MidiClockPulse(void);
+
+/**
+ * @brief  Turn on the dedicated MIDI-in activity LED for 50 ms.
+ *         Call on MIDI transport start.
+ */
+void LED_MidiInPulse(void);
+
+/**
  * @brief  Poll both LED timers and turn off when their periods expire.
  *         Call once per main-loop iteration.
  */

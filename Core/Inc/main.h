@@ -65,6 +65,13 @@ void Error_Handler(void);
 #define PRESET_BTN2_Pin GPIO_PIN_1
 #define PRESET_BTN3_Pin GPIO_PIN_2
 #define PRESET_BTN4_Pin GPIO_PIN_3
+#define PRESET_BTN5_Pin GPIO_PIN_4
+#define PRESET_BTN6_Pin GPIO_PIN_5
+#define PRESET_BTN7_Pin GPIO_PIN_6
+#define PRESET_BTN8_Pin GPIO_PIN_7
+#define PRESET_BTN9_Pin GPIO_PIN_8
+#define PRESET_BTN10_Pin GPIO_PIN_9
+#define PRESET_BTN11_Pin GPIO_PIN_10
 #define PRESET_BTN_GPIO_Port GPIOE
 #define MCO_Pin GPIO_PIN_0
 #define MCO_GPIO_Port GPIOH
@@ -106,6 +113,9 @@ void Error_Handler(void);
 #define LD2_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
+
+#define MIDI_IN_LED_Pin GPIO_PIN_15
+#define MIDI_IN_LED_GPIO_Port GPIOF
 
 /* USER CODE END Private defines */
 

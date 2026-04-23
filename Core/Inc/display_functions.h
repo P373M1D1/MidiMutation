@@ -34,6 +34,9 @@ void Display_LoadingBarClear(void);
 /** Call on any user input to reset the inactivity timer. */
 void Display_ScreensaverActivity(void);
 
+/** Returns 1 while the screensaver is currently active. */
+uint8_t Display_ScreensaverIsActive(void);
+
 /** Immediately dismiss the screensaver if active without drawing the main screen. */
 void Display_ScreensaverDismiss(void);
 

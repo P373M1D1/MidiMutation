@@ -72,17 +72,17 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | **Tap Tempo Input**                                                                           |
 | PG15        | Tap tempo footswitch — INPUT_PULLUP, EXTI15 (EXTI15_10_IRQn) | Footswitch to GND      |
 | **Pushbutton Inputs (GPIO_INPUT_PULLUP + EXTI interrupt)**                                    |
-| PE0         | Button 1  — INPUT_PULLUP, EXTI0  (EXTI0_IRQn)         | Pushbutton 1                  |
-| PE1         | Button 2  — INPUT_PULLUP, EXTI1  (EXTI1_IRQn)         | Pushbutton 2                  |
-| PE2         | Button 3  — INPUT_PULLUP, EXTI2  (EXTI2_IRQn)         | Pushbutton 3                  |
-| PE3         | Button 4  — INPUT_PULLUP, EXTI3  (EXTI3_IRQn)         | Pushbutton 4                  |
-| PE4         | Button 5  — INPUT_PULLUP, EXTI4  (EXTI4_IRQn)         | Pushbutton 5                  |
-| PE5         | Button 6  — INPUT_PULLUP, EXTI5  (EXTI9_5_IRQn)       | Pushbutton 6                  |
-| PE6         | Button 7  — INPUT_PULLUP, EXTI6  (EXTI9_5_IRQn)       | Pushbutton 7                  |
-| PE7         | Button 8  — INPUT_PULLUP, EXTI7  (EXTI9_5_IRQn)       | Pushbutton 8                  |
-| PE8         | Button 9  — INPUT_PULLUP, EXTI8  (EXTI9_5_IRQn)       | Pushbutton 9                  |
-| PE9         | Button 10 — INPUT_PULLUP, EXTI9  (EXTI9_5_IRQn)       | Pushbutton 10                 |
-| PE10        | Button 11 — INPUT_PULLUP, EXTI10 (EXTI15_10_IRQn) *   | Pushbutton 11                 |
+| PE0         | Button 1  — INPUT_PULLUP, EXTI0  (EXTI0_IRQn)         | Pushbutton 1                  | Preset 1
+| PE1         | Button 2  — INPUT_PULLUP, EXTI1  (EXTI1_IRQn)         | Pushbutton 2                  | Preset 2
+| PE2         | Button 3  — INPUT_PULLUP, EXTI2  (EXTI2_IRQn)         | Pushbutton 3                  | Preset 3
+| PE3         | Button 4  — INPUT_PULLUP, EXTI3  (EXTI3_IRQn)         | Pushbutton 4                  | Preset 4
+| PE4         | Button 5  — INPUT_PULLUP, EXTI4  (EXTI4_IRQn)         | Pushbutton 5                  | Preset 5
+| PE5         | Button 6  — INPUT_PULLUP, EXTI5  (EXTI9_5_IRQn)       | Pushbutton 6                  | Preset 6
+| PE6         | Button 7  — INPUT_PULLUP, EXTI6  (EXTI9_5_IRQn)       | Pushbutton 7                  | Preset 7
+| PE7         | Button 8  — INPUT_PULLUP, EXTI7  (EXTI9_5_IRQn)       | Pushbutton 8                  | Preset 8
+| PE8         | Button 9  — INPUT_PULLUP, EXTI8  (EXTI9_5_IRQn)       | Pushbutton 9                  | Random Preset
+| PE9         | Button 10 — INPUT_PULLUP, EXTI9  (EXTI9_5_IRQn)       | Pushbutton 10                 | Special Function
+| PE10        | Button 11 — INPUT_PULLUP, EXTI10 (EXTI15_10_IRQn) *   | Pushbutton 11                 | Mute / Bypass
 | PE11        | Button 12 — INPUT_PULLUP, EXTI11 (EXTI15_10_IRQn) *   | Pushbutton 12                 |
 | PE12        | Button 13 — INPUT_PULLUP, EXTI12 (EXTI15_10_IRQn) *   | Pushbutton 13                 |
 

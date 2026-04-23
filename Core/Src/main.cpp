@@ -124,6 +124,7 @@ int main(void)
   MX_USB_OTG_FS_PCD_Init();
   /* USER CODE BEGIN 2 */
   Display_BL_Init();
+  MidiInitInput();
   MIDI_InitPort(0, UART4, GPIOC, GPIO_PIN_10, GPIO_AF8_UART4);  /* Echosystem – TRS-A */
   MIDI_InitPort(1, UART5, GPIOC, GPIO_PIN_12, GPIO_AF8_UART5);  /* Reverb     – DIN-5 */
   ST7796_Init();
@@ -145,7 +146,12 @@ int main(void)
       /* Flash blank or corrupt — using default BPM */
       g_bpm = BPM_DEFAULT;
   }
+    current_bank = BPM_Flash_LoadBankIndex();
   active_preset_index = BPM_Flash_LoadPresetIndex();
+    if ((active_preset_index / PRESETS_PER_BANK) != current_bank)
+    {
+      active_preset_index = (uint8_t)(current_bank * PRESETS_PER_BANK);
+    }
   MX_TIM6_Init(g_bpm);
   HAL_TIM_Base_Start_IT(&htim6);
   App_ActivatePreset(active_preset_index);
@@ -345,6 +351,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(ST7796_RST_GPIO_Port, ST7796_RST_Pin, GPIO_PIN_SET);   /* RST high = not in reset */
   HAL_GPIO_WritePin(ST7796_CS_GPIO_Port,  ST7796_CS_Pin,  GPIO_PIN_SET);   /* CS high = deselected */
   HAL_GPIO_WritePin(ST7796_DC_GPIO_Port,  ST7796_DC_Pin,  GPIO_PIN_SET);   /* DC high = data */
+  HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_RESET);
 
 
   /*Configure GPIO pin : PG15 tap tempo footswitch (active-low, falling edge = press) */
@@ -353,17 +360,22 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(TAP_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PE0-PE3 preset switches (active-low, falling edge, pull-up) */
-  GPIO_InitStruct.Pin = PRESET_BTN1_Pin | PRESET_BTN2_Pin | PRESET_BTN3_Pin | PRESET_BTN4_Pin;
+  /*Configure GPIO pins : PE0-PE10 footswitches (active-low, falling edge, pull-up) */
+  GPIO_InitStruct.Pin = PRESET_BTN1_Pin | PRESET_BTN2_Pin | PRESET_BTN3_Pin | PRESET_BTN4_Pin |
+                        PRESET_BTN5_Pin | PRESET_BTN6_Pin | PRESET_BTN7_Pin | PRESET_BTN8_Pin |
+                        PRESET_BTN9_Pin | PRESET_BTN10_Pin | PRESET_BTN11_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(PRESET_BTN_GPIO_Port, &GPIO_InitStruct);
 
-  /* Enable EXTI IRQs for PE0-PE3 */
+  /* Enable EXTI IRQs for PE0-PE10 footswitches */
   HAL_NVIC_SetPriority(EXTI0_IRQn, 3U, 0U); HAL_NVIC_EnableIRQ(EXTI0_IRQn);
   HAL_NVIC_SetPriority(EXTI1_IRQn, 3U, 0U); HAL_NVIC_EnableIRQ(EXTI1_IRQn);
   HAL_NVIC_SetPriority(EXTI2_IRQn, 3U, 0U); HAL_NVIC_EnableIRQ(EXTI2_IRQn);
   HAL_NVIC_SetPriority(EXTI3_IRQn, 3U, 0U); HAL_NVIC_EnableIRQ(EXTI3_IRQn);
+  HAL_NVIC_SetPriority(EXTI4_IRQn, 3U, 0U); HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 3U, 0U); HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 3U, 0U); HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
   /*Configure GPIO pins : LD1_Pin LD3_Pin LD2_Pin */
   GPIO_InitStruct.Pin = LD1_Pin|LD3_Pin|LD2_Pin;
@@ -386,9 +398,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(USB_OverCurrent_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
-  /* EXTI15_10: PG15 tap tempo footswitch (priority below TIM6) */
-  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 3U, 0U);
-  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+  /* EXTI15_10 is shared by PE10 footswitch and PG15 tap tempo. */
   /* ST7796 control pins: RST=PF12, CS=PD14, DC=PD15 */
   GPIO_InitStruct.Pin = ST7796_RST_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -401,6 +411,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(ST7796_CS_GPIO_Port, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = MIDI_IN_LED_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(MIDI_IN_LED_GPIO_Port, &GPIO_InitStruct);
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
@@ -437,14 +453,28 @@ static void MX_TIM6_Init(uint16_t bpm)
  */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+  uint8_t screensaver_was_active = Display_ScreensaverIsActive();
 
-  // Preset switches: PE0-PE3
+  // Preset switches are polled in Button_CheckAndHandle().
 
   if (GPIO_Pin != TAP_Pin) return;
 
-  Display_ScreensaverActivity();  /* any tap = user activity */
-
   uint32_t now = HAL_GetTick();
+
+    Display_ScreensaverDismiss();
+    Display_ScreensaverActivity();  /* any tap = user activity */
+
+    if (screensaver_was_active)
+    {
+      Display_DrawMainScreen(active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
+      return;
+    }
+
+    if (Button_HandleTapPress(now)) {
+      Button_CancelTapBankCombo();
+      Display_DrawMainScreen(Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
+      return;
+    }
 
   if (tap_count > 0U)
   {

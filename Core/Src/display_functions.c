@@ -1,4 +1,5 @@
 #include "display_functions.h"
+#include "button_functions.h"
 #include "umbrella_image.h"
 #include "midi_devices.h"
 #include "st7796.h"
@@ -34,6 +35,7 @@
  * Screen layout (see Display_DrawMainLayout / Display_DrawMainScreen):
  *   y=   0 ..  34 :  BPM value,     Font_Consolas15x35, right side (x=365)
  *   y=  85 .. 133 :  Preset name,   Font_Consolas23x49, centred, 20 chars wide
+ *   y= 145 .. 179 :  Bank name,     Font_Consolas15x35, centred
  *   y= 184 .. 291 :  3 info rows,   Font_Consolas15x35
  *                      left  (x= 30): "CH n: ppp"  MIDI channel + program number
  *                      right (x=220): "Relay_n: open/closed"
@@ -115,6 +117,8 @@ void Display_BL_FadeOut(void)
 /* Set to 1 whenever the static elements (footer bar) need to be redrawn –
  * e.g. after the screensaver has painted over them. */
 static uint8_t main_layout_dirty = 1U;
+static uint8_t vita_state_valid = 0U;
+static uint8_t vita_state_active = 0U;
 
 /* ── Display_DrawMainLayout ──────────────────────────────────────────────────
  * Draws the parts of the screen that don't change between presets:
@@ -147,7 +151,7 @@ static void Display_DrawMainLayout(void)
  *      name is fully overwritten even if it was longer).
  *   4. Three info rows: one per device slot.
  *        Left  column: MIDI channel + program number sent to that device.
- *        Right column: relay state for that slot (open / closed).
+ *        Right column: relay state for the first two rows.
  *      program == 0xFF means that slot is unused — shown as "CH -: ---".
  * ─────────────────────────────────────────────────────────────────────────── */
 void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
@@ -174,6 +178,24 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
         ST7796_WriteString32(10U, 85U, padded, Font_Consolas23x49, ST7796_WHITE, ST7796_BLACK);
     }
 
+    {
+        const char *bank_name = Presets_GetBankName(current_bank);
+        char padded_bank[PRESET_BANK_NAME_MAXLEN + 1U];
+        uint8_t bank_len = (uint8_t)strnlen(bank_name, PRESET_BANK_NAME_MAXLEN);
+        uint8_t pad_l = (uint8_t)((PRESET_BANK_NAME_MAXLEN - bank_len) / 2U);
+        uint8_t pad_r = (uint8_t)(PRESET_BANK_NAME_MAXLEN - bank_len - pad_l);
+        memset(padded_bank, ' ', pad_l);
+        memcpy(padded_bank + pad_l, bank_name, bank_len);
+        memset(padded_bank + pad_l + bank_len, ' ', pad_r);
+        padded_bank[PRESET_BANK_NAME_MAXLEN] = '\0';
+        ST7796_WriteString32((uint16_t)((ST7796_WIDTH - (PRESET_BANK_NAME_MAXLEN * Font_Consolas15x35.width)) / 2U),
+                             145U,
+                             padded_bank,
+                             Font_Consolas15x35,
+                             ST7796_DARKGRAY,
+                             ST7796_BLACK);
+    }
+
     /* Three device-info rows, one per preset slot (Echosystem, Reverb, spare).
      * row_y values are chosen so the 35-px-tall font rows sit tightly inside
      * the 184–291 px band without overlapping. */
@@ -181,7 +203,7 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
     for (uint8_t i = 0U; i < PRESET_DEVICE_SLOTS; i++)
     {
         const MidiDevice_t *dev = MidiDevices_Get(i);
-        uint8_t program = p->dev[i].program;
+        uint8_t program = p->prg[i].program;
         if (program != 0xFFU) {
             // Format: "CH n: ppp" (ppp = program number, always 3 chars)
             snprintf(buf, sizeof(buf), "CH %u: %3u", dev->channel, program);
@@ -207,10 +229,40 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
             ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y[i], buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
         }
 
-        // Right column: relay state for this slot
-        snprintf(buf, sizeof(buf), "Relay_%u: %s", i + 1U,
-                 p->relay[i] ? "closed" : "open");
-        ST7796_WriteString32(MAIN_INFO_RIGHT_X, row_y[i], buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
+        if (i < PRESET_RELAY_COUNT) {
+            snprintf(buf, sizeof(buf), "Relay_%u: %s", i + 1U,
+                     p->relay[i] ? "closed" : "open");
+            ST7796_WriteString32(MAIN_INFO_RIGHT_X, row_y[i], buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
+        } else if (i == PRESET_RELAY_COUNT) {
+            const char *prefix = "Vita: ";
+            uint8_t state_active = Button_SpecialFunctionsActive();
+            const char *state = state_active ? "undead" : "dead";
+            uint16_t prefix_px = Font_Consolas15x35.width * (uint16_t)strlen(prefix);
+            uint16_t state_x = MAIN_INFO_RIGHT_X + prefix_px;
+            uint16_t state_w = Font_Consolas15x35.width * (uint16_t)strlen(state);
+
+            ST7796_WriteString32(MAIN_INFO_RIGHT_X, row_y[i], prefix, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
+            if (vita_state_valid && vita_state_active && !state_active) {
+                ST7796_DrawFilledRectangle(state_x + state_w, row_y[i],
+                                           Font_Consolas15x35.width * 2U,
+                                           Font_Consolas15x35.height,
+                                           ST7796_BLACK);
+            }
+            ST7796_WriteString32(state_x, row_y[i], state,
+                                 Font_Consolas15x35,
+                                 state_active ? ST7796_WHITE : ST7796_DARKGRAY,
+                                 state_active ? ST7796_DARKRED : ST7796_BLACK);
+            if (state_active) {
+                ST7796_DrawFilledRectangle(state_x, row_y[i], state_w, 2U, ST7796_BLACK);
+                ST7796_DrawFilledRectangle(state_x, row_y[i] + Font_Consolas15x35.height - 2U,
+                                           state_w, 2U, ST7796_BLACK);
+            }
+            vita_state_valid = 1U;
+            vita_state_active = state_active;
+        } else {
+            snprintf(buf, sizeof(buf), "                ");
+            ST7796_WriteString32(MAIN_INFO_RIGHT_X, row_y[i], buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
+        }
     }
 }
 
@@ -346,8 +398,8 @@ void Display_LoadingBarClear(void)
  * It returns early (no SPI traffic) if the step interval hasn't elapsed.
  */
 
-//#define SS_TIMEOUT_MS   (10UL * 60UL * 1000UL)  /* 10 minutes of inactivity */ 
-#define SS_TIMEOUT_MS   (5000UL)  /* 5 second of inactivity */ 
+#define SS_TIMEOUT_MS   (10UL * 60UL * 1000UL)  /* 10 minutes of inactivity */ 
+//#define SS_TIMEOUT_MS   (5000UL)  /* 5 second of inactivity */ 
 #define SS_BOX_W        UMBRELLA_W               /* sprite width  (px)       */
 #define SS_BOX_H        UMBRELLA_H               /* sprite height (px)       */
 #define SS_STEP_MS      40U                      /* move every 40 ms = 25 fps */
@@ -376,6 +428,11 @@ static void Display_ScreensaverEraseSprite(void)
 void Display_ScreensaverActivity(void)
 {
     ss_last_activity = HAL_GetTick();
+}
+
+uint8_t Display_ScreensaverIsActive(void)
+{
+    return ss_active;
 }
 
 void Display_ScreensaverDismiss(void)

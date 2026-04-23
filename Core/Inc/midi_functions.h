@@ -29,6 +29,20 @@ extern "C" {
 /** Maximum number of independent MIDI output ports. */
 #define MIDI_PORT_COUNT  8U
 
+typedef enum
+{
+    MIDI_TRANSPORT_EVENT_NONE = 0,
+    MIDI_TRANSPORT_EVENT_START,
+    MIDI_TRANSPORT_EVENT_CONTINUE,
+    MIDI_TRANSPORT_EVENT_STOP,
+} MidiTransportEvent_t;
+
+/**
+ * @brief  Initialise the dedicated MIDI input on USART2 RX.
+ *         Enables the UART and its receive interrupt.
+ */
+void MidiInitInput(void);
+
 /**
  * @brief  Initialise one MIDI output port.
  *
@@ -59,6 +73,25 @@ void MIDI_SendProgramChange(uint8_t port, uint8_t channel, uint8_t program);
  * @param  value      Controller value, 0–127.
  */
 void MIDI_SendCC(uint8_t port, uint8_t channel, uint8_t cc_number, uint8_t value);
+
+/**
+ * @brief  Consume one received MIDI byte from the dedicated MIDI input UART.
+ *         Handles realtime clock and transport bytes from MIDI input.
+ * @param  byte  Raw MIDI byte from the UART receive register.
+ */
+void MidiReceive(uint8_t byte);
+
+/**
+ * @brief  Return 1 while external MIDI transport is considered running.
+ */
+uint8_t MidiTransportIsRunning(void);
+
+/**
+ * @brief  Return and clear the last latched transport event.
+ * @retval MIDI_TRANSPORT_EVENT_NONE if no new Start/Continue/Stop arrived
+ *         since the previous call.
+ */
+MidiTransportEvent_t MidiTransportConsumeEvent(void);
 
 /**
  * @brief  Send Program Changes for all devices in a preset.

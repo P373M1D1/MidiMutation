@@ -1,15 +1,18 @@
 #include "bpm_functions.h"
 #include "display_functions.h"
 #include "led_functions.h"
+#include "midi_functions.h"
 #include "presets.h"
 #include "stm32f4xx_hal.h"
 
-#define FLASH_STATE_MAGIC 0x50424D31UL /* 'PBM1' */
+#define FLASH_STATE_MAGIC_V1 0x50424D31UL /* 'PBM1' */
+#define FLASH_STATE_MAGIC_V2 0x50424D32UL /* 'PBM2' */
 
 typedef struct {
     uint32_t magic;
     uint32_t bpm;
     uint32_t preset_idx;
+    uint32_t bank_idx;
 } FlashState_t;
 
 /* ── Variables owned by main.cpp ─────────────────────────────────────────── */
@@ -18,6 +21,7 @@ extern volatile uint8_t   bpm_dirty;
 extern volatile uint32_t  bpm_save_tick;
 extern const Preset_t    *active_preset;
 extern uint8_t            active_preset_index;
+extern volatile uint8_t   current_bank;
 
 /* -------------------------------------------------------------------------- */
 
@@ -26,10 +30,23 @@ static uint8_t flash_state_read(FlashState_t *state)
     state->magic      = *(volatile uint32_t *)(BPM_FLASH_ADDR + 0U);
     state->bpm        = *(volatile uint32_t *)(BPM_FLASH_ADDR + 4U);
     state->preset_idx = *(volatile uint32_t *)(BPM_FLASH_ADDR + 8U);
+    state->bank_idx   = *(volatile uint32_t *)(BPM_FLASH_ADDR + 12U);
 
-    if (state->magic == FLASH_STATE_MAGIC)
+    if (state->magic == FLASH_STATE_MAGIC_V2)
     {
-        return (state->bpm >= 20U && state->bpm <= 240U && state->preset_idx < PRESET_COUNT) ? 1U : 0U;
+        return (state->bpm >= 20U && state->bpm <= 240U
+             && state->preset_idx < PRESET_COUNT
+             && state->bank_idx < PRESET_BANK_COUNT) ? 1U : 0U;
+    }
+
+    if (state->magic == FLASH_STATE_MAGIC_V1)
+    {
+        if (state->bpm >= 20U && state->bpm <= 240U && state->preset_idx < PRESET_COUNT) {
+            state->bank_idx = state->preset_idx / PRESETS_PER_BANK;
+            return 1U;
+        }
+
+        return 0U;
     }
 
     /* Backward compatibility with the previous single-word BPM format. */
@@ -37,6 +54,7 @@ static uint8_t flash_state_read(FlashState_t *state)
     {
         state->bpm        = state->magic;
         state->preset_idx = PRESET_DEFAULT;
+        state->bank_idx   = PRESET_DEFAULT / PRESETS_PER_BANK;
         return 1U;
     }
 
@@ -60,7 +78,7 @@ static uint8_t flash_state_read(FlashState_t *state)
  * would require fetching their code from Flash, defeating the purpose.
  */
 __attribute__((noinline, section(".RamFunc")))
-void BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx)
+void BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx, uint8_t bank_idx)
 {
     /* Unlock Flash control register */
     FLASH->KEYR = FLASH_KEY1;
@@ -78,7 +96,7 @@ void BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx)
 
     /* Program state words */
     FLASH->CR = FLASH_CR_PG | FLASH_CR_PSIZE_1;
-    *(volatile uint32_t *)(BPM_FLASH_ADDR + 0U) = FLASH_STATE_MAGIC;
+    *(volatile uint32_t *)(BPM_FLASH_ADDR + 0U) = FLASH_STATE_MAGIC_V2;
     __DSB();                         /* ensure write reaches Flash controller */
     while (FLASH->SR & FLASH_SR_BSY) {}
 
@@ -87,6 +105,10 @@ void BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx)
     while (FLASH->SR & FLASH_SR_BSY) {}
 
     *(volatile uint32_t *)(BPM_FLASH_ADDR + 8U) = (uint32_t)preset_idx;
+    __DSB();
+    while (FLASH->SR & FLASH_SR_BSY) {}
+
+    *(volatile uint32_t *)(BPM_FLASH_ADDR + 12U) = (uint32_t)bank_idx;
     __DSB();
     while (FLASH->SR & FLASH_SR_BSY) {}
 
@@ -112,6 +134,14 @@ uint8_t BPM_Flash_LoadPresetIndex(void)
     return PRESET_DEFAULT;
 }
 
+uint8_t BPM_Flash_LoadBankIndex(void)
+{
+    FlashState_t state;
+    if (flash_state_read(&state))
+        return (uint8_t)state.bank_idx;
+    return (PRESET_DEFAULT / PRESETS_PER_BANK);
+}
+
 uint8_t BPM_Flash_IsValid(void)
 {
     FlashState_t state;
@@ -131,7 +161,7 @@ void Handle_Tap_Tempo(void)
     if (bpm_save_tick && HAL_GetTick() >= bpm_save_tick)
     {
         bpm_save_tick = 0U;
-        BPM_Flash_Save(g_bpm, active_preset_index);
+        BPM_Flash_Save(g_bpm, active_preset_index, current_bank);
         LED_FlashPulse();  /* brief blue blink to confirm write */
     }
     LED_Update();

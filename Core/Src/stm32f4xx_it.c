@@ -230,9 +230,20 @@ void EXTI0_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN1_Pin); }
 void EXTI1_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN2_Pin); }
 void EXTI2_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN3_Pin); }
 void EXTI3_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN4_Pin); }
+void EXTI4_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN5_Pin); }
+
+void EXTI9_5_IRQHandler(void)
+{
+  HAL_GPIO_EXTI_IRQHandler(PRESET_BTN6_Pin);
+  HAL_GPIO_EXTI_IRQHandler(PRESET_BTN7_Pin);
+  HAL_GPIO_EXTI_IRQHandler(PRESET_BTN8_Pin);
+  HAL_GPIO_EXTI_IRQHandler(PRESET_BTN9_Pin);
+  HAL_GPIO_EXTI_IRQHandler(PRESET_BTN10_Pin);
+}
 
 void EXTI15_10_IRQHandler(void)
 {
+  HAL_GPIO_EXTI_IRQHandler(PRESET_BTN11_Pin);
   HAL_GPIO_EXTI_IRQHandler(TAP_Pin);
 }
 /* USER CODE END 1 */
