@@ -350,13 +350,21 @@ void Display_UpdateBPM(uint16_t bpm)
         return;
     }
 
+
     shown_bpm = (uint16_t)((display_bpm_x10 + 5U) / 10U);
+
+    // Compose the value string and measure its width
+    snprintf(buf, sizeof(buf), "%u", (unsigned)shown_bpm);
+    uint8_t value_len = (uint8_t)strlen(buf);
+    uint16_t ext_prefix_x = BPM_EXT_PREFIX_X;
+    uint16_t value_x = ext_prefix_x + (uint16_t)(4 * BPM_FONT.width); // 'EXT ' is 4 chars
+    uint16_t bpm_x = value_x + (uint16_t)(value_len * BPM_FONT.width) + BPM_FONT.width; // one space after value
 
     if (!bpm_display_valid || was_sync_lost || !bpm_display_external)
     {
         ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X, BPM_TEXT_Y, BPM_DISPLAY_AREA_W, BPM_FONT.height, ST7796_BLACK);
-        ST7796_WriteString32(BPM_EXT_PREFIX_X, BPM_TEXT_Y, "EXT ", BPM_FONT, ST7796_RED, ST7796_BLACK);
-        ST7796_WriteString32(BPM_EXT_SUFFIX_X, BPM_TEXT_Y, "BPM", BPM_FONT, ST7796_RED, ST7796_BLACK);
+        ST7796_WriteString32(ext_prefix_x, BPM_TEXT_Y, "EXT ", BPM_FONT, ST7796_RED, ST7796_BLACK);
+        ST7796_WriteString32(bpm_x, BPM_TEXT_Y, "BPM", BPM_FONT, ST7796_RED, ST7796_BLACK);
     }
     else
     {
@@ -372,9 +380,9 @@ void Display_UpdateBPM(uint16_t bpm)
         }
     }
 
-    snprintf(buf, sizeof(buf), "%u", (unsigned)shown_bpm);
-    ST7796_DrawFilledRectangle(BPM_EXT_VALUE_X, BPM_TEXT_Y, BPM_EXT_VALUE_W, BPM_FONT.height, ST7796_BLACK);
-    ST7796_WriteString32(BPM_EXT_VALUE_X, BPM_TEXT_Y, buf, BPM_FONT, ST7796_RED, ST7796_BLACK);
+    // Draw value with dynamic spacing
+    ST7796_DrawFilledRectangle(value_x, BPM_TEXT_Y, (uint16_t)(value_len * BPM_FONT.width), BPM_FONT.height, ST7796_BLACK);
+    ST7796_WriteString32(value_x, BPM_TEXT_Y, buf, BPM_FONT, ST7796_RED, ST7796_BLACK);
 
     bpm_display_valid = 1U;
     bpm_display_external = 1U;
