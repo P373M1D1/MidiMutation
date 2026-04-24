@@ -1,5 +1,6 @@
 #include "display_functions.h"
 #include "button_functions.h"
+#include "midi_functions.h"
 #include "umbrella_image.h"
 #include "midi_devices.h"
 #include "st7796.h"
@@ -113,12 +114,31 @@ void Display_BL_FadeOut(void)
 #define MAIN_INFO_LEFT_X      30U                        /* left column x origin  */
 #define MAIN_INFO_RIGHT_X    220U                        /* right column x origin */
 #define MAIN_FOOTBAR_TEXT    "MIDI / RELAY STATUS"
+#define BPM_FONT            Font_Consolas15x35
+#define BPM_TEXT_Y          7U
+#define BPM_INTERNAL_X      365U
 
 /* Set to 1 whenever the static elements (footer bar) need to be redrawn –
  * e.g. after the screensaver has painted over them. */
 static uint8_t main_layout_dirty = 1U;
 static uint8_t vita_state_valid = 0U;
 static uint8_t vita_state_active = 0U;
+static uint8_t bpm_display_valid = 0U;
+static uint8_t bpm_display_external = 0U;
+static uint8_t bpm_display_sync_lost = 0U;
+static uint16_t bpm_display_value_x10 = 0U;
+
+#define BPM_DISPLAY_AREA_X              280U
+#define BPM_DISPLAY_AREA_W              200U
+#define BPM_SYNC_LOST_X                 280U
+#define BPM_INTERNAL_VALUE_X            365U
+#define BPM_INTERNAL_VALUE_W            (BPM_FONT.width * 3U)
+#define BPM_INTERNAL_SUFFIX_X           (BPM_INTERNAL_VALUE_X + BPM_INTERNAL_VALUE_W)
+#define BPM_EXT_PREFIX_X                (305U + BPM_FONT.width)
+#define BPM_EXT_VALUE_X                 (365U + BPM_FONT.width)
+#define BPM_EXT_VALUE_W                 (BPM_FONT.width * 3U)
+#define BPM_EXT_SUFFIX_X                (BPM_EXT_VALUE_X + BPM_EXT_VALUE_W)
+#define BPM_EXT_HYSTERESIS_X10          7U
 
 /* ── Display_DrawMainLayout ──────────────────────────────────────────────────
  * Draws the parts of the screen that don't change between presets:
@@ -158,11 +178,12 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
 {
     char buf[32];
 
-    // Always clear the full screen before drawing anything else
-    ST7796_FillScreen(ST7796_BLACK);
-
     if (main_layout_dirty)
+    {
+        ST7796_FillScreen(ST7796_BLACK);
+        bpm_display_valid = 0U;
         Display_DrawMainLayout();
+    }
 
     Display_UpdateBPM(bpm);
 
@@ -233,7 +254,7 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
         }
 
         if (i < PRESET_RELAY_COUNT) {
-            snprintf(buf, sizeof(buf), "Relay_%u: %s", i + 1U,
+            snprintf(buf, sizeof(buf), "Relay_%u: %-6s", i + 1U,
                      p->relay[i] ? "closed" : "open");
             ST7796_WriteString32(MAIN_INFO_RIGHT_X, row_y[i], buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
         } else if (i == PRESET_RELAY_COUNT) {
@@ -277,10 +298,88 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
  * ─────────────────────────────────────────────────────────────────────────── */
 void Display_UpdateBPM(uint16_t bpm)
 {
-    char buf[10];
-    snprintf(buf, sizeof(buf), "%3u BPM", (unsigned)bpm);
-    /* x=365 places the 7-char string (7×15=105 px) flush to x=480 right edge */
-    ST7796_WriteString32(365U, 7U, buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
+    uint16_t display_bpm_x10 = (uint16_t)(bpm * 10U);
+    uint8_t use_external = MidiClockGetExternalBpmX10(&display_bpm_x10);
+    uint8_t sync_lost = MidiClockIsSyncLost();
+    uint8_t was_sync_lost = bpm_display_sync_lost;
+    char buf[20];
+    uint16_t shown_bpm;
+
+    if (sync_lost)
+    {
+        if (bpm_display_valid && bpm_display_sync_lost)
+        {
+            return;
+        }
+
+        ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X, BPM_TEXT_Y, BPM_DISPLAY_AREA_W, BPM_FONT.height, ST7796_BLACK);
+        ST7796_WriteString32(BPM_SYNC_LOST_X, BPM_TEXT_Y, "EXT SYNC LOST", BPM_FONT, ST7796_RED, ST7796_BLACK);
+
+        bpm_display_valid = 1U;
+        bpm_display_external = 0U;
+        bpm_display_sync_lost = 1U;
+        bpm_display_value_x10 = 0U;
+        return;
+    }
+
+    bpm_display_sync_lost = 0U;
+
+    if (!use_external)
+    {
+        if (bpm_display_valid
+         && !was_sync_lost
+         && !bpm_display_external
+         && bpm_display_value_x10 == display_bpm_x10)
+        {
+            return;
+        }
+
+        if (!bpm_display_valid || was_sync_lost || bpm_display_external)
+        {
+            ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X, BPM_TEXT_Y, BPM_DISPLAY_AREA_W, BPM_FONT.height, ST7796_BLACK);
+            ST7796_WriteString32(BPM_INTERNAL_SUFFIX_X, BPM_TEXT_Y, " BPM", BPM_FONT, ST7796_DARKGRAY, ST7796_BLACK);
+        }
+
+        snprintf(buf, sizeof(buf), "%u", (unsigned)bpm);
+        ST7796_DrawFilledRectangle(BPM_INTERNAL_VALUE_X, BPM_TEXT_Y, BPM_INTERNAL_VALUE_W, BPM_FONT.height, ST7796_BLACK);
+        ST7796_WriteString32(BPM_INTERNAL_VALUE_X, BPM_TEXT_Y, buf, BPM_FONT, ST7796_DARKGRAY, ST7796_BLACK);
+
+        bpm_display_valid = 1U;
+        bpm_display_external = 0U;
+        bpm_display_value_x10 = display_bpm_x10;
+        return;
+    }
+
+    shown_bpm = (uint16_t)((display_bpm_x10 + 5U) / 10U);
+
+    if (!bpm_display_valid || was_sync_lost || !bpm_display_external)
+    {
+        ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X, BPM_TEXT_Y, BPM_DISPLAY_AREA_W, BPM_FONT.height, ST7796_BLACK);
+        ST7796_WriteString32(BPM_EXT_PREFIX_X, BPM_TEXT_Y, "EXT ", BPM_FONT, ST7796_RED, ST7796_BLACK);
+        ST7796_WriteString32(BPM_EXT_SUFFIX_X, BPM_TEXT_Y, "BPM", BPM_FONT, ST7796_RED, ST7796_BLACK);
+    }
+    else
+    {
+        uint16_t current_shown_bpm = (uint16_t)((bpm_display_value_x10 + 5U) / 10U);
+        uint16_t upper_threshold_x10 = (uint16_t)(current_shown_bpm * 10U + BPM_EXT_HYSTERESIS_X10);
+        uint16_t lower_threshold_x10 = (current_shown_bpm > 0U && current_shown_bpm * 10U > BPM_EXT_HYSTERESIS_X10)
+            ? (uint16_t)(current_shown_bpm * 10U - BPM_EXT_HYSTERESIS_X10)
+            : 0U;
+
+        if (display_bpm_x10 < upper_threshold_x10 && display_bpm_x10 > lower_threshold_x10)
+        {
+            return;
+        }
+    }
+
+    snprintf(buf, sizeof(buf), "%u", (unsigned)shown_bpm);
+    ST7796_DrawFilledRectangle(BPM_EXT_VALUE_X, BPM_TEXT_Y, BPM_EXT_VALUE_W, BPM_FONT.height, ST7796_BLACK);
+    ST7796_WriteString32(BPM_EXT_VALUE_X, BPM_TEXT_Y, buf, BPM_FONT, ST7796_RED, ST7796_BLACK);
+
+    bpm_display_valid = 1U;
+    bpm_display_external = 1U;
+    bpm_display_sync_lost = 0U;
+    bpm_display_value_x10 = display_bpm_x10;
 }
 
 /* ── Loading bar ─────────────────────────────────────────────────────────────

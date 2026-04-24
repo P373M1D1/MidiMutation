@@ -134,7 +134,8 @@ int main(void)
   ST7796_WriteString(10U, 10U,
       BPM_Flash_IsValid() ? "flash_OK" : "flash_notOK",
       Font_7x10, ST7796_DARKGRAY, ST7796_BLACK);
-  Display_LoadingBar(7000U);
+  //Display_LoadingBar(7000U);
+  Display_LoadingBar(1000U);
   Display_LoadingBarClear();
   Display_BL_FadeOut();
   ST7796_FillScreen(ST7796_BLACK);  /* clear while backlight is off – invisible */
@@ -459,6 +460,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   if (GPIO_Pin != TAP_Pin) return;
 
   uint32_t now = HAL_GetTick();
+
+    if (MidiClockIsSyncLost())
+    {
+      MidiClockUseInternalTempo();
+    }
 
     Display_ScreensaverDismiss();
     Display_ScreensaverActivity();  /* any tap = user activity */

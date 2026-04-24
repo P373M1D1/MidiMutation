@@ -158,6 +158,10 @@ void Handle_Tap_Tempo(void)
         Display_UpdateBPM(g_bpm);
         bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
     }
+    else
+    {
+        Display_UpdateBPM(g_bpm);
+    }
     if (bpm_save_tick && HAL_GetTick() >= bpm_save_tick)
     {
         bpm_save_tick = 0U;

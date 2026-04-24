@@ -32,13 +32,26 @@
 static UART_HandleTypeDef huart[MIDI_PORT_COUNT];
 static UART_HandleTypeDef midi_input_uart;
 
+#define MIDI_CLOCK_BPM_WINDOW_PULSES 24U
+#define MIDI_CLOCK_LOST_TIMEOUT_MIN_MS 250U
+#define MIDI_CLOCK_LOST_TIMEOUT_PAD_MS 20U
+#define MIDI_CLOCK_LOST_TIMEOUT_PULSES 4U
+
 /* Prevents Send functions from running before Init has completed for a port */
 static uint8_t            port_ready[MIDI_PORT_COUNT];
 static uint8_t            midi_clock_pulse_count = 0U;
-static uint32_t           midi_clock_quarter_start_ms = 0U;
+static uint32_t           midi_clock_last_pulse_ms = 0U;
+static uint16_t           midi_clock_pulse_intervals_ms[MIDI_CLOCK_BPM_WINDOW_PULSES];
+static uint32_t           midi_clock_pulse_interval_sum_ms = 0U;
+static uint8_t            midi_clock_pulse_interval_count = 0U;
+static uint8_t            midi_clock_pulse_interval_index = 0U;
+static volatile uint16_t  midi_clock_external_bpm_x10 = 0U;
+static volatile uint8_t   midi_clock_external_bpm_valid = 0U;
+static volatile uint8_t   midi_clock_sync_lost = 0U;
 static volatile uint8_t   midi_transport_running = 0U;
 static volatile MidiTransportEvent_t midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
 static void               midi_clock_reset_sync(void);
+static void               midi_clock_update_sync_state(void);
 
 /* ── Clock helpers ───────────────────────────────────────────────────────────
  * These two functions are kept here rather than relying on MX_GPIO_Init /
@@ -209,25 +222,61 @@ static uint8_t Midi_TryResolvePortForChannel(uint8_t channel, uint8_t *port)
 static void midi_clock_reset_sync(void)
 {
     midi_clock_pulse_count = 0U;
-    midi_clock_quarter_start_ms = 0U;
+    midi_clock_last_pulse_ms = 0U;
+    midi_clock_pulse_interval_sum_ms = 0U;
+    midi_clock_pulse_interval_count = 0U;
+    midi_clock_pulse_interval_index = 0U;
+    for (uint8_t i = 0U; i < MIDI_CLOCK_BPM_WINDOW_PULSES; i++)
+    {
+        midi_clock_pulse_intervals_ms[i] = 0U;
+    }
+    midi_clock_external_bpm_x10 = 0U;
+    midi_clock_external_bpm_valid = 0U;
+    midi_clock_sync_lost = 0U;
+}
+
+static void midi_clock_update_sync_state(void)
+{
+    uint32_t average_pulse_ms;
+    uint32_t timeout_ms;
+    uint32_t now;
+
+    if (!midi_transport_running || midi_clock_sync_lost || midi_clock_last_pulse_ms == 0U || midi_clock_pulse_interval_count == 0U)
+        return;
+
+    average_pulse_ms = midi_clock_pulse_interval_sum_ms / (uint32_t)midi_clock_pulse_interval_count;
+    timeout_ms = average_pulse_ms * MIDI_CLOCK_LOST_TIMEOUT_PULSES + MIDI_CLOCK_LOST_TIMEOUT_PAD_MS;
+    if (timeout_ms < MIDI_CLOCK_LOST_TIMEOUT_MIN_MS)
+        timeout_ms = MIDI_CLOCK_LOST_TIMEOUT_MIN_MS;
+
+    now = HAL_GetTick();
+    if ((now - midi_clock_last_pulse_ms) > timeout_ms)
+    {
+        midi_transport_running = 0U;
+        midi_clock_external_bpm_valid = 0U;
+        midi_clock_sync_lost = 1U;
+    }
 }
 
 void MidiReceive(uint8_t byte)
 {
     if (byte == 0xFAU)
     {
+        LED_MidiClockPulse(); // Immediately blink the red LED for the first beat
         midi_transport_running = 1U;
         midi_transport_event = MIDI_TRANSPORT_EVENT_START;
         LED_MidiInPulse();
         midi_clock_reset_sync();
-        LED_MidiClockPulse(); // Immediately blink the red LED for the first beat
+       
         return;
     }
 
     if (byte == 0xFBU)
     {
+        LED_MidiClockPulse();
         midi_transport_running = 1U;
         midi_transport_event = MIDI_TRANSPORT_EVENT_CONTINUE;
+        LED_MidiInPulse();
         midi_clock_reset_sync();
         return;
     }
@@ -245,29 +294,92 @@ void MidiReceive(uint8_t byte)
 
     uint32_t now = HAL_GetTick();
 
-    if (midi_clock_pulse_count == 0U)
+    if (midi_clock_last_pulse_ms != 0U && now > midi_clock_last_pulse_ms)
     {
-        midi_clock_quarter_start_ms = now;
+        uint16_t pulse_ms = (uint16_t)(now - midi_clock_last_pulse_ms);
+
+        if (midi_clock_pulse_interval_count == MIDI_CLOCK_BPM_WINDOW_PULSES)
+        {
+            midi_clock_pulse_interval_sum_ms -=
+                midi_clock_pulse_intervals_ms[midi_clock_pulse_interval_index];
+        }
+        else
+        {
+            midi_clock_pulse_interval_count++;
+        }
+
+        midi_clock_pulse_intervals_ms[midi_clock_pulse_interval_index] = pulse_ms;
+        midi_clock_pulse_interval_sum_ms += pulse_ms;
+        midi_clock_pulse_interval_index =
+            (uint8_t)((midi_clock_pulse_interval_index + 1U) % MIDI_CLOCK_BPM_WINDOW_PULSES);
+
+        if (midi_clock_pulse_interval_sum_ms > 0U)
+        {
+            uint32_t numerator = 600000U * (uint32_t)midi_clock_pulse_interval_count;
+            uint32_t denominator = 24U * midi_clock_pulse_interval_sum_ms;
+            uint32_t bpm_x10 = (numerator + (denominator / 2U)) / denominator;
+
+            if (bpm_x10 >= 200U && bpm_x10 <= 2400U)
+            {
+                midi_clock_external_bpm_x10 = (uint16_t)bpm_x10;
+                midi_clock_external_bpm_valid = 1U;
+            }
+            else
+            {
+                midi_clock_external_bpm_valid = 0U;
+            }
+        }
     }
+
+    midi_clock_last_pulse_ms = now;
 
     midi_clock_pulse_count++;
     if (midi_clock_pulse_count < 24U)
         return;
 
     midi_clock_pulse_count = 0U;
-    if (midi_clock_quarter_start_ms == 0U)
-    {
-        midi_clock_quarter_start_ms = now;
-        return;
-    }
-
-    midi_clock_quarter_start_ms = now;
     LED_MidiClockPulse();
 }
 
 uint8_t MidiTransportIsRunning(void)
 {
+    midi_clock_update_sync_state();
     return midi_transport_running;
+}
+
+uint8_t MidiClockIsSyncLost(void)
+{
+    midi_clock_update_sync_state();
+    return midi_clock_sync_lost;
+}
+
+void MidiClockUseInternalTempo(void)
+{
+    midi_transport_running = 0U;
+    midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
+    midi_clock_reset_sync();
+}
+
+uint8_t MidiClockGetExternalBpm(uint16_t *bpm)
+{
+    uint16_t bpm_x10;
+
+    if (!bpm || !MidiClockGetExternalBpmX10(&bpm_x10))
+        return 0U;
+
+    *bpm = (uint16_t)((bpm_x10 + 5U) / 10U);
+    return 1U;
+}
+
+uint8_t MidiClockGetExternalBpmX10(uint16_t *bpm_x10)
+{
+    midi_clock_update_sync_state();
+
+    if (!bpm_x10 || !midi_transport_running || !midi_clock_external_bpm_valid)
+        return 0U;
+
+    *bpm_x10 = midi_clock_external_bpm_x10;
+    return 1U;
 }
 
 MidiTransportEvent_t MidiTransportConsumeEvent(void)

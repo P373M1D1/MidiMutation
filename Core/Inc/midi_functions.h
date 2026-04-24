@@ -87,6 +87,30 @@ void MidiReceive(uint8_t byte);
 uint8_t MidiTransportIsRunning(void);
 
 /**
+ * @brief  Return 1 when external MIDI sync disappeared without a Stop event.
+ */
+uint8_t MidiClockIsSyncLost(void);
+
+/**
+ * @brief  Clear any external MIDI sync state and return to internal tempo.
+ */
+void MidiClockUseInternalTempo(void);
+
+/**
+ * @brief  Return the currently measured external MIDI clock tempo.
+ * @param  bpm  Output pointer for the last valid measured BPM.
+ * @retval 1 if a valid external tempo is available, 0 otherwise.
+ */
+uint8_t MidiClockGetExternalBpm(uint16_t *bpm);
+
+/**
+ * @brief  Return the currently measured external MIDI clock tempo in tenths.
+ * @param  bpm_x10  Output pointer for the last valid measured BPM x10.
+ * @retval 1 if a valid external tempo is available, 0 otherwise.
+ */
+uint8_t MidiClockGetExternalBpmX10(uint16_t *bpm_x10);
+
+/**
  * @brief  Return and clear the last latched transport event.
  * @retval MIDI_TRANSPORT_EVENT_NONE if no new Start/Continue/Stop arrived
  *         since the previous call.

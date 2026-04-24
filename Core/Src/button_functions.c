@@ -86,12 +86,15 @@ static uint8_t Button_StepBankDown(void)
         current_bank--;
     }
 
+    activatePreset(current_bank * PRESETS_PER_BANK);
+
     return 1U;
 }
 
 static uint8_t Button_StepBankUp(void)
 {
     current_bank = (current_bank + 1U) % PRESET_BANK_COUNT;
+    activatePreset(current_bank * PRESETS_PER_BANK);
     return 1U;
 }
 
