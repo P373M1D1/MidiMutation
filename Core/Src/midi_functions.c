@@ -220,6 +220,7 @@ void MidiReceive(uint8_t byte)
         midi_transport_event = MIDI_TRANSPORT_EVENT_START;
         LED_MidiInPulse();
         midi_clock_reset_sync();
+        LED_MidiClockPulse(); // Immediately blink the red LED for the first beat
         return;
     }
 

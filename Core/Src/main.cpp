@@ -138,7 +138,6 @@ int main(void)
   Display_LoadingBarClear();
   Display_BL_FadeOut();
   ST7796_FillScreen(ST7796_BLACK);  /* clear while backlight is off – invisible */
-
   Display_BL_FadeIn();
   g_bpm = BPM_Flash_Load();
   if (!BPM_Flash_IsValid())

@@ -158,6 +158,9 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
 {
     char buf[32];
 
+    // Always clear the full screen before drawing anything else
+    ST7796_FillScreen(ST7796_BLACK);
+
     if (main_layout_dirty)
         Display_DrawMainLayout();
 

@@ -1,0 +1,3 @@
+change Flash stogare to RTC and use Vbat to protectr storage from failure / or use SD card
+waking up screensaver needs to clear entire screen. 
+
