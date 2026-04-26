@@ -25,23 +25,30 @@ extern volatile uint8_t   current_bank;
 
 /* -------------------------------------------------------------------------- */
 
+static uint8_t bpm_value_is_valid(uint32_t bpm)
+{
+    return (bpm >= BPM_MIN && bpm <= BPM_MAX) ? 1U : 0U;
+}
+
 static uint8_t flash_state_read(FlashState_t *state)
 {
-    state->magic      = *(volatile uint32_t *)(BPM_FLASH_ADDR + 0U);
-    state->bpm        = *(volatile uint32_t *)(BPM_FLASH_ADDR + 4U);
-    state->preset_idx = *(volatile uint32_t *)(BPM_FLASH_ADDR + 8U);
-    state->bank_idx   = *(volatile uint32_t *)(BPM_FLASH_ADDR + 12U);
+    const volatile FlashState_t *stored_state = (const volatile FlashState_t *)BPM_FLASH_ADDR;
+
+    state->magic      = stored_state->magic;
+    state->bpm        = stored_state->bpm;
+    state->preset_idx = stored_state->preset_idx;
+    state->bank_idx   = stored_state->bank_idx;
 
     if (state->magic == FLASH_STATE_MAGIC_V2)
     {
-        return (state->bpm >= 20U && state->bpm <= 240U
+        return (bpm_value_is_valid(state->bpm)
              && state->preset_idx < PRESET_COUNT
              && state->bank_idx < PRESET_BANK_COUNT) ? 1U : 0U;
     }
 
     if (state->magic == FLASH_STATE_MAGIC_V1)
     {
-        if (state->bpm >= 20U && state->bpm <= 240U && state->preset_idx < PRESET_COUNT) {
+        if (bpm_value_is_valid(state->bpm) && state->preset_idx < PRESET_COUNT) {
             state->bank_idx = state->preset_idx / PRESETS_PER_BANK;
             return 1U;
         }
@@ -50,7 +57,7 @@ static uint8_t flash_state_read(FlashState_t *state)
     }
 
     /* Backward compatibility with the previous single-word BPM format. */
-    if (state->magic >= 20U && state->magic <= 240U)
+    if (bpm_value_is_valid(state->magic))
     {
         state->bpm        = state->magic;
         state->preset_idx = PRESET_DEFAULT;
@@ -80,6 +87,8 @@ static uint8_t flash_state_read(FlashState_t *state)
 __attribute__((noinline, section(".RamFunc")))
 void BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx, uint8_t bank_idx)
 {
+    volatile FlashState_t *stored_state = (volatile FlashState_t *)BPM_FLASH_ADDR;
+
     /* Unlock Flash control register */
     FLASH->KEYR = FLASH_KEY1;
     FLASH->KEYR = FLASH_KEY2;
@@ -89,26 +98,26 @@ void BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx, uint8_t bank_idx)
 
     /* Erase sector 11  (PSIZE=10b → 32-bit width, suits 2.7–3.6 V supply) */
     FLASH->CR = FLASH_CR_SER
-              | (11U << FLASH_CR_SNB_Pos)
+              | (BPM_FLASH_SECTOR << FLASH_CR_SNB_Pos)
               | FLASH_CR_PSIZE_1   /* bit 1 of PSIZE field → 32-bit */
               | FLASH_CR_STRT;
     while (FLASH->SR & FLASH_SR_BSY) {}
 
     /* Program state words */
     FLASH->CR = FLASH_CR_PG | FLASH_CR_PSIZE_1;
-    *(volatile uint32_t *)(BPM_FLASH_ADDR + 0U) = FLASH_STATE_MAGIC_V2;
+    stored_state->magic = FLASH_STATE_MAGIC_V2;
     __DSB();                         /* ensure write reaches Flash controller */
     while (FLASH->SR & FLASH_SR_BSY) {}
 
-    *(volatile uint32_t *)(BPM_FLASH_ADDR + 4U) = (uint32_t)bpm;
+    stored_state->bpm = (uint32_t)bpm;
     __DSB();
     while (FLASH->SR & FLASH_SR_BSY) {}
 
-    *(volatile uint32_t *)(BPM_FLASH_ADDR + 8U) = (uint32_t)preset_idx;
+    stored_state->preset_idx = (uint32_t)preset_idx;
     __DSB();
     while (FLASH->SR & FLASH_SR_BSY) {}
 
-    *(volatile uint32_t *)(BPM_FLASH_ADDR + 12U) = (uint32_t)bank_idx;
+    stored_state->bank_idx = (uint32_t)bank_idx;
     __DSB();
     while (FLASH->SR & FLASH_SR_BSY) {}
 

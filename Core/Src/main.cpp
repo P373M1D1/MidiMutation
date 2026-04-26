@@ -1,4 +1,4 @@
-// Activate preset by index (0-3)
+// Main application entry point and runtime-owned state.
 
 /* USER CODE BEGIN Header */
 /**
@@ -47,6 +47,32 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+#define TAP_BUF_SIZE                     4U
+
+#define STARTUP_SPLASH_X                 0U
+#define STARTUP_SPLASH_Y                 0U
+#define STARTUP_STATUS_TEXT_X           10U
+#define STARTUP_STATUS_TEXT_Y           10U
+#define STARTUP_STATUS_FONT             Font_7x10
+#define STARTUP_STATUS_FG_COLOUR        CHARCOAL
+#define STARTUP_STATUS_BG_COLOUR        BLACK
+#define STARTUP_FLASH_OK_TEXT           "flash_OK"
+#define STARTUP_FLASH_INVALID_TEXT      "flash_notOK"
+#define STARTUP_LOADING_BAR_MS        1000U
+
+#define MIDI_OUTPUT_UART_INSTANCE      UART4
+#define MIDI_OUTPUT_TX_GPIO_PORT       GPIOD
+#define MIDI_OUTPUT_TX_PIN             GPIO_PIN_1
+#define MIDI_OUTPUT_TX_AF              GPIO_AF11_UART4
+
+#define TIM6_TICK_HZ                   10000U
+#define TIM6_PRESCALER_DIVISOR          9600U
+#define TIM6_COUNTS_PER_MINUTE     (TIM6_TICK_HZ * 60U)
+
+#define TAP_RESET_INTERVAL_MS       3000U
+#define TAP_MIN_INTERVAL_MS          250U
+#define TAP_MIN_COUNT                  2U
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -59,16 +85,16 @@ SPI_HandleTypeDef hspi1;
 TIM_HandleTypeDef htim6;
 
 UART_HandleTypeDef huart3;
+UART_HandleTypeDef huart4;
 
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
-/* ── Tap tempo state ──────────────────────────────────────────────────────── */
-#define TAP_BUF_SIZE 4U
+/* ?????? Tap tempo state ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 static volatile uint32_t tap_ts[TAP_BUF_SIZE]; /* tap timestamps (ms)      */
 static volatile uint8_t  tap_count = 0U;        /* valid entries in buffer  */
 static volatile uint8_t  tap_head  = 0U;        /* circular write pointer   */
-volatile uint16_t g_bpm     = 120U;      /* live BPM value           */
+volatile uint16_t g_bpm     = BPM_DEFAULT; /* live BPM value         */
 volatile uint8_t         bpm_dirty    = 0U;  /* set by ISR, read by main */
 volatile uint32_t bpm_save_tick = 0U;  /* HAL_GetTick target to save BPM to Flash */
 const Preset_t   *active_preset = NULL; /* current preset, needed by screensaver wake */
@@ -82,6 +108,8 @@ static void MX_SPI1_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_USB_OTG_FS_PCD_Init(void);
 /* USER CODE BEGIN PFP */
+static void MX_MIDI_Output_UART_Init(void);
+static uint32_t MidiClockTimerPeriodForBpm(uint16_t bpm);
 static void MX_TIM2_Init(void);
 static void MX_TIM6_Init(uint16_t bpm);
 /* USER CODE END PFP */
@@ -124,28 +152,33 @@ int main(void)
   MX_USART3_UART_Init();
   MX_USB_OTG_FS_PCD_Init();
   /* USER CODE BEGIN 2 */
+  /* Bring peripherals up in an order that avoids display flash and ensures
+   * MIDI timing is already running before the UI starts querying it. */
   Display_BL_Init();
   MidiInitInput();
-  MIDI_InitPort(0, UART4, GPIOC, GPIO_PIN_10, GPIO_AF8_UART4);  /* Echosystem – TRS-A */
-  MIDI_InitPort(1, UART5, GPIOC, GPIO_PIN_12, GPIO_AF8_UART5);  /* Reverb     – DIN-5 */
+  MX_MIDI_Output_UART_Init();
+  MidiSetOutputUart(&huart4);
   ST7796_Init();
   MX_TIM2_Init();
-  ST7796_DrawImageSwapRB(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT, image_data);
+    /* The splash asset is stored with swapped red/blue channels. */
+    ST7796_DrawImageSwapRB(STARTUP_SPLASH_X, STARTUP_SPLASH_Y, IMAGE_WIDTH, IMAGE_HEIGHT, image_data);
   Display_BL_FadeIn();
-  /* BPM flash status — top-left corner, visible during loading bar */
-  ST7796_WriteString(10U, 10U,
-      BPM_Flash_IsValid() ? "flash_OK" : "flash_notOK",
-      Font_7x10, ST7796_DARKGRAY, ST7796_BLACK);
+  /* BPM flash status ??? top-left corner, visible during loading bar */
+    ST7796_WriteString(STARTUP_STATUS_TEXT_X, STARTUP_STATUS_TEXT_Y,
+      BPM_Flash_IsValid() ? STARTUP_FLASH_OK_TEXT : STARTUP_FLASH_INVALID_TEXT,
+      STARTUP_STATUS_FONT, STARTUP_STATUS_FG_COLOUR, STARTUP_STATUS_BG_COLOUR);
   //Display_LoadingBar(7000U);
-  Display_LoadingBar(1000U);
+    Display_LoadingBar(STARTUP_LOADING_BAR_MS);
   Display_LoadingBarClear();
   Display_BL_FadeOut();
-  ST7796_FillScreen(ST7796_BLACK);  /* clear while backlight is off – invisible */
+    ST7796_FillScreen(STARTUP_STATUS_BG_COLOUR);  /* clear while backlight is off ??? invisible */
   Display_BL_FadeIn();
+    /* Restore persisted tempo/bank/preset so the first drawn main screen comes
+     * up in the same state the unit was left in last time. */
   g_bpm = BPM_Flash_Load();
   if (!BPM_Flash_IsValid())
   {
-      /* Flash blank or corrupt — using default BPM */
+      /* Flash blank or corrupt ??? using default BPM */
       g_bpm = BPM_DEFAULT;
   }
     current_bank = BPM_Flash_LoadBankIndex();
@@ -167,8 +200,10 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+    /* Deferred work stays in the main loop: BPM/UI updates and flash-save
+     * scheduling on one side, queued EXTI button events on the other. */
     Handle_Tap_Tempo();
-    Button_CheckAndHandle();
+    Button_ProcessPendingEvents();
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -265,7 +300,7 @@ static void MX_USART3_UART_Init(void)
   /* USER CODE END USART3_Init 0 */
 
   /* USER CODE BEGIN USART3_Init 1 */
-
+ // This is the UART used for debug prints over the ST-Link USB interface. It is not used for MIDI output, which is on UART4. The MIDI output UART is initialised in MX_MIDI_Output_UART_Init() to ensure it is up and running before the UI starts sending MIDI messages
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
   huart3.Init.BaudRate = 115200;
@@ -362,11 +397,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(TAP_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PE0-PE10 footswitches (active-low, falling edge, pull-up) */
+  /*Configure GPIO pins : PE0-PE10 footswitches (active-low, both edges, pull-up) */
   GPIO_InitStruct.Pin = PRESET_BTN1_Pin | PRESET_BTN2_Pin | PRESET_BTN3_Pin | PRESET_BTN4_Pin |
                         PRESET_BTN5_Pin | PRESET_BTN6_Pin | PRESET_BTN7_Pin | PRESET_BTN8_Pin |
                         PRESET_BTN9_Pin | PRESET_BTN10_Pin | PRESET_BTN11_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(PRESET_BTN_GPIO_Port, &GPIO_InitStruct);
 
@@ -424,6 +459,36 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+// This is the MIDI port used for outputting Program Change and CC messages to the connected MIDI devices. It is initialised separately from USART3 (which is used for debug prints) to ensure it is up and running before the UI starts sending MIDI messages. 
+
+static void MX_MIDI_Output_UART_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_UART4_CLK_ENABLE();
+
+  GPIO_InitStruct.Pin = MIDI_OUTPUT_TX_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Alternate = MIDI_OUTPUT_TX_AF;
+  HAL_GPIO_Init(MIDI_OUTPUT_TX_GPIO_PORT, &GPIO_InitStruct);
+
+  huart4.Instance = MIDI_OUTPUT_UART_INSTANCE;
+  huart4.Init.BaudRate = MIDI_BAUD_RATE;
+  huart4.Init.WordLength = UART_WORDLENGTH_8B;
+  huart4.Init.StopBits = UART_STOPBITS_1;
+  huart4.Init.Parity = UART_PARITY_NONE;
+  huart4.Init.Mode = UART_MODE_TX;
+  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
 // OWN EDIT: Using TIM2 for MIDI clock pulse instead of HAL(getTick) because HAL tick is too coarse (1 ms) for accurate BPM measurement at higher tempos.
 void MX_TIM2_Init(void)
 {
@@ -442,20 +507,30 @@ void MX_TIM2_Init(void)
     HAL_TIM_Base_Start(&htim2);
 }
 
-/* ── TIM6 init: APB1 timer clock = 96 MHz ────────────────────────────────────
- * Prescaler 9600-1 → 10 kHz tick (0.1 ms resolution).
- * ARR = (600 000 / BPM) - 1  → fires once per full beat.
- *   20  BPM → ARR 29 999 (3 000 ms)
- *   120 BPM → ARR  4 999 (  500 ms)
- *   240 BPM → ARR  2 499 (  250 ms)
+/* ?????? TIM6 init: APB1 timer clock = 96 MHz ????????????????????????????????????????????????????????????????????????????????????????????????????????????
+ * Prescaler 9600-1 ??? 10 kHz tick (0.1 ms resolution).
+ * ARR is set for one internal MIDI clock pulse (24 PPQN), not one full beat.
+ * The TIM6 ISR asks midi_functions whether this pulse completed a quarter note
+ * so the green beat LED still blinks once per beat.
  */
+static uint32_t MidiClockTimerPeriodForBpm(uint16_t bpm)
+{
+  uint32_t denominator = (uint32_t)bpm * MIDI_CLOCK_PULSES_PER_QUARTER_NOTE;
+  uint32_t pulse_counts = (TIM6_COUNTS_PER_MINUTE + (denominator / 2U)) / denominator;
+
+  if (pulse_counts == 0U)
+    pulse_counts = 1U;
+
+  return pulse_counts - 1U;
+}
+
 static void MX_TIM6_Init(uint16_t bpm)
 {
   __HAL_RCC_TIM6_CLK_ENABLE();
   htim6.Instance               = TIM6;
-  htim6.Init.Prescaler         = 9600U - 1U;
+  htim6.Init.Prescaler         = TIM6_PRESCALER_DIVISOR - 1U;
   htim6.Init.CounterMode       = TIM_COUNTERMODE_UP;
-  htim6.Init.Period            = (600000U / (uint32_t)bpm) - 1U;
+  htim6.Init.Period            = MidiClockTimerPeriodForBpm(bpm);
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
     Error_Handler();
@@ -465,7 +540,7 @@ static void MX_TIM6_Init(uint16_t bpm)
 }
   
 
-/* ── USER button EXTI: tap tempo ──────────────────────────────────────────
+/* ?????? USER button EXTI: tap tempo ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
  * Records timestamps of the last TAP_BUF_SIZE presses, averages the
  * intervals, and updates TIM6 ARR + display.
  * Resets history if gap > 3 000 ms (< 20 BPM).
@@ -475,9 +550,13 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   uint8_t screensaver_was_active = Display_ScreensaverIsActive();
 
-  // Preset switches are polled in Button_CheckAndHandle().
-
-  if (GPIO_Pin != TAP_Pin) return;
+  /* TAP is handled immediately here; the other footswitches are latched on
+   * EXTI and finished later in Button_ProcessPendingEvents(). */
+  if (GPIO_Pin != TAP_Pin)
+  {
+    Button_HandleInterrupt(GPIO_Pin);
+    return;
+  }
 
   uint32_t now = HAL_GetTick();
 
@@ -486,6 +565,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
     if (screensaver_was_active)
     {
+      /* The first tap after idle should only wake the UI, not also retime BPM. */
       Display_DrawMainScreen(active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
       return;
     }
@@ -505,12 +585,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     uint8_t  prev     = (uint8_t)((tap_head + TAP_BUF_SIZE - 1U) % TAP_BUF_SIZE);
     uint32_t interval = now - tap_ts[prev];
 
-    if (interval > 3000U)          /* too slow – reset */
+    if (interval > TAP_RESET_INTERVAL_MS)          /* too slow ??? reset */
     {
       tap_count = 0U;
       tap_head  = 0U;
     }
-    else if (interval < 250U)      /* too fast / bounce – ignore */
+    else if (interval < TAP_MIN_INTERVAL_MS)      /* too fast / bounce ??? ignore */
     {
       return;
     }
@@ -521,9 +601,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   tap_head = (uint8_t)((tap_head + 1U) % TAP_BUF_SIZE);
   if (tap_count < TAP_BUF_SIZE) tap_count++;
 
-  if (tap_count < 2U) return; /* need at least two taps */
+  if (tap_count < TAP_MIN_COUNT) return; /* need at least two taps */
 
-  /* Average all consecutive intervals in the buffer */
+  /* Average all consecutive intervals in the circular buffer so tap tempo is
+   * less twitchy than using only the most recent gap. */
   uint32_t sum = 0U;
   uint8_t  n   = tap_count;
   for (uint8_t i = 0U; i < n - 1U; i++)
@@ -537,17 +618,17 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
   //uint32_t new_bpm = 60000U / avg_ms;
   uint32_t new_bpm = (uint32_t)((60000.0f / (float)avg_ms) + 0.5f);
-  if (new_bpm < 20U || new_bpm > 240U) return;
+  if (new_bpm < BPM_MIN || new_bpm > BPM_MAX) return;
 
   g_bpm = (uint16_t)new_bpm;
 
-  /* Tapping takes us back to internal tempo — clear any external sync state
+  /* Tapping takes us back to internal tempo ??? clear any external sync state
    * so Display_UpdateBPM doesn't stay stuck on "EXT SYNC LOST". */
   MidiClockUseInternalTempo();
 
   /* Sync LED to this tap and update blink rate */
   TIM6->CNT = 0U;
-  TIM6->ARR = (600000U / new_bpm) - 1U;
+  TIM6->ARR = MidiClockTimerPeriodForBpm((uint16_t)new_bpm);
   LED_BeatPulse();  /* light on tap-down, in addition to the timer beat */
 
   bpm_dirty     = 1U;
@@ -586,3 +667,4 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
+

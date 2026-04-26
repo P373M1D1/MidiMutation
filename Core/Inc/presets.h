@@ -16,6 +16,13 @@ extern "C" {
 #define PRESET_COUNT         (PRESETS_PER_BANK * PRESET_BANK_COUNT)
 #define PRESET_BANK_NAME_MAXLEN  16U
 
+/* Shared sentinel values used by preset data tables and activation logic. */
+#define PRESET_PROGRAM_UNUSED     0xFFU
+#define PRESET_CC_CHANNEL_UNUSED  0U
+#define PRESET_CC_NUMBER_UNUSED   PRESET_PROGRAM_UNUSED
+#define PRESET_RELAY_OPEN         0U
+#define PRESET_RELAY_CLOSED       1U
+
 extern const char * const bank_names[PRESET_BANK_COUNT];
 
 /**
@@ -35,7 +42,7 @@ const char *Presets_GetBankName(uint8_t bank);
  * @brief  Per-device MIDI data for one preset.
  *
  *  program  — Program Change number to send when this preset loads (0–127).
- *             0xFF = do not send a Program Change to this device.
+ *             PRESET_PROGRAM_UNUSED = do not send a Program Change.
  */
 typedef struct {
     uint8_t program;
@@ -47,8 +54,10 @@ typedef struct {
 /**
  * @brief  One per-preset MIDI CC message.
  *
- *  channel    — MIDI channel to send on (1-16). 0 = unused slot.
- *  cc_number  — CC number to send (0-127). 0xFF = unused slot.
+ *  channel    — MIDI channel to send on (1-16).
+ *               PRESET_CC_CHANNEL_UNUSED = unused slot.
+ *  cc_number  — CC number to send (0-127).
+ *               PRESET_CC_NUMBER_UNUSED = unused slot.
  *  value      — CC value to send (0-127).
  */
 typedef struct {
@@ -65,10 +74,11 @@ typedef struct {
  *
  *  name      — display name, max 20 chars + NUL.
  *  prg[N]    — Program Change data for device N; index matches MidiDevices_Get(N).
- *              prg[0] = Echosystem (ch1), prg[1] = Reverb (ch2), prg[2] = spare.
+ *              prg[0] = Echosystem (ch1), prg[1] = Reverb (ch2), prg[2] = spare (ch3).
  *  cc[N]     — extra CC messages to send when this preset is activated.
  *  relay[N]  — state of relay N, independent of any MIDI device.
- *              0 = open (bypass), 1 = closed (engaged).
+ *              PRESET_RELAY_OPEN = open/bypass,
+ *              PRESET_RELAY_CLOSED = closed/engaged.
  */
 typedef struct {
     char           name[21];
@@ -90,7 +100,7 @@ uint8_t Presets_Count(void);
 
 /**
  * @brief  Returns true if the given program number is used in more than one preset
- *         for the given device slot (ignores 0xFF/unused).
+ *         for the given device slot (ignores PRESET_PROGRAM_UNUSED).
  * @param  slot      Device slot index (0..PRESET_DEVICE_SLOTS-1).
  * @param  program   Program number to check (0..127).
  */

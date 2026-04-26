@@ -7,6 +7,7 @@ extern "C" {
 
 #include "fonts.h"
 #include "main.h"
+#include "st7796_rgb565_colors.h"
 
 /*
  * ST7796 TFT Display Driver
@@ -43,25 +44,6 @@ extern SPI_HandleTypeDef ST7796_SPI_PORT;
 
 /* Default rotation: 0=portrait, 1=landscape, 2=portrait inverted, 3=landscape inverted */
 #define ST7796_ROTATION 1
-
-/* RGB565 color definitions */
-#define ST7796_BLACK        0x0000
-#define ST7796_WHITE        0xFFFF
-#define ST7796_RED          0xF800
-#define ST7796_DARKRED      0x8800
-#define ST7796_GREEN        0x07E0
-#define ST7796_DARKGREEN    0x0400
-#define ST7796_BLUE         0x025F
-#define ST7796_TRUEBLUE     0x2B58
-#define ST7796_DARKBLUE     0x0011
-#define ST7796_COBALTBLUE   0x0255
-#define ST7796_CYAN         0x07FF
-#define ST7796_MAGENTA      0xF81F
-#define ST7796_YELLOW       0xFFE0
-#define ST7796_ORANGE       0xFD20
-#define ST7796_GRAY         0x8430
-#define ST7796_DARKGRAY     0x4208
-#define ST7796_LIGHTGRAY    0xC618
 
 /* ST7796 command registers */
 #define ST7796_NOP          0x00

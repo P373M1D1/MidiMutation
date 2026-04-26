@@ -33,8 +33,9 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PD15        | ST7796_DC  — data/command select (output) — Morpho CN11 | ST7796 DC                   |
 | PF12        | ST7796_RST — reset (output) — Morpho CN11             | ST7796 RST                    |
 | **MIDI UART Ports**                                                                           |
-| PC10        | UART4_TX (AF8) — Morpho CN11                          | Echosystem — TRS-A MIDI out   |
-| PC12        | UART5_TX (AF8) — Morpho CN11                          | Reverb — DIN-5 MIDI out       |
+| PD1         | UART4_TX (AF11) — Morpho CN11                         | MIDI Out 1 — smart output (preset MIDI + internal/external clock) |
+| PC12        | UART5_TX (AF8) — Morpho CN11                          | Spare second MIDI out (currently unused in firmware) |
+| PD5         | USART2_TX (AF7) — Morpho CN11                         | MIDI Thru — soft-thru copy of MIDI In |
 | PD6         | USART2_RX (AF7) — Morpho CN11                         | MIDI In (opto-isolated input) |
 | **Rotary Encoders — hardware timer encoder mode (no EXTI used)**                              |
 | PA0         | TIM2_CH1 (AF1) — Morpho CN10                          | Encoder 1 — A channel         |
@@ -47,7 +48,7 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PC7         | TIM8_CH2 (AF3) — Morpho CN10                          | Encoder 4 — B channel         |
 | **Encoder push buttons — INPUT_PULLUP, polled † **                                            |
 | PD0         | Encoder 1 push button — INPUT_PULLUP, polled          | Encoder 1 switch              |
-| PD1         | Encoder 2 push button — INPUT_PULLUP, polled          | Encoder 2 switch              |
+| PD1         | Reassigned to UART4_TX (AF11)                         | MIDI Out 1 — smart output     |
 | PD3         | Encoder 3 push button — INPUT_PULLUP, polled          | Encoder 3 switch              |
 | PD4         | Encoder 4 push button — INPUT_PULLUP, polled          | Encoder 4 switch              |
 | **Pushbutton LEDs — GPIO output**                                                             |
@@ -92,6 +93,11 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 
 > **Note on STLK pin naming:** `STLK_TX_Pin` (PD8) and `STLK_RX_Pin` (PD9) are labelled from the
 > ST-LINK's perspective. On the MCU, PD8 = USART3_TX and PD9 = USART3_RX. Wiring is correct.
+
+> **Note on UART4_TX pin selection:** On the STM32F413ZH package used here, `PD1` is a valid
+> `UART4_TX` route and uses `AF11`. `PC10` is a `USART3_TX` pin on this package, not a `UART4_TX`
+> pin. The firmware therefore routes smart MIDI out on [Core/Src/main.cpp](Core/Src/main.cpp#L64)
+> through `PD1`, while `USART3` remains on `PD8`/`PD9` for the ST-LINK VCP.
 
 > **\* EXTI15_10_IRQn shared ISR:** PE10, PE11, PE12, and PG15 share `EXTI15_10_IRQn`. The ISR checks `__HAL_GPIO_EXTI_GET_IT()` for each line to identify the source.
 

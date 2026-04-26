@@ -22,7 +22,7 @@ typedef struct {
 /**
  * @brief  One MIDI device.
  *
- *  channel         — MIDI channel (1–16)
+ *  channel         — MIDI channel (1–16) used on the shared MIDI output
  *  engage          — CC + value sent to engage/activate the device
  *  bypass          — CC + value sent to bypass/deactivate the device
  *  tap_tempo       — CC + value sent on each tap (value 64 = quick tap pulse
@@ -31,7 +31,6 @@ typedef struct {
  *                    (used by any future random-preset function)
  */
 typedef struct {
-    uint8_t  midi_port;   /* Index passed to MIDI_InitPort() / MIDI_SendXxx() */
     uint8_t  channel;
     MidiCC_t engage;
     MidiCC_t bypass;

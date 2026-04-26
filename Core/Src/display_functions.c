@@ -8,12 +8,12 @@
 #include <stdio.h>
 #include <string.h>
 
-/* ── display_functions.c ─────────────────────────────────────────────────────
+/* ?????? display_functions.c ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
  *
- * All visual output for the ST7796 480×320 TFT display and the DAC backlight.
+ * All visual output for the ST7796 480??320 TFT display and the DAC backlight.
  *
  * Hardware connections (configured in main.cpp MX_GPIO_Init / MX_SPI1_Init):
- *   SPI1  – display data bus
+ *   SPI1  ??? display data bus
  *     SCK  = PA5   (SPI1_SCK,  AF5)
  *     MOSI = PA7   (SPI1_MOSI, AF5)
  *   Control pins (push-pull outputs, high speed):
@@ -23,13 +23,13 @@
  *   SPI1 baud rate = PCLK2 / 2 = 96 MHz / 2 = 48 MHz
  *     (PCLK2 = SYSCLK / 1 per main.cpp SystemClock_Config APB2 divider)
  *
- *   Backlight – DAC1 CH1 on PA4 (12-bit, 0–4095 → 0–3.3 V → LED driver)
+ *   Backlight ??? DAC1 CH1 on PA4 (12-bit, 0???4095 ??? 0???3.3 V ??? LED driver)
  *     DAC and GPIOA clocks are enabled here in Display_BL_Init because
  *     the backlight must be brought up before ST7796_Init is called.
  *     (GPIOA clock is also enabled by MX_GPIO_Init in main.cpp; enabling
- *     it twice is harmless — the HAL macro is idempotent.)
+ *     it twice is harmless ??? the HAL macro is idempotent.)
  *
- * Screen coordinates: origin (0,0) is top-left, x→right, y→down.
+ * Screen coordinates: origin (0,0) is top-left, x???right, y???down.
  * Landscape orientation: width = 480 px, height = 320 px.
  *
  * Screen layout (see Display_DrawMainLayout / Display_DrawMainScreen):
@@ -40,33 +40,35 @@
  *                      left  (x= 30): "CH n: ppp"  MIDI channel + program number
  *                      right (x=220): "Relay_n: open/closed"
  *   y= 298 .. 319 :  Footer bar,    dark grey, "MIDI / RELAY STATUS"
- * ─────────────────────────────────────────────────────────────────────────── */
+ * ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 
-/* ── Backlight ───────────────────────────────────────────────────────────── */
+/* ?????? Backlight ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 /* DAC1 CH1 on PA4.  The DAC is 12-bit (0 = off, 4095 = full brightness).
  *
  * Fade timing:
  *   BL_SPIN_DELAY = 48 000 busy-wait cycles.
- *   At SYSCLK = 96 MHz each cycle ≈ 10.4 ns → 48 000 cycles ≈ 0.5 ms per step.
- *   100 steps × 0.5 ms = ~50 ms total fade duration.
+ *   At SYSCLK = 96 MHz each cycle ??? 10.4 ns ??? 48 000 cycles ??? 0.5 ms per step.
+ *   100 steps ?? 0.5 ms = ~50 ms total fade duration.
  *
  * The spin loop uses a volatile counter to prevent the compiler from
  * optimising the delay away.
  */
 
-#define BL_STEPS      100U
-#define BL_SPIN_DELAY 48000U   /* busy-wait cycles @ 96 MHz ≈ 0.5 ms per step */
-#define BL_BRIGHTNESS 2095U      /* max DAC value for full backlight brightness */
+#define BL_STEPS      100U      // number of DAC ramp steps used for backlight fades
+#define BL_SPIN_DELAY 48000U    /* busy-wait cycles @ 96 MHz ??? 0.5 ms per step */
+#define BL_BRIGHTNESS 2095U     /* max DAC value for full backlight brightness */
 
-/* ── Display_BL_Init ─────────────────────────────────────────────────────────
+#define DISPLAY_BG_COLOUR              BLACK               // default background colour for full-screen clears and text backgrounds
+
+/* ?????? Display_BL_Init ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
  * Configures PA4 as an analog output and enables DAC1 channel 1.
  * Must be called before Display_BL_FadeIn / FadeOut.
  * Called early in main.cpp (before ST7796_Init) so the backlight can be
  * kept off while the display initialises, avoiding a white flash.
- * ─────────────────────────────────────────────────────────────────────────── */
+ * ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 void Display_BL_Init(void)
 {
-    __HAL_RCC_GPIOA_CLK_ENABLE();  /* PA4 – DAC1_OUT1 (backlight analog output) */
+    __HAL_RCC_GPIOA_CLK_ENABLE();  /* PA4 ??? DAC1_OUT1 (backlight analog output) */
     __HAL_RCC_DAC_CLK_ENABLE();    /* DAC peripheral clock                       */
 
     GPIO_InitTypeDef gpio = {0};
@@ -79,10 +81,10 @@ void Display_BL_Init(void)
     DAC->DHR12R1 = 0U;             /* start with backlight fully off             */
 }
 
-/* ── Display_BL_FadeIn ───────────────────────────────────────────────────────
+/* ?????? Display_BL_FadeIn ?????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
  * Ramps the DAC output from 0 to 4095 over ~50 ms.
- * Blocking – call only from main-loop context, not from an ISR.
- * ─────────────────────────────────────────────────────────────────────────── */
+ * Blocking ??? call only from main-loop context, not from an ISR.
+ * ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 void Display_BL_FadeIn(void)
 {
     for (uint32_t step = 0U; step <= BL_STEPS; step++)
@@ -92,11 +94,11 @@ void Display_BL_FadeIn(void)
     }
 }
 
-/* ── Display_BL_FadeOut ──────────────────────────────────────────────────────
+/* ?????? Display_BL_FadeOut ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
  * Ramps the DAC output from 4095 down to 0 over ~50 ms.
  * The loop counts down using an unsigned counter; the 'if (step==0) break'
  * guard prevents underflow wrap-around (uint32 wrapping to 0xFFFFFFFF).
- * ─────────────────────────────────────────────────────────────────────────── */
+ * ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 void Display_BL_FadeOut(void)
 {
     for (uint32_t step = BL_STEPS; ; step--)
@@ -107,18 +109,54 @@ void Display_BL_FadeOut(void)
     }
 }
 
-/* ── Screen layout constants ─────────────────────────────────────────────── */
-#define MAIN_FOOTBAR_Y       298U                        /* top of footer bar    */
-#define MAIN_FOOTBAR_H       (ST7796_HEIGHT - MAIN_FOOTBAR_Y)  /* = 22 px        */
-#define MAIN_FOOTBAR_COLOR   ST7796_DARKGRAY
-#define MAIN_INFO_LEFT_X      30U                        /* left column x origin  */
-#define MAIN_INFO_RIGHT_X    220U                        /* right column x origin */
-#define MAIN_FOOTBAR_TEXT    "MIDI / RELAY STATUS"
-#define BPM_FONT            Font_Consolas15x35
-#define BPM_TEXT_Y          7U
-#define BPM_INTERNAL_X      365U
+/* ?????? Screen layout constants ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
+#define MAIN_FOOTBAR_Y                 298U                  // top edge of the footer/status bar
+#define MAIN_FOOTBAR_H                 (ST7796_HEIGHT - MAIN_FOOTBAR_Y) // footer height from its top edge to screen bottom
+#define MAIN_FOOTBAR_COLOR             CHARCOAL            // fill colour for the footer/status bar
+#define MAIN_FOOTBAR_TEXT              "MIDI / RELAY STATUS" // caption shown inside the footer bar
+#define MAIN_FOOTBAR_FONT              Font_11x18           // font used for the footer caption
+#define MAIN_FOOTBAR_TEXT_COLOUR       WHITE                 // text colour for the footer caption
+#define MAIN_INFO_LEFT_X               30U                  // x origin of the left info column (MIDI programs)
+#define MAIN_INFO_RIGHT_X              220U                 // x origin of the right info column (relay / special state)
+#define MAIN_INFO_FONT                 Font_Consolas15x35   // font used for bank text, BPM text, and info rows
+#define MAIN_INFO_TEXT_COLOUR          CHARCOAL            // normal text colour for info rows
+#define MAIN_INFO_TEXT_BG_COLOUR       DISPLAY_BG_COLOUR    // background colour behind normal info text
+#define MAIN_INFO_SHARED_TEXT_COLOUR   DISPLAY_BG_COLOUR    // text colour when a shared program number is inverted
+#define MAIN_INFO_SHARED_BG_COLOUR     MAIN_INFO_TEXT_COLOUR // background colour when a shared program number is inverted
+#define MAIN_INFO_ROW_COUNT            PRESET_DEVICE_SLOTS  // number of vertically stacked info rows on the main screen
+#define MAIN_INFO_PROGRAM_DIGITS       3U                   // fixed width of the displayed MIDI program number
+#define MAIN_INFO_SHARED_PAD_CHARS     2U                   // extra chars cleared when special-function text shrinks
+#define MAIN_UNUSED_PROGRAM            0xFFU                // sentinel meaning no MIDI program is assigned to that slot
+#define MAIN_EMPTY_RIGHT_INFO_TEXT     "                "   // blank filler used to clear an unused right-side row
+#define MAIN_PRESET_TEXT_Y             85U                  // y position of the large preset name line
+#define MAIN_PRESET_TEXT_CHARS         20U                  // fixed character width used when centering preset names
+#define MAIN_PRESET_FONT               Font_Consolas23x49   // large font for the preset name
+#define MAIN_PRESET_COLOUR             WHITE               // text colour for the preset name
+#define MAIN_PRESET_BG_COLOUR          DISPLAY_BG_COLOUR    // background colour behind the preset name
+#define MAIN_BANK_TEXT_Y               145U                 // y position of the bank name line
+#define MAIN_BANK_TEXT_CHARS           PRESET_BANK_NAME_MAXLEN // fixed character width used when centering bank names
+#define MAIN_BANK_FONT                 Font_Consolas15x35   // font for the bank name line
+#define MAIN_BANK_COLOUR               CHARCOAL            // text colour for the bank name line
+#define MAIN_BANK_BG_COLOUR            DISPLAY_BG_COLOUR    // background colour behind the bank name line
+#define MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX            "Vita: " // label shown ahead of the special-function-button state
+#define MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_TEXT       "undead" // text shown when the special-function button mode is active
+#define MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_TEXT     "dead"   // text shown when the special-function button mode is inactive
+#define MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_COLOUR     WHITE // text colour for the active special-function-button state
+#define MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_COLOUR   CHARCOAL // text colour for the inactive special-function-button state
+#define MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_BG         DARK_RED // highlight background behind the active special-function-button state
+#define MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_BG       DISPLAY_BG_COLOUR // background behind the inactive special-function-button state
+#define MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_COLOUR     MAIN_INFO_TEXT_COLOUR // colour of the special-function-button label prefix
+#define MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_BG         MAIN_INFO_TEXT_BG_COLOUR // background behind the special-function-button label prefix
+#define MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR     DISPLAY_BG_COLOUR // top/bottom border colour used to style the active special-function state
+#define MAIN_INFO_HIGHLIGHT_BORDER_H   2U                   // thickness of the top and bottom highlight bars around active state text
 
-/* Set to 1 whenever the static elements (footer bar) need to be redrawn –
+static const uint16_t main_info_row_y[MAIN_INFO_ROW_COUNT] = {184U, 220U, 256U};
+
+#define BPM_FONT                       Font_Consolas15x35   // font used for all BPM display text
+#define BPM_TEXT_Y                     7U                   // y position of the BPM line at the top of the screen
+#define BPM_INTERNAL_X                 365U                 // legacy anchor for internal BPM placement
+
+/* Set to 1 whenever the static elements (footer bar) need to be redrawn ???
  * e.g. after the screensaver has painted over them. */
 static uint8_t main_layout_dirty = 1U;
 static uint8_t vita_state_valid = 0U;
@@ -131,26 +169,47 @@ static uint32_t bpm_display_external_update_tick = 0U;
 static char bpm_display_internal_text[8] = "";
 static char bpm_display_external_text[14] = "";
 
-#define BPM_DISPLAY_AREA_X              280U
-#define BPM_DISPLAY_AREA_W              200U
-#define BPM_SYNC_LOST_X                 280U
-#define BPM_INTERNAL_VALUE_X            365U
-#define BPM_INTERNAL_VALUE_W            (BPM_FONT.width * 3U)
-#define BPM_INTERNAL_SUFFIX_X           (BPM_INTERNAL_VALUE_X + BPM_INTERNAL_VALUE_W)
-#define BPM_INTERNAL_COLOUR             ST7796_DARKGREEN
-#define BPM_EXT_PREFIX_X                305U
-#define BPM_EXT_VALUE_X                 365U
-#define BPM_EXT_VALUE_W                 (BPM_FONT.width * 3U)
-#define BPM_EXT_SUFFIX_X                (BPM_EXT_VALUE_X + BPM_EXT_VALUE_W)
-#define BPM_EXT_HYSTERESIS_MIN_X10      1U
-#define BPM_EXT_HYSTERESIS_BPS          20U
-#define BPM_EXT_UPDATE_MIN_INTERVAL_MS  500U
-#define BPM_EXT_FORCE_UPDATE_DELTA_X10  5U
-#define BPM_EXT_SLEW_STEP_X10           1U
-#define BPM_INTERNAL_TEXT_CHARS         7U
-#define BPM_EXT_TEXT_CHARS              13U
-#define BPM_EXT_TEXT_X                  ((uint16_t)(BPM_DISPLAY_AREA_X + BPM_DISPLAY_AREA_W - (BPM_EXT_TEXT_CHARS * BPM_FONT.width)))
-#define EXT_BPM_COLOUR                  ST7796_COBALTBLUE
+#define BPM_DISPLAY_AREA_X              280U                 // left edge of the rectangle reserved for BPM text updates
+#define BPM_DISPLAY_AREA_W              200U                 // width of the rectangle reserved for BPM text updates
+#define BPM_SYNC_LOST_X                 280U                 // x position of the EXT SYNC LOST message
+#define BPM_INTERNAL_VALUE_X            365U                 // x position of the internal BPM number block
+#define BPM_INTERNAL_VALUE_W            (BPM_FONT.width * 3U) // width reserved for the 3-digit internal BPM number
+#define BPM_INTERNAL_SUFFIX_X           (BPM_INTERNAL_VALUE_X + BPM_INTERNAL_VALUE_W) // x position where the internal BPM suffix would begin
+#define BPM_INTERNAL_COLOUR             GREEN_WEB           // colour used for internal BPM text
+#define BPM_BG_COLOUR                   DISPLAY_BG_COLOUR    // background colour behind all BPM text redraws
+#define BPM_EXT_PREFIX_X                305U                 // legacy anchor for the external BPM prefix
+#define BPM_EXT_VALUE_X                 365U                 // legacy anchor for the external BPM number block
+#define BPM_EXT_VALUE_W                 (BPM_FONT.width * 3U) // width reserved for the external BPM number block
+#define BPM_EXT_SUFFIX_X                (BPM_EXT_VALUE_X + BPM_EXT_VALUE_W) // x position where the external BPM suffix would begin
+#define BPM_EXT_HYSTERESIS_MIN_X10      1U                   // minimum external BPM deadband in tenths of BPM
+#define BPM_EXT_HYSTERESIS_BPS          20U                  // external BPM deadband as basis points of the current reading
+#define BPM_EXT_UPDATE_MIN_INTERVAL_MS  500U                 // minimum time between small external BPM redraws
+#define BPM_EXT_FORCE_UPDATE_DELTA_X10  5U                   // delta in tenths that forces an external BPM update
+#define BPM_EXT_SLEW_STEP_X10           1U                   // maximum smoothing step per update in tenths of BPM
+#define BPM_INTERNAL_TEXT_CHARS         7U                   // padded text width for internal BPM strings like "120 BPM"
+#define BPM_EXT_TEXT_CHARS              13U                  // padded text width for external BPM strings like "EXT 120.0 BPM"
+#define BPM_EXT_TEXT_X                  ((uint16_t)(BPM_DISPLAY_AREA_X + BPM_DISPLAY_AREA_W - (BPM_EXT_TEXT_CHARS * BPM_FONT.width))) // right-aligned x position of the external BPM string
+#define EXT_BPM_COLOUR                  COBALT_BLUE         // colour used for external BPM text
+#define BPM_SYNC_LOST_TEXT              "EXT SYNC LOST"      // message shown when external MIDI clock times out
+#define BPM_SYNC_LOST_COLOUR            RED                 // colour used for the EXT SYNC LOST warning
+
+#define LOADING_BAR_X                   10U                  // left edge of the startup loading bar
+#define LOADING_BAR_Y                   262U                 // top edge of the startup loading bar
+#define LOADING_BAR_W                   460U                 // total drawable width of the startup loading bar
+#define LOADING_BAR_H                   28U                  // height of the startup loading bar
+#define LOADING_BAR_COLOUR              DARK_RED            // fill colour of the progress portion of the startup loading bar
+#define LOADING_BAR_BG_COLOUR           DISPLAY_BG_COLOUR   // background colour behind the startup loading bar and its text row
+#define LOADING_BAR_TEXT_Y              246U                // y position of the loading-bar status text line
+#define LOADING_BAR_TEXT_FONT           Font_7x10           // font used for loading-bar status text
+#define LOADING_BAR_TEXT_COLOUR         WHITE               // colour used for loading-bar status text
+#define LOADING_BAR_PHASE_DIVISOR       3U                  // point where the first status-text phase change triggers
+#define LOADING_BAR_PHASE_HOLD_MS       1000U               // time each loading-bar status message is held on screen
+#define LOADING_BAR_WAIT_TEXT           "... waiting for DNA match" // first startup loading-bar message
+#define LOADING_BAR_MATCH_TEXT          "DNA match found"  // second startup loading-bar message
+#define LOADING_BAR_MARKERS_TEXT        "..accessing genetic markers" // third startup loading-bar message
+#define LOADING_BAR_DONE_TEXT           "mutation complete" // final message shown when startup loading completes
+
+#define SCREENSAVER_TIMEOUT_MS          (10UL * 60UL * 1000UL) // idle time before the backlight-only screensaver activates
 
 static void Display_UpdateBpmTextCells(uint16_t x,
                                        uint16_t y,
@@ -171,10 +230,10 @@ static void Display_UpdateBpmTextCells(uint16_t x,
             continue;
 
         uint16_t char_x = (uint16_t)(x + ((uint16_t)index * BPM_FONT.width));
-        ST7796_DrawFilledRectangle(char_x, y, BPM_FONT.width, BPM_FONT.height, ST7796_BLACK);
+        ST7796_DrawFilledRectangle(char_x, y, BPM_FONT.width, BPM_FONT.height, BPM_BG_COLOUR);
         if (new_ch != ' ')
         {
-            ST7796_WriteChar32(char_x, y, new_ch, BPM_FONT, colour, ST7796_BLACK);
+            ST7796_WriteChar32(char_x, y, new_ch, BPM_FONT, colour, BPM_BG_COLOUR);
         }
     }
 }
@@ -200,168 +259,202 @@ static uint16_t Display_GetExternalBpmHysteresisX10(uint16_t reference_bpm_x10)
     return (uint16_t)hysteresis_x10;
 }
 
-/* ── Display_DrawMainLayout ──────────────────────────────────────────────────
+static void Display_ClearBpmArea(void)
+{
+    ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X, BPM_TEXT_Y, BPM_DISPLAY_AREA_W, BPM_FONT.height, BPM_BG_COLOUR);
+}
+
+static void Display_WriteCenteredPaddedText32(uint16_t y,
+                                              const char *text,
+                                              uint8_t width_chars,
+                                              FontDef32 font,
+                                              uint16_t colour)
+{
+    char padded[MAIN_PRESET_TEXT_CHARS + 1U];
+    size_t max_chars = (size_t)width_chars;
+    size_t text_len = strnlen(text, max_chars);
+    size_t pad_left = (max_chars - text_len) / 2U;
+
+    memset(padded, ' ', max_chars);
+    memcpy(padded + pad_left, text, text_len);
+    padded[max_chars] = '\0';
+
+    ST7796_WriteString32((uint16_t)((ST7796_WIDTH - ((uint16_t)width_chars * font.width)) / 2U),
+                         y,
+                         padded,
+                         font,
+                         colour,
+                         DISPLAY_BG_COLOUR);
+}
+
+static void Display_DrawMainInfoRows(const Preset_t *preset)
+{
+    char buf[32];
+
+    for (uint8_t index = 0U; index < MAIN_INFO_ROW_COUNT; ++index)
+    {
+        uint16_t row_y = main_info_row_y[index];
+        const MidiDevice_t *device = MidiDevices_Get(index);
+        uint8_t program = preset->prg[index].program;
+
+        if (program != MAIN_UNUSED_PROGRAM) {
+            snprintf(buf, sizeof(buf), "CH %u: %3u", device->channel, program);
+
+            if (Presets_DeviceProgramIsShared(index, program)) {
+                char prefix[16];
+                char *program_text = buf + strlen(buf) - MAIN_INFO_PROGRAM_DIGITS;
+                size_t prefix_len = (size_t)(program_text - buf);
+                uint16_t prefix_px;
+
+                memcpy(prefix, buf, prefix_len);
+                prefix[prefix_len] = '\0';
+                prefix_px = MAIN_INFO_FONT.width * (uint16_t)prefix_len;
+
+                ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y, prefix, MAIN_INFO_FONT, MAIN_INFO_TEXT_COLOUR, MAIN_INFO_TEXT_BG_COLOUR);
+                ST7796_WriteString32(MAIN_INFO_LEFT_X + prefix_px,
+                                     row_y,
+                                     program_text,
+                                     MAIN_INFO_FONT,
+                                     MAIN_INFO_SHARED_TEXT_COLOUR,
+                                     MAIN_INFO_SHARED_BG_COLOUR);
+            } else {
+                ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y, buf, MAIN_INFO_FONT, MAIN_INFO_TEXT_COLOUR, MAIN_INFO_TEXT_BG_COLOUR);
+            }
+        } else {
+            ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y, "CH -: ---", MAIN_INFO_FONT, MAIN_INFO_TEXT_COLOUR, MAIN_INFO_TEXT_BG_COLOUR);
+        }
+
+        if (index < PRESET_RELAY_COUNT) {
+            snprintf(buf, sizeof(buf), "Relay_%u: %-6s", index + 1U,
+                     preset->relay[index] ? "closed" : "open");
+            ST7796_WriteString32(MAIN_INFO_RIGHT_X, row_y, buf, MAIN_INFO_FONT, MAIN_INFO_TEXT_COLOUR, MAIN_INFO_TEXT_BG_COLOUR);
+            continue;
+        }
+
+        if (index == PRESET_RELAY_COUNT) {
+            uint8_t state_active = Button_SpecialFunctionsActive();
+            const char *state = state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_TEXT : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_TEXT;
+            uint16_t prefix_px = MAIN_INFO_FONT.width * (uint16_t)strlen(MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX);
+            uint16_t state_x = MAIN_INFO_RIGHT_X + prefix_px;
+            uint16_t state_w = MAIN_INFO_FONT.width * (uint16_t)strlen(state);
+
+            ST7796_WriteString32(MAIN_INFO_RIGHT_X,
+                                 row_y,
+                                 MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX,
+                                 MAIN_INFO_FONT,
+                                 MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_COLOUR,
+                                 MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_BG);
+            if (vita_state_valid && vita_state_active && !state_active) {
+                ST7796_DrawFilledRectangle(state_x + state_w,
+                                           row_y,
+                                           MAIN_INFO_FONT.width * MAIN_INFO_SHARED_PAD_CHARS,
+                                           MAIN_INFO_FONT.height,
+                                           MAIN_INFO_TEXT_BG_COLOUR);
+            }
+            ST7796_WriteString32(state_x,
+                                 row_y,
+                                 state,
+                                 MAIN_INFO_FONT,
+                                 state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_COLOUR : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_COLOUR,
+                                 state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_BG : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_BG);
+            if (state_active) {
+                ST7796_DrawFilledRectangle(state_x,
+                                           row_y,
+                                           state_w,
+                                           MAIN_INFO_HIGHLIGHT_BORDER_H,
+                                           MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR);
+                ST7796_DrawFilledRectangle(state_x,
+                                           row_y + MAIN_INFO_FONT.height - MAIN_INFO_HIGHLIGHT_BORDER_H,
+                                           state_w,
+                                           MAIN_INFO_HIGHLIGHT_BORDER_H,
+                                           MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR);
+            }
+            vita_state_valid = 1U;
+            vita_state_active = state_active;
+            continue;
+        }
+
+        ST7796_WriteString32(MAIN_INFO_RIGHT_X,
+                             row_y,
+                             MAIN_EMPTY_RIGHT_INFO_TEXT,
+                             MAIN_INFO_FONT,
+                             MAIN_INFO_TEXT_COLOUR,
+                             MAIN_INFO_TEXT_BG_COLOUR);
+    }
+}
+
+/* ?????? Display_DrawMainLayout ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
  * Draws the parts of the screen that don't change between presets:
- *   • Dark-grey footer bar at the bottom.
- *   • Centred "MIDI / RELAY STATUS" label inside the bar.
+ *   ??? Dark-grey footer bar at the bottom.
+ *   ??? Centred "MIDI / RELAY STATUS" label inside the bar.
  * Called automatically by Display_DrawMainScreen when main_layout_dirty is set.
- * ─────────────────────────────────────────────────────────────────────────── */
+ * ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 static void Display_DrawMainLayout(void)
 {
     ST7796_DrawFilledRectangle(0U, MAIN_FOOTBAR_Y, ST7796_WIDTH, MAIN_FOOTBAR_H, MAIN_FOOTBAR_COLOR);
 
-    /* Centre the label: total pixel width = number_of_chars × font_char_width */
-    ST7796_WriteString((uint16_t)((ST7796_WIDTH - ((sizeof(MAIN_FOOTBAR_TEXT) - 1U) * Font_11x18.width)) / 2U),
-                       (uint16_t)(MAIN_FOOTBAR_Y + ((MAIN_FOOTBAR_H - Font_11x18.height) / 2U)),
+    /* Centre the label: total pixel width = number_of_chars ?? font_char_width */
+    ST7796_WriteString((uint16_t)((ST7796_WIDTH - ((sizeof(MAIN_FOOTBAR_TEXT) - 1U) * MAIN_FOOTBAR_FONT.width)) / 2U),
+                       (uint16_t)(MAIN_FOOTBAR_Y + ((MAIN_FOOTBAR_H - MAIN_FOOTBAR_FONT.height) / 2U)),
                        MAIN_FOOTBAR_TEXT,
-                       Font_11x18,
-                       ST7796_LIGHTGRAY,
+                       MAIN_FOOTBAR_FONT,
+                       MAIN_FOOTBAR_TEXT_COLOUR,
                        MAIN_FOOTBAR_COLOR);
     main_layout_dirty = 0U;
 }
 
-/* ── Display_DrawMainScreen ──────────────────────────────────────────────────
+/* ?????? Display_DrawMainScreen ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
  * Full refresh of the main screen for a given preset + BPM value.
  * Called by App_ActivatePreset() in presets.c and by the screensaver wakeup.
  *
  * Sections drawn:
- *   1. Footer bar (only if dirty — avoids a needless SPI burst every call).
+ *   1. Footer bar (only if dirty ??? avoids a needless SPI burst every call).
  *   2. BPM display (top-right).
  *   3. Preset name (centred, padded to exactly 20 characters so the previous
  *      name is fully overwritten even if it was longer).
  *   4. Three info rows: one per device slot.
  *        Left  column: MIDI channel + program number sent to that device.
  *        Right column: relay state for the first two rows.
- *      program == 0xFF means that slot is unused — shown as "CH -: ---".
- * ─────────────────────────────────────────────────────────────────────────── */
+ *      program == 0xFF means that slot is unused ??? shown as "CH -: ---".
+ * ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
 {
-    char buf[32];
-
     if (main_layout_dirty)
     {
-        ST7796_FillScreen(ST7796_BLACK);
+        ST7796_FillScreen(DISPLAY_BG_COLOUR);
         bpm_display_valid = 0U;
         Display_DrawMainLayout();
     }
 
     Display_UpdateBPM(bpm);
 
-    /* Preset name – padded to exactly 20 chars so the old name is always
-     * fully erased (the font background colour fills unused pixels in each
-     * character cell, so no separate erase rectangle is needed). */
-    {
-        char    padded[21];
-        uint8_t len   = (uint8_t)strnlen(p->name, 20U);
-        uint8_t pad_l = (uint8_t)((20U - len) / 2U);   /* left padding to centre */
-        uint8_t pad_r = (uint8_t)(20U - len - pad_l);   /* right padding          */
-        memset(padded,               ' ', pad_l);
-        memcpy(padded + pad_l,       p->name, len);
-        memset(padded + pad_l + len, ' ', pad_r);
-        padded[20] = '\0';
-        ST7796_WriteString32(10U, 85U, padded, Font_Consolas23x49, ST7796_WHITE, ST7796_BLACK);
-    }
-
-    {
-        const char *bank_name = Presets_GetBankName(current_bank);
-        char padded_bank[PRESET_BANK_NAME_MAXLEN + 1U];
-        uint8_t bank_len = (uint8_t)strnlen(bank_name, PRESET_BANK_NAME_MAXLEN);
-        uint8_t pad_l = (uint8_t)((PRESET_BANK_NAME_MAXLEN - bank_len) / 2U);
-        uint8_t pad_r = (uint8_t)(PRESET_BANK_NAME_MAXLEN - bank_len - pad_l);
-        memset(padded_bank, ' ', pad_l);
-        memcpy(padded_bank + pad_l, bank_name, bank_len);
-        memset(padded_bank + pad_l + bank_len, ' ', pad_r);
-        padded_bank[PRESET_BANK_NAME_MAXLEN] = '\0';
-        ST7796_WriteString32((uint16_t)((ST7796_WIDTH - (PRESET_BANK_NAME_MAXLEN * Font_Consolas15x35.width)) / 2U),
-                             145U,
-                             padded_bank,
-                             Font_Consolas15x35,
-                             ST7796_DARKGRAY,
-                             ST7796_BLACK);
-    }
-
-    /* Three device-info rows, one per preset slot (Echosystem, Reverb, spare).
-     * row_y values are chosen so the 35-px-tall font rows sit tightly inside
-     * the 184–291 px band without overlapping. */
-    static const uint16_t row_y[3] = {184U, 220U, 256U};
-    for (uint8_t i = 0U; i < PRESET_DEVICE_SLOTS; i++)
-    {
-        const MidiDevice_t *dev = MidiDevices_Get(i);
-        uint8_t program = p->prg[i].program;
-        if (program != 0xFFU) {
-            // Format: "CH n: ppp" (ppp = program number, always 3 chars)
-            snprintf(buf, sizeof(buf), "CH %u: %3u", dev->channel, program);
-            // Find where the program number starts in the string
-            char *prog_ptr = buf + strlen(buf) - 3;
-            // If duplicate, draw the number region with black-on-darkgray
-            if (Presets_DeviceProgramIsShared(i, program)) {
-                // Draw the prefix ("CH n: ") as usual
-                char prefix[16];
-                size_t prefix_len = prog_ptr - buf;
-                strncpy(prefix, buf, prefix_len);
-                prefix[prefix_len] = '\0';
-                ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y[i], prefix, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
-                // Draw the number with black text on dark gray background, offset by prefix width
-                uint16_t prefix_px = Font_Consolas15x35.width * (uint16_t)prefix_len;
-                ST7796_WriteString32(MAIN_INFO_LEFT_X + prefix_px, row_y[i], prog_ptr, Font_Consolas15x35, ST7796_BLACK, ST7796_DARKGRAY);
-            } else {
-                // Normal: all darkgray on black
-                ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y[i], buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
-            }
-        } else {
-            snprintf(buf, sizeof(buf), "CH -: ---");
-            ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y[i], buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
-        }
-
-        if (i < PRESET_RELAY_COUNT) {
-            snprintf(buf, sizeof(buf), "Relay_%u: %-6s", i + 1U,
-                     p->relay[i] ? "closed" : "open");
-            ST7796_WriteString32(MAIN_INFO_RIGHT_X, row_y[i], buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
-        } else if (i == PRESET_RELAY_COUNT) {
-            const char *prefix = "Vita: ";
-            uint8_t state_active = Button_SpecialFunctionsActive();
-            const char *state = state_active ? "undead" : "dead";
-            uint16_t prefix_px = Font_Consolas15x35.width * (uint16_t)strlen(prefix);
-            uint16_t state_x = MAIN_INFO_RIGHT_X + prefix_px;
-            uint16_t state_w = Font_Consolas15x35.width * (uint16_t)strlen(state);
-
-            ST7796_WriteString32(MAIN_INFO_RIGHT_X, row_y[i], prefix, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
-            if (vita_state_valid && vita_state_active && !state_active) {
-                ST7796_DrawFilledRectangle(state_x + state_w, row_y[i],
-                                           Font_Consolas15x35.width * 2U,
-                                           Font_Consolas15x35.height,
-                                           ST7796_BLACK);
-            }
-            ST7796_WriteString32(state_x, row_y[i], state,
-                                 Font_Consolas15x35,
-                                 state_active ? ST7796_WHITE : ST7796_DARKGRAY,
-                                 state_active ? ST7796_DARKRED : ST7796_BLACK);
-            if (state_active) {
-                ST7796_DrawFilledRectangle(state_x, row_y[i], state_w, 2U, ST7796_BLACK);
-                ST7796_DrawFilledRectangle(state_x, row_y[i] + Font_Consolas15x35.height - 2U,
-                                           state_w, 2U, ST7796_BLACK);
-            }
-            vita_state_valid = 1U;
-            vita_state_active = state_active;
-        } else {
-            snprintf(buf, sizeof(buf), "                ");
-            ST7796_WriteString32(MAIN_INFO_RIGHT_X, row_y[i], buf, Font_Consolas15x35, ST7796_DARKGRAY, ST7796_BLACK);
-        }
-    }
+    Display_WriteCenteredPaddedText32(MAIN_PRESET_TEXT_Y,
+                                      p->name,
+                                      MAIN_PRESET_TEXT_CHARS,
+                                      MAIN_PRESET_FONT,
+                                      MAIN_PRESET_COLOUR);
+    Display_WriteCenteredPaddedText32(MAIN_BANK_TEXT_Y,
+                                      Presets_GetBankName(current_bank),
+                                      MAIN_BANK_TEXT_CHARS,
+                                      MAIN_BANK_FONT,
+                                      MAIN_BANK_COLOUR);
+    Display_DrawMainInfoRows(p);
 }
 
-/* ── Display_UpdateBPM ───────────────────────────────────────────────────────
+/* ?????? Display_UpdateBPM ?????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
  * Redraws only the BPM value in the top-right corner.
  * Called both from Display_DrawMainScreen and from Handle_Tap_Tempo()
  * (bpm_functions.c) on every tap so the number updates immediately without
  * redrawing the whole screen.
- * ─────────────────────────────────────────────────────────────────────────── */
+ * ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 void Display_UpdateBPM(uint16_t bpm)
 {
     uint16_t display_bpm_x10 = (uint16_t)(bpm * 10U);
     uint8_t use_external = MidiClockGetExternalBpmX10(&display_bpm_x10);
     uint8_t sync_lost = MidiClockIsSyncLost();
     uint8_t was_sync_lost = bpm_display_sync_lost;
+    /* UI redraw throttling only; external BPM timing and sync-loss detection
+     * already use TIM2 inside midi_functions.c. */
     uint32_t now_ms = HAL_GetTick();
     uint8_t full_redraw;
     char buf[20];
@@ -373,8 +466,8 @@ void Display_UpdateBPM(uint16_t bpm)
             return;
         }
 
-        ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X, BPM_TEXT_Y, BPM_DISPLAY_AREA_W, BPM_FONT.height, ST7796_BLACK);
-        ST7796_WriteString32(BPM_SYNC_LOST_X, BPM_TEXT_Y, "EXT SYNC LOST", BPM_FONT, ST7796_RED, ST7796_BLACK);
+        Display_ClearBpmArea();
+        ST7796_WriteString32(BPM_SYNC_LOST_X, BPM_TEXT_Y, BPM_SYNC_LOST_TEXT, BPM_FONT, BPM_SYNC_LOST_COLOUR, BPM_BG_COLOUR);
 
         bpm_display_valid = 1U;
         bpm_display_external = 0U;
@@ -401,7 +494,7 @@ void Display_UpdateBPM(uint16_t bpm)
         full_redraw = (uint8_t)(!bpm_display_valid || was_sync_lost || bpm_display_external);
         if (full_redraw)
         {
-            ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X, BPM_TEXT_Y, BPM_DISPLAY_AREA_W, BPM_FONT.height, ST7796_BLACK);
+            Display_ClearBpmArea();
         }
 
         snprintf(buf, sizeof(buf), "%3u BPM", (unsigned)bpm);
@@ -426,7 +519,7 @@ void Display_UpdateBPM(uint16_t bpm)
     full_redraw = (uint8_t)(!bpm_display_valid || was_sync_lost || !bpm_display_external);
     if (full_redraw)
     {
-        ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X, BPM_TEXT_Y, BPM_DISPLAY_AREA_W, BPM_FONT.height, ST7796_BLACK);
+        Display_ClearBpmArea();
     }
     else
     {
@@ -483,13 +576,13 @@ void Display_UpdateBPM(uint16_t bpm)
     bpm_display_external_update_tick = now_ms;
 }
 
-/* ── Loading bar ─────────────────────────────────────────────────────────────
+/* ?????? Loading bar ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
  * Draws a progress bar that fills left-to-right over duration_ms milliseconds.
- * This is a blocking call — it does not return until the timer expires.
+ * This is a blocking call ??? it does not return until the timer expires.
  * Used during startup while the system waits for devices to power up.
  *
  * The bar is split into three text phases to keep the user entertained:
- *   0 %–33 % : "... waiting for DNA match"
+ *   0 %???33 % : "... waiting for DNA match"
  *   33%      : "DNA match found"         (shown for 1 s)
  *   33%+1 s  : "..accessing genetic markers"  (shown for 1 s)
  *   ~66%+    : text cleared
@@ -498,29 +591,29 @@ void Display_UpdateBPM(uint16_t bpm)
  * so SPI traffic is proportional to progress not to loop frequency.
  */
 
-#define LB_X        10U    /* left margin (10 px from screen edge)  */
-#define LB_Y       262U    /* top of bar, lower quarter of screen   */
-#define LB_W       460U    /* total bar width (480 - 10 left - 10 right) */
-#define LB_H        28U    /* bar height in pixels                  */
-#define LB_COLOR  ST7796_DARKRED  /* dark red in RGB565 format             */
-
-/* Text row sits just above the bar */
-#define LB_TXT_Y    246U
-/* Right-align text: start x = screen_width - (chars × char_width) - margin */
-#define LB_TXT_X(chars)  ((uint16_t)(480U - (uint16_t)(chars) * 7U - 10U))
-
-/* Erase the full text row then write a new message right-aligned. */
-static void lb_set_text(const char *txt, uint8_t len, uint16_t color)
+static void Display_LoadingBarClearTextRow(void)
 {
-    ST7796_DrawFilledRectangle(0U, LB_TXT_Y, 480U, 10U, ST7796_BLACK);  /* clear row */
-    ST7796_WriteString(LB_TXT_X(len), LB_TXT_Y, txt, Font_7x10, color, ST7796_BLACK);
+    ST7796_DrawFilledRectangle(0U, LOADING_BAR_TEXT_Y, ST7796_WIDTH, LOADING_BAR_TEXT_FONT.height, LOADING_BAR_BG_COLOUR);
+}
+
+static void Display_LoadingBarSetText(const char *text, uint16_t colour)
+{
+    size_t text_len = strlen(text);
+
+    Display_LoadingBarClearTextRow();
+    ST7796_WriteString((uint16_t)(ST7796_WIDTH - ((uint16_t)text_len * LOADING_BAR_TEXT_FONT.width) - LOADING_BAR_X),
+                       LOADING_BAR_TEXT_Y,
+                       text,
+                       LOADING_BAR_TEXT_FONT,
+                       colour,
+                       LOADING_BAR_BG_COLOUR);
 }
 
 void Display_LoadingBar(uint32_t duration_ms)
 {
-    lb_set_text("... waiting for DNA match", 25, ST7796_WHITE);
+    Display_LoadingBarSetText(LOADING_BAR_WAIT_TEXT, LOADING_BAR_TEXT_COLOUR);
 
-    ST7796_DrawFilledRectangle(LB_X, LB_Y, LB_W, LB_H, ST7796_BLACK);  /* empty bar */
+    ST7796_DrawFilledRectangle(LOADING_BAR_X, LOADING_BAR_Y, LOADING_BAR_W, LOADING_BAR_H, LOADING_BAR_BG_COLOUR);
 
     uint32_t start     = HAL_GetTick();
     uint16_t prev_fill = 0U;   /* tracks how many pixels have been filled so far */
@@ -532,54 +625,54 @@ void Display_LoadingBar(uint32_t duration_ms)
         uint32_t elapsed = HAL_GetTick() - start;
         if (elapsed >= duration_ms) elapsed = duration_ms;  /* clamp at end */
 
-        /* Fill only the new strip since last iteration — avoids redrawing
+        /* Fill only the new strip since last iteration ??? avoids redrawing
          * pixels that are already the correct colour. */
-        uint16_t fill = (uint16_t)((elapsed * LB_W) / duration_ms);
+        uint16_t fill = (uint16_t)((elapsed * LOADING_BAR_W) / duration_ms);
         if (fill > prev_fill)
         {
-            ST7796_DrawFilledRectangle(LB_X + prev_fill, LB_Y,
-                                       fill - prev_fill, LB_H, LB_COLOR);
+            ST7796_DrawFilledRectangle(LOADING_BAR_X + prev_fill, LOADING_BAR_Y,
+                                       fill - prev_fill, LOADING_BAR_H, LOADING_BAR_COLOUR);
             prev_fill = fill;
         }
 
         uint32_t now = HAL_GetTick();
 
-        /* Phase transitions — check sequentially so they can't be skipped */
-        if (phase == 0U && elapsed >= duration_ms / 3U)
+        /* Phase transitions ??? check sequentially so they can't be skipped */
+        if (phase == 0U && elapsed >= duration_ms / LOADING_BAR_PHASE_DIVISOR)
         {
-            lb_set_text("DNA match found", 15, ST7796_WHITE);
+            Display_LoadingBarSetText(LOADING_BAR_MATCH_TEXT, LOADING_BAR_TEXT_COLOUR);
             phase    = 1U;
             phase_ts = now;
         }
-        if (phase == 1U && now - phase_ts >= 1000U)
+        if (phase == 1U && now - phase_ts >= LOADING_BAR_PHASE_HOLD_MS)
         {
-            lb_set_text("..accessing genetic markers", 27, ST7796_WHITE);
+            Display_LoadingBarSetText(LOADING_BAR_MARKERS_TEXT, LOADING_BAR_TEXT_COLOUR);
             phase    = 2U;
             phase_ts = now;
         }
-        if (phase == 2U && now - phase_ts >= 1000U)
+        if (phase == 2U && now - phase_ts >= LOADING_BAR_PHASE_HOLD_MS)
         {
-            ST7796_DrawFilledRectangle(0U, LB_TXT_Y, 480U, 10U, ST7796_BLACK);
-            phase = 3U;  /* text cleared — stay here until bar finishes */
+            Display_LoadingBarClearTextRow();
+            phase = 3U;  /* text cleared ??? stay here until bar finishes */
         }
 
         if (elapsed >= duration_ms) break;
     }
 }
 
-/* ── Display_LoadingBarClear ─────────────────────────────────────────────────
+/* ?????? Display_LoadingBarClear ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
  * Clears the loading bar and shows a brief "mutation complete" message.
  * Called after Display_LoadingBar() returns, just before the fade-out.
- * ─────────────────────────────────────────────────────────────────────────── */
+ * ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 void Display_LoadingBarClear(void)
 {
-    ST7796_DrawFilledRectangle(LB_X, LB_Y, LB_W, LB_H, ST7796_BLACK);
-    lb_set_text("mutation complete", 17, ST7796_WHITE);
-    HAL_Delay(1000U);  /* leave message visible for 1 s before fade */
-    ST7796_DrawFilledRectangle(0U, LB_TXT_Y, 480U, 10U, ST7796_BLACK);
+    ST7796_DrawFilledRectangle(LOADING_BAR_X, LOADING_BAR_Y, LOADING_BAR_W, LOADING_BAR_H, LOADING_BAR_BG_COLOUR);
+    Display_LoadingBarSetText(LOADING_BAR_DONE_TEXT, LOADING_BAR_TEXT_COLOUR);
+    HAL_Delay(LOADING_BAR_PHASE_HOLD_MS);  /* leave message visible for 1 s before fade */
+    Display_LoadingBarClearTextRow();
 }
 
-/* ── Screensaver ─────────────────────────────────────────────────────────────
+/* ?????? Screensaver ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
  * Idle mode is handled by fading the display backlight out after a period of
  * inactivity, then fading it back in on the next activity event.
  *
@@ -590,65 +683,63 @@ void Display_LoadingBarClear(void)
  *   ss_last_activity has been refreshed redraws the main screen and exits.
  */
 
-#define SS_TIMEOUT_MS   (10UL * 60UL * 1000UL)  /* 10 minutes of inactivity */ 
-//#define SS_TIMEOUT_MS   (5000UL)  /* 5 second of inactivity */ 
+static uint32_t screensaver_last_activity_tick = 0U;   /* tick of last user interaction */
+static uint8_t screensaver_active = 0U;                /* 1 while screensaver is running */
 
-static uint32_t  ss_last_activity = 0U;   /* tick of last user interaction */
-static uint8_t   ss_active        = 0U;   /* 1 while screensaver is running */
-
-/* ── Display_ScreensaverActivity ─────────────────────────────────────────────
+/* ?????? Display_ScreensaverActivity ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
  * Records the current tick as the last user activity.
  * Call this from any event that should reset the screensaver timer:
  *   button presses (button_functions.c), tap tempo (main.cpp EXTI callback),
  *   preset changes (presets.c App_ActivatePreset).
- * ─────────────────────────────────────────────────────────────────────────── */
+ * ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 void Display_ScreensaverActivity(void)
 {
-    ss_last_activity = HAL_GetTick();
+    screensaver_last_activity_tick = HAL_GetTick();
 }
 
 uint8_t Display_ScreensaverIsActive(void)
 {
-    return ss_active;
+    return screensaver_active;
 }
 
 void Display_ScreensaverDismiss(void)
 {
-    if (!ss_active)
+    if (!screensaver_active)
         return;
 
-    ss_active = 0U;
+    screensaver_active = 0U;
     main_layout_dirty = 1U;
     Display_BL_FadeIn();
 }
 
-/* ── Display_ScreensaverUpdate ───────────────────────────────────────────────
+/* ?????? Display_ScreensaverUpdate ?????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
  * Called from the main while(1) loop every iteration.
  * When inactive: checks if timeout has elapsed and fades the backlight out.
  * When active:   waits for activity and restores the display on wake.
- * ─────────────────────────────────────────────────────────────────────────── */
+ * ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 void Display_ScreensaverUpdate(const Preset_t *p, uint16_t bpm)
 {
     uint32_t now = HAL_GetTick();
 
-    if (!ss_active)
+    if (!screensaver_active)
     {
-        /* Not yet active — check if we've been idle long enough */
-        if (now - ss_last_activity >= SS_TIMEOUT_MS)
+        /* Not yet active ??? check if we've been idle long enough */
+        if (now - screensaver_last_activity_tick >= SCREENSAVER_TIMEOUT_MS)
         {
-            ss_active    = 1U;
+            screensaver_active = 1U;
             main_layout_dirty = 1U;
             Display_BL_FadeOut();
         }
         return;
     }
 
-    /* Screensaver is active — check for a wake event */
-    if (now - ss_last_activity < SS_TIMEOUT_MS)
+    /* Screensaver is active ??? check for a wake event */
+    if (now - screensaver_last_activity_tick < SCREENSAVER_TIMEOUT_MS)
     {
-        /* Activity was recorded since we went to sleep — wake up */
+        /* Activity was recorded since we went to sleep ??? wake up */
         Display_ScreensaverDismiss();
         Display_DrawMainScreen(p, bpm);
         return;
     }
 }
+

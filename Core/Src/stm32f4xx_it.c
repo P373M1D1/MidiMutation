@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "led_functions.h"
+#include "midi_functions.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -220,7 +221,8 @@ void TIM6_DAC_IRQHandler(void)
   if (TIM6->SR & TIM_SR_UIF)
   {
     TIM6->SR = ~TIM_SR_UIF;
-    LED_BeatPulse();
+    if (MidiClockHandleInternalPulse())
+      LED_BeatPulse();
   }
   if (DAC->SR & (DAC_SR_DMAUDR1 | DAC_SR_DMAUDR2))
     DAC->SR |= (DAC_SR_DMAUDR1 | DAC_SR_DMAUDR2);

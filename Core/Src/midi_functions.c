@@ -4,160 +4,208 @@
 
 /* ── midi_functions.c ────────────────────────────────────────────────────────
  *
- * Multi-port MIDI TX driver.
+ * MIDI input/thru plus shared-UART MIDI TX driver.
  *
- * Physical ports (initialised in main.cpp, USER CODE BEGIN 2):
- *   Port 0 – UART4, TX = PC10, AF8  → Empress Echosystem (TRS-A jack)
- *   Port 1 – UART5, TX = PC12, AF8  → Empress Reverb     (DIN-5 jack)
- *   Ports 2–7 are blank slots, available for future devices.
+ * USART2 is full-duplex: RX is the dedicated MIDI input and TX acts as a
+ * soft-thru copy of the raw incoming byte stream. main.cpp separately owns
+ * the controller-managed MIDI-out UART and registers that handle here so
+ * preset messages and generated/forwarded clock share one smart output.
+ * Devices stay distinct on the smart output by MIDI channel, not by UART.
  *
  * To add a new device:
- *   1. Call MIDI_InitPort(n, UARTx, GPIOx, PIN, AF) in main.cpp startup.
- *   2. Add a row to the device_table in midi_devices.c.
- *   3. The preset_table in presets.c can then reference slot n.
+ *   1. Add a row to the device_table in midi_devices.c with its own channel.
+ *   2. The preset_table in presets.c can then reference that device slot.
  *
  * MIDI standard: 31 250 baud, 8 data bits, no parity, 1 stop bit (8-N-1).
- *
- * Clock maths (from main.cpp SystemClock_Config):
- *   HSE  8 MHz (ST-Link oscillator, bypass mode)
- *   PLL: M=8, N=384, P=4  →  SYSCLK = (8 × 384) / (8 × 4) = 96 MHz
- *   APB1 = SYSCLK / 2 = 48 MHz  (UART4 and UART5 both live on APB1)
- *   UART baud divider = 48 000 000 / 31 250 = 1536  (exact integer, zero jitter)
- *
- * Each port has its own UART handle; only the TX pin is configured because
- * MIDI is a one-way (send-only) protocol in this application.
+ * Input sync still arrives on USART2 RX and is handled separately below.
  * ─────────────────────────────────────────────────────────────────────────── */
 
-/* One HAL handle per port; indexed by the port number passed to MIDI_InitPort */
-static UART_HandleTypeDef huart[MIDI_PORT_COUNT];
+/* Registered from main.cpp after the chosen MIDI-out UART has been configured. */
+static UART_HandleTypeDef *midi_output_uart = NULL;
 static UART_HandleTypeDef midi_input_uart;
+
+/* MIDI wire-format and UART settings. Keep these values visible because they
+ * come directly from the MIDI spec or from how this firmware represents BPM. */
+#define MIDI_TX_TIMEOUT_MS                 10U
+#define MIDI_UART_IRQ_PREEMPT_PRIORITY     2U
+#define MIDI_UART_IRQ_SUBPRIORITY          1U
+#define MIDI_CHANNEL_FIRST                 1U
+#define MIDI_CHANNEL_LAST                  16U
+#define MIDI_CHANNEL_STATUS_MASK           0x0FU
+#define MIDI_DATA_MASK                     0x7FU
+#define MIDI_STATUS_BIT                    0x80U
+#define MIDI_PROGRAM_CHANGE_STATUS         0xC0U
+#define MIDI_CONTROL_CHANGE_STATUS         0xB0U
+#define MIDI_TIMECODE_QUARTER_FRAME        0xF1U
+#define MIDI_REALTIME_CLOCK                0xF8U
+#define MIDI_REALTIME_START                0xFAU
+#define MIDI_REALTIME_CONTINUE             0xFBU
+#define MIDI_REALTIME_STOP                 0xFCU
+#define MIDI_REALTIME_STATUS_FIRST         0xF8U
+#define MIDI_UNUSED_SLOT                   0xFFU
+#define MIDI_TIMER_WRAP_VALUE              UINT32_MAX
+#define MIDI_CLOCK_US_PER_MS               1000U
+#define MIDI_CLOCK_US_PER_MINUTE_X10       600000000ULL
+#define MIDI_CLOCK_BPM_X10_MIN             200U
+#define MIDI_CLOCK_BPM_X10_MAX             2400U
+#define MIDI_BPM_X10_ROUNDING_OFFSET       5U
 
 #define MIDI_CLOCK_BPM_WINDOW_PULSES 96U
 #define MIDI_CLOCK_LOST_TIMEOUT_MIN_MS 250U
 #define MIDI_CLOCK_LOST_TIMEOUT_PAD_MS 20U
 #define MIDI_CLOCK_LOST_TIMEOUT_PULSES 4U
+#define MIDI_THRU_BUFFER_SIZE 64U
 
-/* Prevents Send functions from running before Init has completed for a port */
-static uint8_t            port_ready[MIDI_PORT_COUNT];
+/* Clock-tracking fields are written from the USART2 IRQ path and read from
+ * foreground code, so the shared timing state stays in this file and uses
+ * volatile where foreground code can observe asynchronous updates. */
+static uint8_t            midi_thru_buffer[MIDI_THRU_BUFFER_SIZE];
+static uint8_t            midi_thru_head = 0U;
+static uint8_t            midi_thru_tail = 0U;
+static uint8_t            midi_internal_clock_pulse_count = 0U;
 static uint8_t            midi_clock_pulse_count = 0U;
 static volatile uint32_t  midi_clock_last_pulse_us = 0U;
 static uint32_t           midi_clock_pulse_intervals_us[MIDI_CLOCK_BPM_WINDOW_PULSES];
 static volatile uint32_t  midi_clock_pulse_interval_sum_us = 0U;
 static volatile uint8_t   midi_clock_pulse_interval_count = 0U;
 static uint8_t            midi_clock_pulse_interval_index = 0U;
+static volatile uint32_t  midi_clock_external_activity_timeout_us = 0U;
 static volatile uint16_t  midi_clock_external_bpm_x10 = 0U;
 static volatile uint8_t   midi_clock_external_bpm_valid = 0U;
 static volatile uint8_t   midi_clock_sync_lost = 0U;
 static volatile uint8_t   midi_transport_running = 0U;
 static volatile MidiTransportEvent_t midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
+static uint8_t            midi_input_expect_timecode_data = 0U;
 static void               midi_clock_reset_sync(void);
 static void               midi_clock_get_timing_snapshot(uint32_t *last_pulse_us,
                                                          uint32_t *pulse_interval_sum_us,
                                                          uint8_t *pulse_interval_count);
+static uint32_t           midi_clock_compute_activity_timeout_us(uint32_t pulse_interval_sum_us,
+                                                                 uint8_t pulse_interval_count);
 static void               midi_clock_update_sync_state(void);
+static void               midi_uart_apply_standard_config(UART_HandleTypeDef *uart_handle,
+                                                          USART_TypeDef *instance,
+                                                          uint32_t mode);
+static uint8_t            midi_channel_is_valid(uint8_t channel);
+static void               midi_input_queue_thru_byte(uint8_t byte);
+static void               midi_input_service_thru_tx(void);
+static uint8_t            midi_clock_external_is_active(void);
+static void               midi_output_send_realtime_byte(uint8_t byte);
+static uint8_t            midi_input_is_sync_byte(uint8_t byte);
 
-/* ── Clock helpers ───────────────────────────────────────────────────────────
- * These two functions are kept here rather than relying on MX_GPIO_Init /
- * MX_UARTx_Init in main.cpp so that MIDI ports can be initialised
- * independently at any point in startup without ordering constraints.
- * ─────────────────────────────────────────────────────────────────────────── */
-
-/* Enable the RCC clock for the given UART peripheral. */
-static void uart_clk_enable(USART_TypeDef *uart)
+static void midi_uart_apply_standard_config(UART_HandleTypeDef *uart_handle,
+                                            USART_TypeDef *instance,
+                                            uint32_t mode)
 {
-    if      (uart == USART1)  { __HAL_RCC_USART1_CLK_ENABLE(); }
-    else if (uart == USART2)  { __HAL_RCC_USART2_CLK_ENABLE(); }
-    else if (uart == USART3)  { __HAL_RCC_USART3_CLK_ENABLE(); }
-    else if (uart == UART4)   { __HAL_RCC_UART4_CLK_ENABLE();  }  /* PC10 – Echosystem */
-    else if (uart == UART5)   { __HAL_RCC_UART5_CLK_ENABLE();  }  /* PC12 – Reverb     */
-    else if (uart == USART6)  { __HAL_RCC_USART6_CLK_ENABLE(); }
-#if defined(UART7)
-    else if (uart == UART7)   { __HAL_RCC_UART7_CLK_ENABLE();  }
-#endif
-#if defined(UART8)
-    else if (uart == UART8)   { __HAL_RCC_UART8_CLK_ENABLE();  }
-#endif
-#if defined(UART9)
-    else if (uart == UART9)   { __HAL_RCC_UART9_CLK_ENABLE();  }
-#endif
-#if defined(UART10)
-    else if (uart == UART10)  { __HAL_RCC_UART10_CLK_ENABLE(); }
-#endif
+    /* TX and RX paths share the same 31.25 kbaud, 8-N-1 framing; only the
+     * enabled direction differs between dedicated output ports and MIDI input. */
+    uart_handle->Instance          = instance;
+    uart_handle->Init.BaudRate     = MIDI_BAUD_RATE;
+    uart_handle->Init.WordLength   = UART_WORDLENGTH_8B;
+    uart_handle->Init.StopBits     = UART_STOPBITS_1;
+    uart_handle->Init.Parity       = UART_PARITY_NONE;
+    uart_handle->Init.Mode         = mode;
+    uart_handle->Init.HwFlowCtl    = UART_HWCONTROL_NONE;
+    uart_handle->Init.OverSampling = UART_OVERSAMPLING_16;
 }
 
-/* Enable the RCC clock for a GPIO port (A–H). */
-static void gpio_clk_enable(GPIO_TypeDef *gp)
+void MidiSetOutputUart(UART_HandleTypeDef *uart_handle)
 {
-    if      (gp == GPIOA) { __HAL_RCC_GPIOA_CLK_ENABLE(); }
-    else if (gp == GPIOB) { __HAL_RCC_GPIOB_CLK_ENABLE(); }
-    else if (gp == GPIOC) { __HAL_RCC_GPIOC_CLK_ENABLE(); }  /* MIDI TX pins PC10, PC12 */
-    else if (gp == GPIOD) { __HAL_RCC_GPIOD_CLK_ENABLE(); }
-    else if (gp == GPIOE) { __HAL_RCC_GPIOE_CLK_ENABLE(); }
-    else if (gp == GPIOF) { __HAL_RCC_GPIOF_CLK_ENABLE(); }
-    else if (gp == GPIOG) { __HAL_RCC_GPIOG_CLK_ENABLE(); }
-#if defined(GPIOH)
-    else if (gp == GPIOH) { __HAL_RCC_GPIOH_CLK_ENABLE(); }
-#endif
-}
-
-/* ── MIDI_InitPort ───────────────────────────────────────────────────────────
- * Configures one TX-only UART at MIDI baud rate (31 250).
- * Call once per port during startup (see main.cpp USER CODE BEGIN 2).
- *
- * The GPIO pin is set to Alternate Function push-pull at low speed –
- * low speed is fine; at 31 250 baud the signal edge rate is very gentle.
- * ─────────────────────────────────────────────────────────────────────────── */
-void MIDI_InitPort(uint8_t port, USART_TypeDef *uart,
-                   GPIO_TypeDef *gpio_port, uint16_t pin, uint8_t af)
-{
-    if (port >= MIDI_PORT_COUNT) return;
-
-    gpio_clk_enable(gpio_port);
-    uart_clk_enable(uart);
-
-    /* Configure TX pin as alternate function, push-pull output */
-    GPIO_InitTypeDef gpio = {0};
-    gpio.Pin       = pin;
-    gpio.Mode      = GPIO_MODE_AF_PP;
-    gpio.Pull      = GPIO_NOPULL;
-    gpio.Speed     = GPIO_SPEED_FREQ_LOW;
-    gpio.Alternate = af;                    /* e.g. GPIO_AF8_UART4 for PC10 */
-    HAL_GPIO_Init(gpio_port, &gpio);
-
-    /* 31 250 baud, 8-N-1, TX only – standard MIDI electrical spec */
-    huart[port].Instance          = uart;
-    huart[port].Init.BaudRate     = 31250;
-    huart[port].Init.WordLength   = UART_WORDLENGTH_8B;
-    huart[port].Init.StopBits     = UART_STOPBITS_1;
-    huart[port].Init.Parity       = UART_PARITY_NONE;
-    huart[port].Init.Mode         = UART_MODE_TX;      /* RX not wired/needed */
-    huart[port].Init.HwFlowCtl    = UART_HWCONTROL_NONE;
-    huart[port].Init.OverSampling = UART_OVERSAMPLING_16;
-    HAL_UART_Init(&huart[port]);
-
-    port_ready[port] = 1U;
+    midi_output_uart = uart_handle;
 }
 
 void MidiInitInput(void)
 {
-    midi_input_uart.Instance          = USART2;
-    midi_input_uart.Init.BaudRate     = 31250;
-    midi_input_uart.Init.WordLength   = UART_WORDLENGTH_8B;
-    midi_input_uart.Init.StopBits     = UART_STOPBITS_1;
-    midi_input_uart.Init.Parity       = UART_PARITY_NONE;
-    midi_input_uart.Init.Mode         = UART_MODE_RX;
-    midi_input_uart.Init.HwFlowCtl    = UART_HWCONTROL_NONE;
-    midi_input_uart.Init.OverSampling = UART_OVERSAMPLING_16;
+    midi_uart_apply_standard_config(&midi_input_uart, USART2, UART_MODE_TX_RX);
     if (HAL_UART_Init(&midi_input_uart) != HAL_OK)
     {
         Error_Handler();
     }
 
-    HAL_NVIC_SetPriority(USART2_IRQn, 2U, 1U);
+    midi_thru_head = 0U;
+    midi_thru_tail = 0U;
+    HAL_NVIC_SetPriority(USART2_IRQn, MIDI_UART_IRQ_PREEMPT_PRIORITY, MIDI_UART_IRQ_SUBPRIORITY);
     HAL_NVIC_EnableIRQ(USART2_IRQn);
     __HAL_UART_ENABLE_IT(&midi_input_uart, UART_IT_RXNE);
     __HAL_UART_ENABLE_IT(&midi_input_uart, UART_IT_ERR);
+    __HAL_UART_DISABLE_IT(&midi_input_uart, UART_IT_TXE);
     midi_clock_reset_sync();
+}
+
+static uint8_t midi_channel_is_valid(uint8_t channel)
+{
+    return (uint8_t)(channel >= MIDI_CHANNEL_FIRST && channel <= MIDI_CHANNEL_LAST);
+}
+
+static uint32_t midi_clock_compute_activity_timeout_us(uint32_t pulse_interval_sum_us,
+                                                       uint8_t pulse_interval_count)
+{
+    uint32_t timeout_us = (uint32_t)MIDI_CLOCK_LOST_TIMEOUT_MIN_MS * MIDI_CLOCK_US_PER_MS;
+
+    if (pulse_interval_count > 0U)
+    {
+        uint32_t average_pulse_us = pulse_interval_sum_us / (uint32_t)pulse_interval_count;
+        timeout_us = average_pulse_us * MIDI_CLOCK_LOST_TIMEOUT_PULSES;
+        timeout_us += (uint32_t)MIDI_CLOCK_LOST_TIMEOUT_PAD_MS * MIDI_CLOCK_US_PER_MS;
+
+        uint32_t min_timeout_us = (uint32_t)MIDI_CLOCK_LOST_TIMEOUT_MIN_MS * MIDI_CLOCK_US_PER_MS;
+        if (timeout_us < min_timeout_us)
+            timeout_us = min_timeout_us;
+    }
+
+    return timeout_us;
+}
+
+static void midi_input_queue_thru_byte(uint8_t byte)
+{
+    uint8_t next_head = (uint8_t)((midi_thru_head + 1U) % MIDI_THRU_BUFFER_SIZE);
+
+    if (next_head == midi_thru_tail)
+    {
+        /* Soft-thru must never stall the receive IRQ; if the buffer ever fills,
+         * drop the newest byte rather than blocking clock capture. */
+        return;
+    }
+
+    midi_thru_buffer[midi_thru_head] = byte;
+    midi_thru_head = next_head;
+    __HAL_UART_ENABLE_IT(&midi_input_uart, UART_IT_TXE);
+}
+
+static void midi_input_service_thru_tx(void)
+{
+    if (midi_thru_tail == midi_thru_head)
+    {
+        __HAL_UART_DISABLE_IT(&midi_input_uart, UART_IT_TXE);
+        return;
+    }
+
+    midi_input_uart.Instance->DR = midi_thru_buffer[midi_thru_tail];
+    midi_thru_tail = (uint8_t)((midi_thru_tail + 1U) % MIDI_THRU_BUFFER_SIZE);
+
+    if (midi_thru_tail == midi_thru_head)
+        __HAL_UART_DISABLE_IT(&midi_input_uart, UART_IT_TXE);
+}
+
+static uint8_t midi_clock_external_is_active(void)
+{
+    uint32_t last_pulse_us = midi_clock_last_pulse_us;
+
+    if (midi_transport_running)
+        return 1U;
+
+    if (last_pulse_us == 0U)
+        return 0U;
+
+    return (uint8_t)((TIM2->CNT - last_pulse_us) <= midi_clock_external_activity_timeout_us);
+}
+
+static void midi_output_send_realtime_byte(uint8_t byte)
+{
+    if (!midi_output_uart || midi_output_uart->Instance == NULL)
+        return;
+
+    HAL_UART_Transmit(midi_output_uart, &byte, 1U, MIDI_TX_TIMEOUT_MS);
 }
 
 /* ── MIDI_SendProgramChange ──────────────────────────────────────────────────
@@ -167,15 +215,16 @@ void MidiInitInput(void)
  *
  * The 10 ms timeout is more than enough: at 31 250 baud two bytes take ~640 µs.
  * ─────────────────────────────────────────────────────────────────────────── */
-void MIDI_SendProgramChange(uint8_t port, uint8_t channel, uint8_t program)
+void MIDI_SendProgramChange(uint8_t channel, uint8_t program)
 {
-    if (port >= MIDI_PORT_COUNT || !port_ready[port]) return;
+    if (!midi_output_uart || midi_output_uart->Instance == NULL || !midi_channel_is_valid(channel))
+        return;
 
     uint8_t msg[2] = {
-        (uint8_t)(0xC0U | ((channel - 1U) & 0x0FU)),  /* channel 1-16 → nibble 0-15 */
-        (uint8_t)(program & 0x7FU),                    /* mask to 7-bit MIDI data range */
+        (uint8_t)(MIDI_PROGRAM_CHANGE_STATUS | ((channel - MIDI_CHANNEL_FIRST) & MIDI_CHANNEL_STATUS_MASK)),  /* channel 1-16 → nibble 0-15 */
+        (uint8_t)(program & MIDI_DATA_MASK),                                                 /* mask to 7-bit MIDI data range */
     };
-    HAL_UART_Transmit(&huart[port], msg, sizeof(msg), 10U);
+    HAL_UART_Transmit(midi_output_uart, msg, sizeof(msg), MIDI_TX_TIMEOUT_MS);
 }
 
 /* ── MIDI_SendCC ─────────────────────────────────────────────────────────────
@@ -186,40 +235,17 @@ void MIDI_SendProgramChange(uint8_t port, uint8_t channel, uint8_t program)
  *
  * See midi_devices.c for the CC numbers used by each pedal.
  * ─────────────────────────────────────────────────────────────────────────── */
-void MIDI_SendCC(uint8_t port, uint8_t channel, uint8_t cc_number, uint8_t value)
+void MIDI_SendCC(uint8_t channel, uint8_t cc_number, uint8_t value)
 {
-    if (port >= MIDI_PORT_COUNT || !port_ready[port]) return;
+    if (!midi_output_uart || midi_output_uart->Instance == NULL || !midi_channel_is_valid(channel))
+        return;
 
     uint8_t msg[3] = {
-        (uint8_t)(0xB0U | ((channel - 1U) & 0x0FU)),
-        (uint8_t)(cc_number & 0x7FU),
-        (uint8_t)(value & 0x7FU),
+        (uint8_t)(MIDI_CONTROL_CHANGE_STATUS | ((channel - MIDI_CHANNEL_FIRST) & MIDI_CHANNEL_STATUS_MASK)),
+        (uint8_t)(cc_number & MIDI_DATA_MASK),
+        (uint8_t)(value & MIDI_DATA_MASK),
     };
-    HAL_UART_Transmit(&huart[port], msg, sizeof(msg), 10U);
-}
-
-/* ── Midi_LoadPreset ─────────────────────────────────────────────────────────
- * Iterates all device slots in the preset and sends a Program Change to each
- * device whose slot is not skipped (program != 0xFF), then emits any extra
- * per-preset CC messages whose channel/CC fields are populated.
- * Called by App_ActivatePreset() in presets.c whenever a new preset is loaded.
- * ─────────────────────────────────────────────────────────────────────────── */
-static uint8_t Midi_TryResolvePortForChannel(uint8_t channel, uint8_t *port)
-{
-    if (channel == 0U || !port)
-        return 0U;
-
-    for (uint8_t i = 0U; i < MidiDevices_Count(); i++)
-    {
-        const MidiDevice_t *dev = MidiDevices_Get(i);
-        if (dev->channel == channel)
-        {
-            *port = dev->midi_port;
-            return 1U;
-        }
-    }
-
-    return 0U;
+    HAL_UART_Transmit(midi_output_uart, msg, sizeof(msg), MIDI_TX_TIMEOUT_MS);
 }
 
 static void midi_clock_reset_sync(void)
@@ -229,6 +255,8 @@ static void midi_clock_reset_sync(void)
     midi_clock_pulse_interval_sum_us = 0U;
     midi_clock_pulse_interval_count = 0U;
     midi_clock_pulse_interval_index = 0U;
+    midi_clock_external_activity_timeout_us =
+        (uint32_t)MIDI_CLOCK_LOST_TIMEOUT_MIN_MS * MIDI_CLOCK_US_PER_MS;
     for (uint8_t i = 0U; i < MIDI_CLOCK_BPM_WINDOW_PULSES; i++)
     {
         midi_clock_pulse_intervals_us[i] = 0U;
@@ -244,6 +272,8 @@ static void midi_clock_get_timing_snapshot(uint32_t *last_pulse_us,
 {
     uint32_t primask = __get_PRIMASK();
 
+    /* Take a self-consistent snapshot because the receive IRQ can update the
+     * pulse timing fields while foreground code is checking sync state. */
     __disable_irq();
     *last_pulse_us = midi_clock_last_pulse_us;
     *pulse_interval_sum_us = midi_clock_pulse_interval_sum_us;
@@ -254,7 +284,6 @@ static void midi_clock_get_timing_snapshot(uint32_t *last_pulse_us,
 
 static void midi_clock_update_sync_state(void)
 {
-    uint32_t average_pulse_us;
     uint32_t timeout_us;
     uint32_t last_pulse_us;
     uint32_t pulse_interval_sum_us;
@@ -267,13 +296,7 @@ static void midi_clock_update_sync_state(void)
     if (last_pulse_us == 0U || pulse_interval_count == 0U)
         return;
 
-    average_pulse_us = pulse_interval_sum_us / (uint32_t)pulse_interval_count;
-    timeout_us = average_pulse_us * MIDI_CLOCK_LOST_TIMEOUT_PULSES;
-    timeout_us += (uint32_t)MIDI_CLOCK_LOST_TIMEOUT_PAD_MS * 1000U;
-
-    uint32_t min_timeout_us = (uint32_t)MIDI_CLOCK_LOST_TIMEOUT_MIN_MS * 1000U;
-    if (timeout_us < min_timeout_us)
-        timeout_us = min_timeout_us;
+    timeout_us = midi_clock_compute_activity_timeout_us(pulse_interval_sum_us, pulse_interval_count);
 
     uint32_t now_us = TIM2->CNT;
     if ((now_us - last_pulse_us) > timeout_us)
@@ -284,10 +307,53 @@ static void midi_clock_update_sync_state(void)
     }
 }
 
+static uint8_t midi_input_is_sync_byte(uint8_t byte)
+{
+    if (byte == MIDI_REALTIME_CLOCK ||
+        byte == MIDI_REALTIME_START ||
+        byte == MIDI_REALTIME_CONTINUE ||
+        byte == MIDI_REALTIME_STOP)
+    {
+        return 1U;
+    }
+
+    if (byte == MIDI_TIMECODE_QUARTER_FRAME)
+    {
+        midi_input_expect_timecode_data = 1U;
+        return 1U;
+    }
+
+    if (midi_input_expect_timecode_data)
+    {
+        /* MIDI realtime bytes may legally appear between the quarter-frame
+         * status and its data byte, so ignore them without cancelling the
+         * pending data-byte expectation. */
+        if (byte >= MIDI_REALTIME_STATUS_FIRST)
+            return 0U;
+
+        midi_input_expect_timecode_data = 0U;
+        return (uint8_t)((byte & MIDI_STATUS_BIT) == 0U);
+    }
+
+    return 0U;
+}
+
 void MidiReceive(uint8_t byte)
 {
-    if (byte == 0xFAU)
+    if (!midi_input_is_sync_byte(byte))
+        return;
+
+    if (byte == MIDI_REALTIME_CLOCK)
     {
+        /* Clock-only policy on the smart MIDI OUT: forward external clock
+         * pulses there, but keep Start/Continue/Stop local to sync tracking. */
+        midi_output_send_realtime_byte(byte);
+    }
+
+    if (byte == MIDI_REALTIME_START)
+    {
+        /* Start also acts as a fresh sync anchor: clear any stale averaging
+         * history and treat the next clock pulse as the new first sample. */
         LED_MidiClockPulse(); // Immediately blink the red LED for the first beat
         midi_transport_running = 1U;
         midi_transport_event = MIDI_TRANSPORT_EVENT_START;
@@ -297,8 +363,10 @@ void MidiReceive(uint8_t byte)
         return;
     }
 
-    if (byte == 0xFBU)
+    if (byte == MIDI_REALTIME_CONTINUE)
     {
+        /* Continue resumes external transport but does not trust any old pulse
+         * spacing history, so clock averaging restarts from scratch here too. */
         LED_MidiClockPulse();
         midi_transport_running = 1U;
         midi_transport_event = MIDI_TRANSPORT_EVENT_CONTINUE;
@@ -307,15 +375,17 @@ void MidiReceive(uint8_t byte)
         return;
     }
 
-    if (byte == 0xFCU)
+    if (byte == MIDI_REALTIME_STOP)
     {
+        /* Stop is authoritative: transport is no longer running, so clear all
+         * external-clock state immediately instead of waiting for a timeout. */
         midi_transport_running = 0U;
         midi_transport_event = MIDI_TRANSPORT_EVENT_STOP;
         midi_clock_reset_sync();
         return;
     }
 
-    if (byte != 0xF8U)
+    if (byte != MIDI_REALTIME_CLOCK)
         return;
 
 
@@ -325,14 +395,18 @@ void MidiReceive(uint8_t byte)
         midi_transport_running = 1U;
         midi_clock_reset_sync();
         midi_clock_last_pulse_us = now;
+        midi_clock_external_activity_timeout_us =
+            (uint32_t)MIDI_CLOCK_LOST_TIMEOUT_MIN_MS * MIDI_CLOCK_US_PER_MS;
         return;
     }
 
     if (midi_clock_last_pulse_us != 0U && now != midi_clock_last_pulse_us)
     {
+        /* TIM2 is a free-running 32-bit microsecond counter; handle natural
+         * wrap-around so the interval logic never depends on resetting TIM2. */
         uint32_t interval_us = (now >= midi_clock_last_pulse_us)
             ? (now - midi_clock_last_pulse_us)
-            : (0xFFFFFFFF - midi_clock_last_pulse_us + now + 1);
+            : (MIDI_TIMER_WRAP_VALUE - midi_clock_last_pulse_us + now + 1U);
 
         if (midi_clock_pulse_interval_count == MIDI_CLOCK_BPM_WINDOW_PULSES)
         {
@@ -351,11 +425,13 @@ void MidiReceive(uint8_t byte)
 
         if (midi_clock_pulse_interval_sum_us > 0U)
         {
-            uint64_t numerator = 600000000ULL * (uint64_t)midi_clock_pulse_interval_count;
-            uint32_t denominator = 24U * midi_clock_pulse_interval_sum_us;
+            /* BPM x10 = (60,000,000 us/min * 10) * pulse_count / (24 MIDI clock
+             * pulses per quarter note * summed pulse interval in microseconds). */
+            uint64_t numerator = MIDI_CLOCK_US_PER_MINUTE_X10 * (uint64_t)midi_clock_pulse_interval_count;
+            uint32_t denominator = MIDI_CLOCK_PULSES_PER_QUARTER_NOTE * midi_clock_pulse_interval_sum_us;
             uint32_t bpm_x10 = (uint32_t)((numerator + (uint64_t)(denominator / 2U)) / (uint64_t)denominator);
 
-            if (bpm_x10 >= 200U && bpm_x10 <= 2400U)
+            if (bpm_x10 >= MIDI_CLOCK_BPM_X10_MIN && bpm_x10 <= MIDI_CLOCK_BPM_X10_MAX)
             {
                 midi_clock_external_bpm_x10 = (uint16_t)bpm_x10;
                 midi_clock_external_bpm_valid = 1U;
@@ -367,13 +443,31 @@ void MidiReceive(uint8_t byte)
         }
     }
     midi_clock_last_pulse_us = now;
+    midi_clock_external_activity_timeout_us =
+        midi_clock_compute_activity_timeout_us(midi_clock_pulse_interval_sum_us,
+                                               midi_clock_pulse_interval_count);
 
+    /* 24 realtime clock bytes = one quarter note, so pulse the LED on beats
+     * rather than at the full MIDI clock rate. */
     midi_clock_pulse_count++;
-    if (midi_clock_pulse_count < 24U)
+    if (midi_clock_pulse_count < MIDI_CLOCK_PULSES_PER_QUARTER_NOTE)
         return;
 
     midi_clock_pulse_count = 0U;
     LED_MidiClockPulse();
+}
+
+uint8_t MidiClockHandleInternalPulse(void)
+{
+    if (!midi_clock_external_is_active())
+        midi_output_send_realtime_byte(MIDI_REALTIME_CLOCK);
+
+    midi_internal_clock_pulse_count++;
+    if (midi_internal_clock_pulse_count < MIDI_CLOCK_PULSES_PER_QUARTER_NOTE)
+        return 0U;
+
+    midi_internal_clock_pulse_count = 0U;
+    return 1U;
 }
 
 uint8_t MidiTransportIsRunning(void)
@@ -392,6 +486,7 @@ void MidiClockUseInternalTempo(void)
 {
     midi_transport_running = 0U;
     midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
+    midi_internal_clock_pulse_count = 0U;
     midi_clock_reset_sync();
 }
 
@@ -402,7 +497,7 @@ uint8_t MidiClockGetExternalBpm(uint16_t *bpm)
     if (!bpm || !MidiClockGetExternalBpmX10(&bpm_x10))
         return 0U;
 
-    *bpm = (uint16_t)((bpm_x10 + 5U) / 10U);
+    *bpm = (uint16_t)((bpm_x10 + MIDI_BPM_X10_ROUNDING_OFFSET) / 10U);
     return 1U;
 }
 
@@ -434,9 +529,15 @@ void USART2_IRQHandler(void)
 
         if (status & USART_SR_RXNE)
         {
+            midi_input_queue_thru_byte(byte);
             MidiReceive(byte);
         }
+
+        status = USART2->SR;
     }
+
+    if ((status & USART_SR_TXE) && ((USART2->CR1 & USART_CR1_TXEIE) != 0U))
+        midi_input_service_thru_tx();
 }
 
 void Midi_LoadPreset(const Preset_t *preset)
@@ -446,23 +547,19 @@ void Midi_LoadPreset(const Preset_t *preset)
     for (uint8_t i = 0U; i < PRESET_DEVICE_SLOTS; i++)
     {
         /* 0xFF in the program field means "don't send anything to this device" */
-        if (preset->prg[i].program == 0xFFU) continue;
+        if (preset->prg[i].program == MIDI_UNUSED_SLOT) continue;
 
-        const MidiDevice_t *dev = MidiDevices_Get(i);  /* look up port, channel etc. */
-        MIDI_SendProgramChange(dev->midi_port, dev->channel, preset->prg[i].program);
+        const MidiDevice_t *dev = MidiDevices_Get(i);  /* look up channel for this device slot */
+        MIDI_SendProgramChange(dev->channel, preset->prg[i].program);
     }
 
     for (uint8_t i = 0U; i < PRESET_CC_SLOT_COUNT; i++)
     {
         const PresetCCSlot_t *cc = &preset->cc[i];
-        uint8_t midi_port = 0U;
 
-        if (cc->channel == 0U || cc->cc_number == 0xFFU)
+        if (cc->channel == 0U || cc->cc_number == MIDI_UNUSED_SLOT)
             continue;
 
-        if (!Midi_TryResolvePortForChannel(cc->channel, &midi_port))
-            continue;
-
-        MIDI_SendCC(midi_port, cc->channel, cc->cc_number, cc->value);
+        MIDI_SendCC(cc->channel, cc->cc_number, cc->value);
     }
 }

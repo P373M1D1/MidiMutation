@@ -6,6 +6,8 @@
 #define BPM_FLASH_ADDR    0x080E0000UL  /* first word of sector 11       */
 #define BPM_FLASH_SECTOR  FLASH_SECTOR_11
 #define BPM_SAVE_DELAY_MS 2000U         /* save 2 s after last tap       */
+#define BPM_MIN           20U
+#define BPM_MAX           240U
 #define BPM_DEFAULT       120U          /* used when Flash is blank      */
 #define PRESET_DEFAULT    0U
 
@@ -15,7 +17,7 @@ extern "C" {
 
 /**
  * @brief  Erase Flash sector 11 and write BPM + preset index + bank index.
- * @param  bpm          BPM value to persist (expected range 20–240).
+ * @param  bpm          BPM value to persist (expected range BPM_MIN..BPM_MAX).
  * @param  preset_idx   Preset index to persist.
  * @param  bank_idx     Bank index to persist.
  */
@@ -23,7 +25,7 @@ void    BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx, uint8_t bank_idx);
 
 /**
  * @brief  Read BPM from Flash sector 11.
- * @return Stored value if valid (20–240), BPM_DEFAULT otherwise.
+ * @return Stored value if valid (BPM_MIN..BPM_MAX), BPM_DEFAULT otherwise.
  */
 uint16_t BPM_Flash_Load(void);
 

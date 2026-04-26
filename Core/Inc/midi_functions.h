@@ -2,19 +2,21 @@
 #define MIDI_FUNCTIONS_H
 
 /*
- * Multi-port MIDI output.  Each device gets its own UART → own optocoupler
- * current loop → no current-sharing problems, fully future-proof.
+ * Two outgoing MIDI roles are used now:
+ *   - USART2 TX acts as a soft-thru copy of whatever arrives on USART2 RX.
+ *   - main.cpp owns one separate, controller-managed MIDI OUT UART whose
+ *     Program Change, CC, and clock-only traffic is addressed by MIDI channel.
  *
- * Physical connection per port (5-pin DIN or TRS-A):
+ * Physical connection for each MIDI-out jack (5-pin DIN or TRS-A):
  *   UART_TX  → 220 Ω → MIDI OUT pin 5
  *   3.3 V    → 220 Ω → MIDI OUT pin 4
  *   GND               → MIDI OUT pin 2
  *
  * Usage:
- *   MIDI_InitPort(0, UART4, GPIOC, GPIO_PIN_10, GPIO_AF8_UART4);  // Echosystem
- *   MIDI_InitPort(1, UART5, GPIOC, GPIO_PIN_12, GPIO_AF8_UART5);  // Reverb
- *   ...
- *   MIDI_SendCC(0, channel, cc, value);
+ *   MidiInitInput();              // USART2 RX + TX soft-thru
+ *   MX_MIDI_Output_UART_Init();
+ *   MidiSetOutputUart(&huart4);
+ *   MIDI_SendCC(channel, cc, value);
  */
 
 #include <stdint.h>
@@ -26,8 +28,11 @@
 extern "C" {
 #endif
 
-/** Maximum number of independent MIDI output ports. */
-#define MIDI_PORT_COUNT  8U
+/** MIDI standard UART baud rate. */
+#define MIDI_BAUD_RATE  31250U
+
+/** MIDI clock uses 24 pulses per quarter note. */
+#define MIDI_CLOCK_PULSES_PER_QUARTER_NOTE  24U
 
 typedef enum
 {
@@ -38,48 +43,48 @@ typedef enum
 } MidiTransportEvent_t;
 
 /**
- * @brief  Initialise the dedicated MIDI input on USART2 RX.
- *         Enables the UART and its receive interrupt.
+ * @brief  Initialise MIDI input on USART2 and enable its soft-thru output.
+ *         RX bytes are echoed on USART2 TX while the parser still filters
+ *         sync traffic for the firmware's own clock handling.
  */
 void MidiInitInput(void);
 
 /**
- * @brief  Initialise one MIDI output port.
- *
- * @param  port       Port index (0 … MIDI_PORT_COUNT-1).
- * @param  uart       UART peripheral instance, e.g. UART4.
- * @param  gpio_port  GPIO port for the TX pin, e.g. GPIOC.
- * @param  pin        GPIO pin mask, e.g. GPIO_PIN_10.
- * @param  af         Alternate-function number, e.g. GPIO_AF8_UART4.
- *
- * Call once per port during startup, before any Send function.
+ * @brief  Register the one UART handle used for all outgoing MIDI traffic.
+ *         main.cpp remains responsible for configuring the UART and GPIO.
+ * @param  uart_handle  Initialised HAL UART handle for the shared MIDI out.
  */
-void MIDI_InitPort(uint8_t port, USART_TypeDef *uart,
-                   GPIO_TypeDef *gpio_port, uint16_t pin, uint8_t af);
+void MidiSetOutputUart(UART_HandleTypeDef *uart_handle);
 
 /**
- * @brief  Send a Program Change message on the given port.
- * @param  port     Port index initialised with MIDI_InitPort().
+ * @brief  Send a Program Change message on the shared MIDI output.
  * @param  channel  MIDI channel, 1–16.
  * @param  program  Program number, 0–127.
  */
-void MIDI_SendProgramChange(uint8_t port, uint8_t channel, uint8_t program);
+void MIDI_SendProgramChange(uint8_t channel, uint8_t program);
 
 /**
- * @brief  Send a Control Change (CC) message on the given port.
- * @param  port       Port index initialised with MIDI_InitPort().
+ * @brief  Send a Control Change (CC) message on the shared MIDI output.
  * @param  channel    MIDI channel, 1–16.
  * @param  cc_number  Controller number, 0–127.
  * @param  value      Controller value, 0–127.
  */
-void MIDI_SendCC(uint8_t port, uint8_t channel, uint8_t cc_number, uint8_t value);
+void MIDI_SendCC(uint8_t channel, uint8_t cc_number, uint8_t value);
 
 /**
  * @brief  Consume one received MIDI byte from the dedicated MIDI input UART.
- *         Handles realtime clock and transport bytes from MIDI input.
+ *         Filters the input to sync traffic only: MIDI clock/transport and
+ *         MIDI timecode quarter-frame bytes.
  * @param  byte  Raw MIDI byte from the UART receive register.
  */
 void MidiReceive(uint8_t byte);
+
+/**
+ * @brief  Advance one internal MIDI-clock timer pulse.
+ *         Sends an internal MIDI clock byte when no external clock is active.
+ * @retval 1 when this pulse completed a quarter note, 0 otherwise.
+ */
+uint8_t MidiClockHandleInternalPulse(void);
 
 /**
  * @brief  Return 1 while external MIDI transport is considered running.
