@@ -14,13 +14,18 @@ extern const Preset_t    *active_preset;
 #define MUTE_BUTTON_INDEX 10U
 #define FOOTSWITCH_DEBOUNCE_MS 20U
 #define BANK_COMBO_WINDOW_MS 400U
+#define BUTTON_EVENT_QUEUE_DEPTH 4U
 
 static uint8_t preset_button_state[FOOTSWITCH_COUNT] = {0U};
-static volatile uint8_t preset_button_event_pending[FOOTSWITCH_COUNT] = {0U};
-static volatile uint8_t preset_button_event_state[FOOTSWITCH_COUNT] = {0U};
+static volatile uint8_t preset_button_event_queue[FOOTSWITCH_COUNT][BUTTON_EVENT_QUEUE_DEPTH] = {{0U}};
+static volatile uint8_t preset_button_event_read_index[FOOTSWITCH_COUNT] = {0U};
+static volatile uint8_t preset_button_event_write_index[FOOTSWITCH_COUNT] = {0U};
+static volatile uint8_t preset_button_event_count[FOOTSWITCH_COUNT] = {0U};
+static volatile uint8_t preset_button_action_pending[FOOTSWITCH_COUNT] = {0U};
 static uint32_t preset_button_event_tick[FOOTSWITCH_COUNT] = {0U};
 static uint8_t special_functions_active = 0U;
 static uint8_t mute_activation_pending = 0U;
+static volatile uint8_t tap_button_action_pending = 0U;
 
 static const uint16_t preset_button_pins[FOOTSWITCH_COUNT] = {
     PRESET_BTN1_Pin,
@@ -55,6 +60,9 @@ static int8_t Button_TryResolveIndex(uint16_t gpio_pin)
 static void Button_ProcessPresetEvent(uint8_t index, uint8_t is_pressed, uint32_t now)
 {
     if (is_pressed == preset_button_state[index]) {
+        if (is_pressed) {
+            preset_button_action_pending[index] = 0U;
+        }
         return;
     }
 
@@ -82,10 +90,31 @@ static void Button_ProcessPresetEvent(uint8_t index, uint8_t is_pressed, uint32_
         } else {
             App_ActivatePreset(current_bank * PRESETS_PER_BANK + index);
         }
+
+        preset_button_action_pending[index] = 0U;
     } else if ((index == MUTE_BUTTON_INDEX) && mute_activation_pending) {
         mute_activation_pending = 0U;
         activateMute();
     }
+}
+
+uint8_t Button_ActionPending(uint8_t index)
+{
+    if (index >= FOOTSWITCH_COUNT) {
+        return 0U;
+    }
+
+    return preset_button_action_pending[index];
+}
+
+uint8_t Button_TapActionPending(void)
+{
+    return tap_button_action_pending;
+}
+
+void Button_SetTapActionPending(uint8_t is_pending)
+{
+    tap_button_action_pending = is_pending ? 1U : 0U;
 }
 
 uint8_t Button_SpecialFunctionsActive(void)
@@ -168,6 +197,7 @@ void Button_CancelTapBankCombo(void)
 void Button_HandleInterrupt(uint16_t gpio_pin)
 {
     int8_t index = Button_TryResolveIndex(gpio_pin);
+    uint8_t queue_index;
     uint32_t now;
     uint8_t is_pressed;
 
@@ -180,10 +210,24 @@ void Button_HandleInterrupt(uint16_t gpio_pin)
         return;
     }
 
-    is_pressed = Button_ReadPresetPressed((uint8_t)index);
+    if ((uint8_t)index == MUTE_BUTTON_INDEX) {
+        is_pressed = Button_ReadPresetPressed((uint8_t)index);
+    } else {
+        is_pressed = 1U;
+    }
+
     preset_button_event_tick[(uint8_t)index] = now;
-    preset_button_event_state[(uint8_t)index] = is_pressed;
-    preset_button_event_pending[(uint8_t)index] = 1U;
+
+    if (preset_button_event_count[(uint8_t)index] < BUTTON_EVENT_QUEUE_DEPTH) {
+        queue_index = preset_button_event_write_index[(uint8_t)index];
+        preset_button_event_queue[(uint8_t)index][queue_index] = is_pressed;
+        preset_button_event_write_index[(uint8_t)index] = (uint8_t)((queue_index + 1U) % BUTTON_EVENT_QUEUE_DEPTH);
+        preset_button_event_count[(uint8_t)index]++;
+    }
+
+    if (is_pressed) {
+        preset_button_action_pending[(uint8_t)index] = 1U;
+    }
 
     if ((uint8_t)index == MUTE_BUTTON_INDEX && is_pressed) {
         button_last_mute_tick = now;
@@ -199,23 +243,39 @@ void Button_ProcessPendingEvents(void) {
     }
 
     for (uint8_t i = 0U; i < FOOTSWITCH_COUNT; ++i) {
+        if ((i != MUTE_BUTTON_INDEX)
+            && preset_button_state[i]
+            && (Button_ReadPresetPressed(i) == 0U)) {
+            preset_button_state[i] = 0U;
+        }
+    }
+
+    for (uint8_t i = 0U; i < FOOTSWITCH_COUNT; ++i) {
         uint32_t primask;
-        uint8_t pending;
-        uint8_t is_pressed;
+        uint8_t queued_events;
 
-        primask = __get_PRIMASK();
-        __disable_irq();
-        pending = preset_button_event_pending[i];
-        is_pressed = preset_button_event_state[i];
-        preset_button_event_pending[i] = 0U;
-        if (primask == 0U) {
-            __enable_irq();
+        for (;;) {
+            uint8_t is_pressed;
+            uint8_t read_index;
+
+            primask = __get_PRIMASK();
+            __disable_irq();
+            queued_events = preset_button_event_count[i];
+            if (queued_events != 0U) {
+                read_index = preset_button_event_read_index[i];
+                is_pressed = preset_button_event_queue[i][read_index];
+                preset_button_event_read_index[i] = (uint8_t)((read_index + 1U) % BUTTON_EVENT_QUEUE_DEPTH);
+                preset_button_event_count[i] = (uint8_t)(queued_events - 1U);
+            }
+            if (primask == 0U) {
+                __enable_irq();
+            }
+
+            if (queued_events == 0U) {
+                break;
+            }
+
+            Button_ProcessPresetEvent(i, is_pressed, now);
         }
-
-        if (!pending) {
-            continue;
-        }
-
-        Button_ProcessPresetEvent(i, is_pressed, now);
     }
 }

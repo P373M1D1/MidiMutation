@@ -6,6 +6,7 @@
 #define BPM_FLASH_ADDR    0x080E0000UL  /* first word of sector 11       */
 #define BPM_FLASH_SECTOR  FLASH_SECTOR_11
 #define BPM_SAVE_DELAY_MS 2000U         /* save 2 s after last tap       */
+#define BPM_FLASH_WRITES_ENABLED 0U     /* temporary: avoid runtime flash stalls */
 #define BPM_MIN           20U
 #define BPM_MAX           240U
 #define BPM_DEFAULT       120U          /* used when Flash is blank      */

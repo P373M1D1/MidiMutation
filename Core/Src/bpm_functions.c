@@ -87,6 +87,12 @@ static uint8_t flash_state_read(FlashState_t *state)
 __attribute__((noinline, section(".RamFunc")))
 void BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx, uint8_t bank_idx)
 {
+#if !BPM_FLASH_WRITES_ENABLED
+    (void)bpm;
+    (void)preset_idx;
+    (void)bank_idx;
+    return;
+#else
     volatile FlashState_t *stored_state = (volatile FlashState_t *)BPM_FLASH_ADDR;
 
     /* Unlock Flash control register */
@@ -125,6 +131,7 @@ void BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx, uint8_t bank_idx)
 
     /* Lock */
     FLASH->CR |= FLASH_CR_LOCK;
+#endif
 }
 
 uint16_t BPM_Flash_Load(void)
@@ -174,8 +181,10 @@ void Handle_Tap_Tempo(void)
     if (bpm_save_tick && HAL_GetTick() >= bpm_save_tick)
     {
         bpm_save_tick = 0U;
+#if BPM_FLASH_WRITES_ENABLED
         BPM_Flash_Save(g_bpm, active_preset_index, current_bank);
         LED_FlashPulse();  /* brief blue blink to confirm write */
+#endif
     }
     LED_Update();
     Display_ScreensaverUpdate(active_preset, g_bpm);

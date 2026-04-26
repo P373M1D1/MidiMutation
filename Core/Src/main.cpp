@@ -397,10 +397,17 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(TAP_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PE0-PE10 footswitches (active-low, both edges, pull-up) */
+  /* Configure preset/special footswitches as falling-edge only so the ISR
+   * records the press edge directly instead of inferring it from a later GPIO read. */
   GPIO_InitStruct.Pin = PRESET_BTN1_Pin | PRESET_BTN2_Pin | PRESET_BTN3_Pin | PRESET_BTN4_Pin |
                         PRESET_BTN5_Pin | PRESET_BTN6_Pin | PRESET_BTN7_Pin | PRESET_BTN8_Pin |
-                        PRESET_BTN9_Pin | PRESET_BTN10_Pin | PRESET_BTN11_Pin;
+                        PRESET_BTN9_Pin | PRESET_BTN10_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(PRESET_BTN_GPIO_Port, &GPIO_InitStruct);
+
+  /* Mute still needs both edges for its hold/release behavior. */
+  GPIO_InitStruct.Pin = PRESET_BTN11_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(PRESET_BTN_GPIO_Port, &GPIO_InitStruct);
@@ -558,6 +565,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     return;
   }
 
+  Button_SetTapActionPending(1U);
+
   uint32_t now = HAL_GetTick();
 
     Display_ScreensaverDismiss();
@@ -567,18 +576,22 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     {
       /* The first tap after idle should only wake the UI, not also retime BPM. */
       Display_DrawMainScreen(active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
+      Button_SetTapActionPending(0U);
       return;
     }
 
     if (Button_HandleTapPress(now)) {
       Button_CancelTapBankCombo();
       Display_DrawMainScreen(Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
+      Button_SetTapActionPending(0U);
       return;
     }
 
   /* Ignore tap tempo while an external MIDI clock is actively running */
-  if (MidiTransportIsRunning())
+  if (MidiTransportIsRunning()) {
+    Button_SetTapActionPending(0U);
     return;
+  }
 
   if (tap_count > 0U)
   {
@@ -592,6 +605,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     }
     else if (interval < TAP_MIN_INTERVAL_MS)      /* too fast / bounce ??? ignore */
     {
+      Button_SetTapActionPending(0U);
       return;
     }
   }
@@ -601,7 +615,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   tap_head = (uint8_t)((tap_head + 1U) % TAP_BUF_SIZE);
   if (tap_count < TAP_BUF_SIZE) tap_count++;
 
-  if (tap_count < TAP_MIN_COUNT) return; /* need at least two taps */
+  if (tap_count < TAP_MIN_COUNT) {
+    Button_SetTapActionPending(0U);
+    return; /* need at least two taps */
+  }
 
   /* Average all consecutive intervals in the circular buffer so tap tempo is
    * less twitchy than using only the most recent gap. */
@@ -614,11 +631,17 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     sum += tap_ts[b] - tap_ts[a];
   }
   uint32_t avg_ms = sum / (uint32_t)(n - 1U);
-  if (avg_ms == 0U) return;
+  if (avg_ms == 0U) {
+    Button_SetTapActionPending(0U);
+    return;
+  }
 
   //uint32_t new_bpm = 60000U / avg_ms;
   uint32_t new_bpm = (uint32_t)((60000.0f / (float)avg_ms) + 0.5f);
-  if (new_bpm < BPM_MIN || new_bpm > BPM_MAX) return;
+  if (new_bpm < BPM_MIN || new_bpm > BPM_MAX) {
+    Button_SetTapActionPending(0U);
+    return;
+  }
 
   g_bpm = (uint16_t)new_bpm;
 
@@ -633,6 +656,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
   bpm_dirty     = 1U;
   bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS; /* re-arm save timer */
+  Button_SetTapActionPending(0U);
 }
 
 /* USER CODE END 4 */
