@@ -461,11 +461,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
   uint32_t now = HAL_GetTick();
 
-    if (MidiClockIsSyncLost())
-    {
-      MidiClockUseInternalTempo();
-    }
-
     Display_ScreensaverDismiss();
     Display_ScreensaverActivity();  /* any tap = user activity */
 
@@ -480,6 +475,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
       Display_DrawMainScreen(Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
       return;
     }
+
+  /* Ignore tap tempo while an external MIDI clock is actively running */
+  if (MidiTransportIsRunning())
+    return;
 
   if (tap_count > 0U)
   {
@@ -520,6 +519,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   if (new_bpm < 20U || new_bpm > 240U) return;
 
   g_bpm = (uint16_t)new_bpm;
+
+  /* Tapping takes us back to internal tempo — clear any external sync state
+   * so Display_UpdateBPM doesn't stay stuck on "EXT SYNC LOST". */
+  MidiClockUseInternalTempo();
 
   /* Sync LED to this tap and update blink rate */
   TIM6->CNT = 0U;

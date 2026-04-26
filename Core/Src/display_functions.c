@@ -134,8 +134,8 @@ static uint16_t bpm_display_value_x10 = 0U;
 #define BPM_INTERNAL_VALUE_X            365U
 #define BPM_INTERNAL_VALUE_W            (BPM_FONT.width * 3U)
 #define BPM_INTERNAL_SUFFIX_X           (BPM_INTERNAL_VALUE_X + BPM_INTERNAL_VALUE_W)
-#define BPM_EXT_PREFIX_X                (305U + BPM_FONT.width)
-#define BPM_EXT_VALUE_X                 (365U + BPM_FONT.width)
+#define BPM_EXT_PREFIX_X                305U
+#define BPM_EXT_VALUE_X                 365U
 #define BPM_EXT_VALUE_W                 (BPM_FONT.width * 3U)
 #define BPM_EXT_SUFFIX_X                (BPM_EXT_VALUE_X + BPM_EXT_VALUE_W)
 #define BPM_EXT_HYSTERESIS_X10          7U
@@ -337,12 +337,23 @@ void Display_UpdateBPM(uint16_t bpm)
         if (!bpm_display_valid || was_sync_lost || bpm_display_external)
         {
             ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X, BPM_TEXT_Y, BPM_DISPLAY_AREA_W, BPM_FONT.height, ST7796_BLACK);
-            ST7796_WriteString32(BPM_INTERNAL_SUFFIX_X, BPM_TEXT_Y, " BPM", BPM_FONT, ST7796_DARKGRAY, ST7796_BLACK);
         }
 
-        snprintf(buf, sizeof(buf), "%u", (unsigned)bpm);
-        ST7796_DrawFilledRectangle(BPM_INTERNAL_VALUE_X, BPM_TEXT_Y, BPM_INTERNAL_VALUE_W, BPM_FONT.height, ST7796_BLACK);
+        /* Redraw a fixed-width field so shrinking values (e.g. 120 -> 99)
+         * don't leave stale digits behind. */
+        snprintf(buf, sizeof(buf), "%3u", (unsigned)bpm);
+        ST7796_DrawFilledRectangle(BPM_INTERNAL_VALUE_X,
+                       BPM_TEXT_Y,
+                       (uint16_t)(BPM_FONT.width * 7U),
+                       BPM_FONT.height,
+                       ST7796_BLACK);
         ST7796_WriteString32(BPM_INTERNAL_VALUE_X, BPM_TEXT_Y, buf, BPM_FONT, ST7796_DARKGRAY, ST7796_BLACK);
+        ST7796_WriteString32((uint16_t)(BPM_INTERNAL_VALUE_X + (BPM_FONT.width * 4U)),
+                     BPM_TEXT_Y,
+                     "BPM",
+                     BPM_FONT,
+                     ST7796_DARKGRAY,
+                     ST7796_BLACK);
 
         bpm_display_valid = 1U;
         bpm_display_external = 0U;
@@ -353,12 +364,12 @@ void Display_UpdateBPM(uint16_t bpm)
 
     shown_bpm = (uint16_t)((display_bpm_x10 + 5U) / 10U);
 
-    // Compose the value string and measure its width
-    snprintf(buf, sizeof(buf), "%u", (unsigned)shown_bpm);
-    uint8_t value_len = (uint8_t)strlen(buf);
+    /* Keep external BPM value fixed-width for clean redraws; left-align so
+     * visible spacing before "BPM" remains exactly one space. */
+    snprintf(buf, sizeof(buf), "%-3u", (unsigned)shown_bpm);
     uint16_t ext_prefix_x = BPM_EXT_PREFIX_X;
     uint16_t value_x = ext_prefix_x + (uint16_t)(4 * BPM_FONT.width); // 'EXT ' is 4 chars
-    uint16_t bpm_x = value_x + (uint16_t)(value_len * BPM_FONT.width) + BPM_FONT.width; // one space after value
+    uint16_t bpm_x = BPM_EXT_SUFFIX_X + BPM_FONT.width;
 
     if (!bpm_display_valid || was_sync_lost || !bpm_display_external)
     {
@@ -380,8 +391,8 @@ void Display_UpdateBPM(uint16_t bpm)
         }
     }
 
-    // Draw value with dynamic spacing
-    ST7796_DrawFilledRectangle(value_x, BPM_TEXT_Y, (uint16_t)(value_len * BPM_FONT.width), BPM_FONT.height, ST7796_BLACK);
+    // Draw value in a fixed 3-character field
+    ST7796_DrawFilledRectangle(value_x, BPM_TEXT_Y, BPM_EXT_VALUE_W, BPM_FONT.height, ST7796_BLACK);
     ST7796_WriteString32(value_x, BPM_TEXT_Y, buf, BPM_FONT, ST7796_RED, ST7796_BLACK);
 
     bpm_display_valid = 1U;

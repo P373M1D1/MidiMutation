@@ -10,10 +10,10 @@
 /* ── Bank names ─────────────────────────────────────────────────────────────
  * You can change these to any theme: "A/B", "Clean/Dirty", etc. */
 const char * const bank_names[PRESET_BANK_COUNT] = {
-    "Alpha",
-    "Bravo",
-    "Charlie",
-    "Delta"
+    "[Strain I]",
+    "[Strain II]",
+    "[Strain III]",
+    "[Strain IV]"
 };
 
 const char *Presets_GetBankName(uint8_t bank)
@@ -54,29 +54,29 @@ static const Preset_t preset_table[PRESET_BANK_COUNT][PRESETS_PER_BANK] = {
         { "Soft Reverb",	{{11}, {11}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{1, 0} },
         { "Perfect Tape",	{{ 7}, {11}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{1, 0} },
         { "Deep Cave",	{{11}, {12}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Empty Preset",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Empty Preset",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Empty Preset",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Press Tap to Hold",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Stars at Night",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Fade to Pad",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
         { "Empty Preset",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
         { "Empty Preset",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
     },
     {
-        { "Preset 1",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 2",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 3",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 4",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 5",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 6",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Yoooo",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Paaaaaaaa ",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "triiickkk!!",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "was ",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "geeeeeeeeeht",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "aaaaaaaabb!!",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
         { "Preset 7",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
         { "Preset 8",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
     },
     {
-        { "Preset 1",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 2",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 3",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 4",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 5",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 6",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "und",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "ey",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "...",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "external tempo geht",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "sogar mit error",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "woohooo!!",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
         { "Preset 7",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
         { "Preset 8",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
     },
@@ -101,7 +101,7 @@ static const Preset_t blank_preset = {
 };
 
 static Preset_t random_preset = {
-    .name  = "random",
+    .name  = "Mutate Preset",
     .prg   = { {0xFFU}, {0xFFU}, {0xFFU} },
     .cc    = { PRESET_CC_EMPTY, PRESET_CC_EMPTY, PRESET_CC_EMPTY, PRESET_CC_EMPTY },
     .relay = { 0U, 0U },
