@@ -1,7 +1,6 @@
 #include "display_functions.h"
 #include "button_functions.h"
 #include "midi_functions.h"
-#include "umbrella_image.h"
 #include "midi_devices.h"
 #include "st7796.h"
 #include "fonts.h"
@@ -57,6 +56,7 @@
 
 #define BL_STEPS      100U
 #define BL_SPIN_DELAY 48000U   /* busy-wait cycles @ 96 MHz ≈ 0.5 ms per step */
+#define BL_BRIGHTNESS 2095U      /* max DAC value for full backlight brightness */
 
 /* ── Display_BL_Init ─────────────────────────────────────────────────────────
  * Configures PA4 as an analog output and enables DAC1 channel 1.
@@ -87,7 +87,7 @@ void Display_BL_FadeIn(void)
 {
     for (uint32_t step = 0U; step <= BL_STEPS; step++)
     {
-        DAC->DHR12R1 = (step * 4095U) / BL_STEPS;          /* linear ramp up    */
+        DAC->DHR12R1 = (step * BL_BRIGHTNESS) / BL_STEPS;          /* linear ramp up    */
         for (volatile uint32_t d = 0U; d < BL_SPIN_DELAY; d++) {}
     }
 }
@@ -101,7 +101,7 @@ void Display_BL_FadeOut(void)
 {
     for (uint32_t step = BL_STEPS; ; step--)
     {
-        DAC->DHR12R1 = (step * 4095U) / BL_STEPS;          /* linear ramp down  */
+        DAC->DHR12R1 = (step * BL_BRIGHTNESS) / BL_STEPS;          /* linear ramp down  */
         for (volatile uint32_t d = 0U; d < BL_SPIN_DELAY; d++) {}
         if (step == 0U) break;                              /* avoid uint underflow */
     }
@@ -127,6 +127,9 @@ static uint8_t bpm_display_valid = 0U;
 static uint8_t bpm_display_external = 0U;
 static uint8_t bpm_display_sync_lost = 0U;
 static uint16_t bpm_display_value_x10 = 0U;
+static uint32_t bpm_display_external_update_tick = 0U;
+static char bpm_display_internal_text[8] = "";
+static char bpm_display_external_text[14] = "";
 
 #define BPM_DISPLAY_AREA_X              280U
 #define BPM_DISPLAY_AREA_W              200U
@@ -134,11 +137,68 @@ static uint16_t bpm_display_value_x10 = 0U;
 #define BPM_INTERNAL_VALUE_X            365U
 #define BPM_INTERNAL_VALUE_W            (BPM_FONT.width * 3U)
 #define BPM_INTERNAL_SUFFIX_X           (BPM_INTERNAL_VALUE_X + BPM_INTERNAL_VALUE_W)
+#define BPM_INTERNAL_COLOUR             ST7796_DARKGREEN
 #define BPM_EXT_PREFIX_X                305U
 #define BPM_EXT_VALUE_X                 365U
 #define BPM_EXT_VALUE_W                 (BPM_FONT.width * 3U)
 #define BPM_EXT_SUFFIX_X                (BPM_EXT_VALUE_X + BPM_EXT_VALUE_W)
-#define BPM_EXT_HYSTERESIS_X10          7U
+#define BPM_EXT_HYSTERESIS_MIN_X10      1U
+#define BPM_EXT_HYSTERESIS_BPS          20U
+#define BPM_EXT_UPDATE_MIN_INTERVAL_MS  500U
+#define BPM_EXT_FORCE_UPDATE_DELTA_X10  5U
+#define BPM_EXT_SLEW_STEP_X10           1U
+#define BPM_INTERNAL_TEXT_CHARS         7U
+#define BPM_EXT_TEXT_CHARS              13U
+#define BPM_EXT_TEXT_X                  ((uint16_t)(BPM_DISPLAY_AREA_X + BPM_DISPLAY_AREA_W - (BPM_EXT_TEXT_CHARS * BPM_FONT.width)))
+#define EXT_BPM_COLOUR                  ST7796_COBALTBLUE
+
+static void Display_UpdateBpmTextCells(uint16_t x,
+                                       uint16_t y,
+                                       uint8_t width_chars,
+                                       const char *old_text,
+                                       const char *new_text,
+                                       uint16_t colour)
+{
+    size_t old_len = old_text ? strlen(old_text) : 0U;
+    size_t new_len = new_text ? strlen(new_text) : 0U;
+
+    for (uint8_t index = 0U; index < width_chars; index++)
+    {
+        char old_ch = (index < old_len) ? old_text[index] : ' ';
+        char new_ch = (index < new_len) ? new_text[index] : ' ';
+
+        if (old_ch == new_ch)
+            continue;
+
+        uint16_t char_x = (uint16_t)(x + ((uint16_t)index * BPM_FONT.width));
+        ST7796_DrawFilledRectangle(char_x, y, BPM_FONT.width, BPM_FONT.height, ST7796_BLACK);
+        if (new_ch != ' ')
+        {
+            ST7796_WriteChar32(char_x, y, new_ch, BPM_FONT, colour, ST7796_BLACK);
+        }
+    }
+}
+
+static void Display_FormatExternalBpmText(char *buffer, size_t buffer_size, uint16_t bpm_x10)
+{
+    char text[20];
+
+    snprintf(text, sizeof(text), "EXT %u.%u BPM",
+             (unsigned)(bpm_x10 / 10U),
+             (unsigned)(bpm_x10 % 10U));
+
+    snprintf(buffer, buffer_size, "%*s", (int)BPM_EXT_TEXT_CHARS, text);
+}
+
+static uint16_t Display_GetExternalBpmHysteresisX10(uint16_t reference_bpm_x10)
+{
+    uint32_t hysteresis_x10 = (((uint32_t)reference_bpm_x10 * BPM_EXT_HYSTERESIS_BPS) + 5000U) / 10000U;
+
+    if (hysteresis_x10 < BPM_EXT_HYSTERESIS_MIN_X10)
+        hysteresis_x10 = BPM_EXT_HYSTERESIS_MIN_X10;
+
+    return (uint16_t)hysteresis_x10;
+}
 
 /* ── Display_DrawMainLayout ──────────────────────────────────────────────────
  * Draws the parts of the screen that don't change between presets:
@@ -302,8 +362,9 @@ void Display_UpdateBPM(uint16_t bpm)
     uint8_t use_external = MidiClockGetExternalBpmX10(&display_bpm_x10);
     uint8_t sync_lost = MidiClockIsSyncLost();
     uint8_t was_sync_lost = bpm_display_sync_lost;
+    uint32_t now_ms = HAL_GetTick();
+    uint8_t full_redraw;
     char buf[20];
-    uint16_t shown_bpm;
 
     if (sync_lost)
     {
@@ -319,6 +380,9 @@ void Display_UpdateBPM(uint16_t bpm)
         bpm_display_external = 0U;
         bpm_display_sync_lost = 1U;
         bpm_display_value_x10 = 0U;
+        bpm_display_external_update_tick = 0U;
+        bpm_display_internal_text[0] = '\0';
+        bpm_display_external_text[0] = '\0';
         return;
     }
 
@@ -334,71 +398,89 @@ void Display_UpdateBPM(uint16_t bpm)
             return;
         }
 
-        if (!bpm_display_valid || was_sync_lost || bpm_display_external)
+        full_redraw = (uint8_t)(!bpm_display_valid || was_sync_lost || bpm_display_external);
+        if (full_redraw)
         {
             ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X, BPM_TEXT_Y, BPM_DISPLAY_AREA_W, BPM_FONT.height, ST7796_BLACK);
         }
 
-        /* Redraw a fixed-width field so shrinking values (e.g. 120 -> 99)
-         * don't leave stale digits behind. */
-        snprintf(buf, sizeof(buf), "%3u", (unsigned)bpm);
-        ST7796_DrawFilledRectangle(BPM_INTERNAL_VALUE_X,
-                       BPM_TEXT_Y,
-                       (uint16_t)(BPM_FONT.width * 7U),
-                       BPM_FONT.height,
-                       ST7796_BLACK);
-        ST7796_WriteString32(BPM_INTERNAL_VALUE_X, BPM_TEXT_Y, buf, BPM_FONT, ST7796_DARKGRAY, ST7796_BLACK);
-        ST7796_WriteString32((uint16_t)(BPM_INTERNAL_VALUE_X + (BPM_FONT.width * 4U)),
-                     BPM_TEXT_Y,
-                     "BPM",
-                     BPM_FONT,
-                     ST7796_DARKGRAY,
-                     ST7796_BLACK);
+        snprintf(buf, sizeof(buf), "%3u BPM", (unsigned)bpm);
+        Display_UpdateBpmTextCells(BPM_INTERNAL_VALUE_X,
+                                   BPM_TEXT_Y,
+                                   BPM_INTERNAL_TEXT_CHARS,
+                                   full_redraw ? "" : bpm_display_internal_text,
+                                   buf,
+                                   BPM_INTERNAL_COLOUR);
+        strcpy(bpm_display_internal_text, buf);
+        bpm_display_external_text[0] = '\0';
 
         bpm_display_valid = 1U;
         bpm_display_external = 0U;
+        bpm_display_sync_lost = 0U;
         bpm_display_value_x10 = display_bpm_x10;
+        bpm_display_external_update_tick = 0U;
         return;
     }
 
 
-    shown_bpm = (uint16_t)((display_bpm_x10 + 5U) / 10U);
-
-    /* Keep external BPM value fixed-width for clean redraws; left-align so
-     * visible spacing before "BPM" remains exactly one space. */
-    snprintf(buf, sizeof(buf), "%-3u", (unsigned)shown_bpm);
-    uint16_t ext_prefix_x = BPM_EXT_PREFIX_X;
-    uint16_t value_x = ext_prefix_x + (uint16_t)(4 * BPM_FONT.width); // 'EXT ' is 4 chars
-    uint16_t bpm_x = BPM_EXT_SUFFIX_X + BPM_FONT.width;
-
-    if (!bpm_display_valid || was_sync_lost || !bpm_display_external)
+    full_redraw = (uint8_t)(!bpm_display_valid || was_sync_lost || !bpm_display_external);
+    if (full_redraw)
     {
         ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X, BPM_TEXT_Y, BPM_DISPLAY_AREA_W, BPM_FONT.height, ST7796_BLACK);
-        ST7796_WriteString32(ext_prefix_x, BPM_TEXT_Y, "EXT ", BPM_FONT, ST7796_RED, ST7796_BLACK);
-        ST7796_WriteString32(bpm_x, BPM_TEXT_Y, "BPM", BPM_FONT, ST7796_RED, ST7796_BLACK);
     }
     else
     {
-        uint16_t current_shown_bpm = (uint16_t)((bpm_display_value_x10 + 5U) / 10U);
-        uint16_t upper_threshold_x10 = (uint16_t)(current_shown_bpm * 10U + BPM_EXT_HYSTERESIS_X10);
-        uint16_t lower_threshold_x10 = (current_shown_bpm > 0U && current_shown_bpm * 10U > BPM_EXT_HYSTERESIS_X10)
-            ? (uint16_t)(current_shown_bpm * 10U - BPM_EXT_HYSTERESIS_X10)
+        uint16_t delta_x10;
+        uint16_t hysteresis_x10 = Display_GetExternalBpmHysteresisX10(bpm_display_value_x10);
+        uint16_t upper_threshold_x10 = (uint16_t)(bpm_display_value_x10 + hysteresis_x10);
+        uint16_t lower_threshold_x10 = (bpm_display_value_x10 > hysteresis_x10)
+            ? (uint16_t)(bpm_display_value_x10 - hysteresis_x10)
             : 0U;
 
-        if (display_bpm_x10 < upper_threshold_x10 && display_bpm_x10 > lower_threshold_x10)
+        if (display_bpm_x10 <= upper_threshold_x10 && display_bpm_x10 >= lower_threshold_x10)
         {
             return;
         }
+
+        delta_x10 = (display_bpm_x10 >= bpm_display_value_x10)
+            ? (uint16_t)(display_bpm_x10 - bpm_display_value_x10)
+            : (uint16_t)(bpm_display_value_x10 - display_bpm_x10);
+        if (delta_x10 < BPM_EXT_FORCE_UPDATE_DELTA_X10
+         && (now_ms - bpm_display_external_update_tick) < BPM_EXT_UPDATE_MIN_INTERVAL_MS)
+        {
+            return;
+        }
+
+        if (delta_x10 < BPM_EXT_FORCE_UPDATE_DELTA_X10)
+        {
+            if (display_bpm_x10 > bpm_display_value_x10)
+            {
+                display_bpm_x10 = (uint16_t)(bpm_display_value_x10 + BPM_EXT_SLEW_STEP_X10);
+            }
+            else
+            {
+                display_bpm_x10 = (bpm_display_value_x10 > BPM_EXT_SLEW_STEP_X10)
+                    ? (uint16_t)(bpm_display_value_x10 - BPM_EXT_SLEW_STEP_X10)
+                    : 0U;
+            }
+        }
     }
 
-    // Draw value in a fixed 3-character field
-    ST7796_DrawFilledRectangle(value_x, BPM_TEXT_Y, BPM_EXT_VALUE_W, BPM_FONT.height, ST7796_BLACK);
-    ST7796_WriteString32(value_x, BPM_TEXT_Y, buf, BPM_FONT, ST7796_RED, ST7796_BLACK);
+    Display_FormatExternalBpmText(buf, sizeof(buf), display_bpm_x10);
+    Display_UpdateBpmTextCells(BPM_EXT_TEXT_X,
+                               BPM_TEXT_Y,
+                               BPM_EXT_TEXT_CHARS,
+                               full_redraw ? "" : bpm_display_external_text,
+                               buf,
+                               EXT_BPM_COLOUR);
+    strcpy(bpm_display_external_text, buf);
+    bpm_display_internal_text[0] = '\0';
 
     bpm_display_valid = 1U;
     bpm_display_external = 1U;
     bpm_display_sync_lost = 0U;
     bpm_display_value_x10 = display_bpm_x10;
+    bpm_display_external_update_tick = now_ms;
 }
 
 /* ── Loading bar ─────────────────────────────────────────────────────────────
@@ -420,7 +502,7 @@ void Display_UpdateBPM(uint16_t bpm)
 #define LB_Y       262U    /* top of bar, lower quarter of screen   */
 #define LB_W       460U    /* total bar width (480 - 10 left - 10 right) */
 #define LB_H        28U    /* bar height in pixels                  */
-#define LB_COLOR  0x000EU  /* dark red in BGR565 format             */
+#define LB_COLOR  ST7796_DARKRED  /* dark red in RGB565 format             */
 
 /* Text row sits just above the bar */
 #define LB_TXT_Y    246U
@@ -498,47 +580,21 @@ void Display_LoadingBarClear(void)
 }
 
 /* ── Screensaver ─────────────────────────────────────────────────────────────
- * DVD-style bouncing sprite (umbrella image from umbrella_image.h).
+ * Idle mode is handled by fading the display backlight out after a period of
+ * inactivity, then fading it back in on the next activity event.
  *
  * Activation: triggers after SS_TIMEOUT_MS of inactivity.
- *   Any call to Display_ScreensaverActivity() resets the inactivity timer —
- *   called from button presses, tap tempo, and preset changes.
+ *   Any call to Display_ScreensaverActivity() resets the inactivity timer.
  *
  * Deactivation: the first Display_ScreensaverUpdate() call after
  *   ss_last_activity has been refreshed redraws the main screen and exits.
- *
- * Flicker-free movement:
- *   Only the thin strips vacated by the sprite (left/right or top/bottom)
- *   are erased each step.  The rest of the sprite's previous position is
- *   overwritten by the new sprite draw, so no full-box erase is needed.
- *
- * Bounce: when the sprite hits a wall its velocity component is negated.
- *   Both x and y walls are checked every step — corner hits reverse both.
- *
- * Call Display_ScreensaverUpdate() from the main loop on every iteration.
- * It returns early (no SPI traffic) if the step interval hasn't elapsed.
  */
 
 #define SS_TIMEOUT_MS   (10UL * 60UL * 1000UL)  /* 10 minutes of inactivity */ 
 //#define SS_TIMEOUT_MS   (5000UL)  /* 5 second of inactivity */ 
-#define SS_BOX_W        UMBRELLA_W               /* sprite width  (px)       */
-#define SS_BOX_H        UMBRELLA_H               /* sprite height (px)       */
-#define SS_STEP_MS      40U                      /* move every 40 ms = 25 fps */
-#define SS_VX            6                       /* horizontal pixels / step */
-#define SS_VY            4                       /* vertical   pixels / step */
 
 static uint32_t  ss_last_activity = 0U;   /* tick of last user interaction */
 static uint8_t   ss_active        = 0U;   /* 1 while screensaver is running */
-static uint32_t  ss_last_move     = 0U;   /* tick of last sprite move       */
-static int16_t   ss_x             = 0;    /* current sprite top-left x      */
-static int16_t   ss_y             = 0;    /* current sprite top-left y      */
-static int8_t    ss_vx            = SS_VX; /* signed velocity: positive = right */
-static int8_t    ss_vy            = SS_VY; /* signed velocity: positive = down  */
-
-static void Display_ScreensaverEraseSprite(void)
-{
-    ST7796_DrawFilledRectangle((uint16_t)ss_x, (uint16_t)ss_y, SS_BOX_W, SS_BOX_H, ST7796_BLACK);
-}
 
 /* ── Display_ScreensaverActivity ─────────────────────────────────────────────
  * Records the current tick as the last user activity.
@@ -563,13 +619,13 @@ void Display_ScreensaverDismiss(void)
 
     ss_active = 0U;
     main_layout_dirty = 1U;
-    Display_ScreensaverEraseSprite();
+    Display_BL_FadeIn();
 }
 
 /* ── Display_ScreensaverUpdate ───────────────────────────────────────────────
  * Called from the main while(1) loop every iteration.
- * When inactive: checks if timeout has elapsed and activates if so.
- * When active:   moves the sprite and checks for wake events.
+ * When inactive: checks if timeout has elapsed and fades the backlight out.
+ * When active:   waits for activity and restores the display on wake.
  * ─────────────────────────────────────────────────────────────────────────── */
 void Display_ScreensaverUpdate(const Preset_t *p, uint16_t bpm)
 {
@@ -581,15 +637,8 @@ void Display_ScreensaverUpdate(const Preset_t *p, uint16_t bpm)
         if (now - ss_last_activity >= SS_TIMEOUT_MS)
         {
             ss_active    = 1U;
-            ss_x         = (ST7796_WIDTH  - SS_BOX_W) / 2;  /* start at screen centre */
-            ss_y         = (ST7796_HEIGHT - SS_BOX_H) / 2;
-            ss_vx        = SS_VX;
-            ss_vy        = SS_VY;
-            ss_last_move = now;
-            main_layout_dirty = 1U;          /* main screen must be redrawn on wake */
-            ST7796_FillScreen(ST7796_BLACK); /* blank screen before first sprite draw */
-            ST7796_DrawImage((uint16_t)ss_x, (uint16_t)ss_y,
-                             SS_BOX_W, SS_BOX_H, umbrella_data);
+            main_layout_dirty = 1U;
+            Display_BL_FadeOut();
         }
         return;
     }
@@ -602,43 +651,4 @@ void Display_ScreensaverUpdate(const Preset_t *p, uint16_t bpm)
         Display_DrawMainScreen(p, bpm);
         return;
     }
-
-    /* Rate-limit: only move the sprite every SS_STEP_MS milliseconds */
-    if (now - ss_last_move < SS_STEP_MS) return;
-    ss_last_move = now;
-
-    int16_t old_x = ss_x;
-    int16_t old_y = ss_y;
-
-    ss_x += ss_vx;
-    ss_y += ss_vy;
-
-    /* Bounce off each wall — clamp position to legal range and flip velocity */
-    uint8_t bounced = 0U;
-    if (ss_x <= 0)                                    { ss_x = 0;                                 ss_vx = -ss_vx; bounced = 1U; }
-    if (ss_x + (int16_t)SS_BOX_W >= ST7796_WIDTH)    { ss_x = ST7796_WIDTH  - (int16_t)SS_BOX_W; ss_vx = -ss_vx; bounced = 1U; }
-    if (ss_y <= 0)                                    { ss_y = 0;                                 ss_vy = -ss_vy; bounced = 1U; }
-    if (ss_y + (int16_t)SS_BOX_H >= ST7796_HEIGHT)   { ss_y = ST7796_HEIGHT - (int16_t)SS_BOX_H; ss_vy = -ss_vy; bounced = 1U; }
-
-    (void)bounced;  /* reserved: could change sprite colour on bounce */
-
-    /* Partial erase: only clear the thin strip the sprite has moved away from.
-     * dx/dy are the displacement this step.  The strip dimensions are chosen
-     * so the erased area exactly matches the vacated pixels — no over-erase. */
-    int16_t dx = ss_x - old_x;
-    int16_t dy = ss_y - old_y;
-
-    if (dx > 0)       /* moved right — erase the left strip at the old position */
-        ST7796_DrawFilledRectangle((uint16_t)old_x, (uint16_t)ss_y, (uint16_t)dx, SS_BOX_H, ST7796_BLACK);
-    else if (dx < 0)  /* moved left  — erase the right strip */
-        ST7796_DrawFilledRectangle((uint16_t)(ss_x + SS_BOX_W), (uint16_t)ss_y, (uint16_t)(-dx), SS_BOX_H, ST7796_BLACK);
-
-    if (dy > 0)       /* moved down  — erase the top strip at the old position  */
-        ST7796_DrawFilledRectangle((uint16_t)old_x, (uint16_t)old_y, SS_BOX_W, (uint16_t)dy, ST7796_BLACK);
-    else if (dy < 0)  /* moved up    — erase the bottom strip */
-        ST7796_DrawFilledRectangle((uint16_t)old_x, (uint16_t)(ss_y + SS_BOX_H), SS_BOX_W, (uint16_t)(-dy), ST7796_BLACK);
-
-    /* Draw sprite at new position — overwrites any overlap with the old position */
-    ST7796_DrawImage((uint16_t)ss_x, (uint16_t)ss_y,
-                     SS_BOX_W, SS_BOX_H, umbrella_data);
 }

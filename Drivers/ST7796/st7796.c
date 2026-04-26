@@ -135,16 +135,16 @@ void ST7796_SetRotation(uint8_t rot)
     ST7796_WriteCmd(ST7796_MADCTL);
     switch (rot & 0x03) {
         case 0:  /* 0° portrait */
-            ST7796_WriteData(0x40);   /* MX */
+            ST7796_WriteData(0x40 | 0x08);   /* MX | BGR */
             break;
         case 1:  /* 90° landscape */
-            ST7796_WriteData(0x20);   /* MV */
+            ST7796_WriteData(0x20 | 0x08);   /* MV | BGR */
             break;
         case 2:  /* 180° portrait */
-            ST7796_WriteData(0x80);   /* MY */
+            ST7796_WriteData(0x80 | 0x08);   /* MY | BGR */
             break;
         case 3:  /* 270° landscape */
-            ST7796_WriteData(0xE0);   /* MY + MX + MV */
+            ST7796_WriteData(0xE0 | 0x08);   /* MY + MX + MV | BGR */
             break;
     }
 }
@@ -297,6 +297,28 @@ void ST7796_DrawImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint
     ST7796_CS_Set();
 }
 
+void ST7796_DrawImageSwapRB(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t *data)
+{
+    if (x + w > ST7796_WIDTH || y + h > ST7796_HEIGHT) return;
+
+    ST7796_SetAddressWindow(x, y, x + w - 1, y + h - 1);
+
+    ST7796_CS_Clr();
+    ST7796_DC_Set();
+
+    uint32_t count = (uint32_t)w * h;
+    for (uint32_t i = 0; i < count; i++) {
+        uint16_t pixel = data[i];
+        uint16_t swapped = (uint16_t)((pixel & 0x07E0U)
+                                    | ((pixel & 0xF800U) >> 11)
+                                    | ((pixel & 0x001FU) << 11));
+        uint8_t buf[2] = { (uint8_t)(swapped >> 8), (uint8_t)(swapped & 0xFF) };
+        HAL_SPI_Transmit(&ST7796_SPI_PORT, buf, 2, 100);
+    }
+
+    ST7796_CS_Set();
+}
+
 void ST7796_FadeIn(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                    const uint16_t *data, uint8_t steps, uint16_t step_delay_ms)
 {
@@ -311,18 +333,18 @@ void ST7796_FadeIn(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
         for (uint32_t i = 0; i < count; i++) {
             /* Undo the byte-swap applied during image conversion to get
                standard RGB565: R[15:11] G[10:5] B[4:0] */
-            uint16_t rgb = (uint16_t)(((data[i] & 0xFF) << 8) | (data[i] >> 8));
-            uint8_t r = (rgb >> 11) & 0x1F;
-            uint8_t g = (rgb >> 5)  & 0x3F;
-            uint8_t b =  rgb        & 0x1F;
-            r = (uint8_t)((uint32_t)r * step / steps);
-            g = (uint8_t)((uint32_t)g * step / steps);
-            b = (uint8_t)((uint32_t)b * step / steps);
-            uint16_t dimmed = ((uint16_t)r << 11) | ((uint16_t)g << 5) | b;
-            /* Re-apply byte-swap to match the format DrawImage uses */
-            uint8_t buf[2] = { (uint8_t)(dimmed & 0xFF), (uint8_t)(dimmed >> 8) };
-            HAL_SPI_Transmit(&ST7796_SPI_PORT, buf, 2, 100);
-        }
+           uint16_t rgb = (uint16_t)(((data[i] & 0xFF) << 8) | (data[i] >> 8));
+           uint8_t r = (rgb >> 11) & 0x1F;
+           uint8_t g = (rgb >> 5)  & 0x3F;
+          uint8_t b =  rgb        & 0x1F;
+          r = (uint8_t)((uint32_t)r * step / steps);
+          g = (uint8_t)((uint32_t)g * step / steps);
+          b = (uint8_t)((uint32_t)b * step / steps);
+           uint16_t dimmed = ((uint16_t)r << 11) | ((uint16_t)g << 5) | b;
+           /* Re-apply byte-swap to match the format DrawImage uses */
+           uint8_t buf[2] = { (uint8_t)(dimmed & 0xFF), (uint8_t)(dimmed >> 8) };
+          HAL_SPI_Transmit(&ST7796_SPI_PORT, buf, 2, 100);
+      }
 
         ST7796_CS_Set();
         if (step_delay_ms > 0) HAL_Delay(step_delay_ms);

@@ -32,7 +32,7 @@
 static UART_HandleTypeDef huart[MIDI_PORT_COUNT];
 static UART_HandleTypeDef midi_input_uart;
 
-#define MIDI_CLOCK_BPM_WINDOW_PULSES 24U
+#define MIDI_CLOCK_BPM_WINDOW_PULSES 96U
 #define MIDI_CLOCK_LOST_TIMEOUT_MIN_MS 250U
 #define MIDI_CLOCK_LOST_TIMEOUT_PAD_MS 20U
 #define MIDI_CLOCK_LOST_TIMEOUT_PULSES 4U
@@ -40,10 +40,10 @@ static UART_HandleTypeDef midi_input_uart;
 /* Prevents Send functions from running before Init has completed for a port */
 static uint8_t            port_ready[MIDI_PORT_COUNT];
 static uint8_t            midi_clock_pulse_count = 0U;
-static uint32_t           midi_clock_last_pulse_ms = 0U;
-static uint16_t           midi_clock_pulse_intervals_ms[MIDI_CLOCK_BPM_WINDOW_PULSES];
-static uint32_t           midi_clock_pulse_interval_sum_ms = 0U;
-static uint8_t            midi_clock_pulse_interval_count = 0U;
+static volatile uint32_t  midi_clock_last_pulse_us = 0U;
+static uint32_t           midi_clock_pulse_intervals_us[MIDI_CLOCK_BPM_WINDOW_PULSES];
+static volatile uint32_t  midi_clock_pulse_interval_sum_us = 0U;
+static volatile uint8_t   midi_clock_pulse_interval_count = 0U;
 static uint8_t            midi_clock_pulse_interval_index = 0U;
 static volatile uint16_t  midi_clock_external_bpm_x10 = 0U;
 static volatile uint8_t   midi_clock_external_bpm_valid = 0U;
@@ -51,6 +51,9 @@ static volatile uint8_t   midi_clock_sync_lost = 0U;
 static volatile uint8_t   midi_transport_running = 0U;
 static volatile MidiTransportEvent_t midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
 static void               midi_clock_reset_sync(void);
+static void               midi_clock_get_timing_snapshot(uint32_t *last_pulse_us,
+                                                         uint32_t *pulse_interval_sum_us,
+                                                         uint8_t *pulse_interval_count);
 static void               midi_clock_update_sync_state(void);
 
 /* ── Clock helpers ───────────────────────────────────────────────────────────
@@ -222,35 +225,58 @@ static uint8_t Midi_TryResolvePortForChannel(uint8_t channel, uint8_t *port)
 static void midi_clock_reset_sync(void)
 {
     midi_clock_pulse_count = 0U;
-    midi_clock_last_pulse_ms = 0U;
-    midi_clock_pulse_interval_sum_ms = 0U;
+    midi_clock_last_pulse_us = 0U;
+    midi_clock_pulse_interval_sum_us = 0U;
     midi_clock_pulse_interval_count = 0U;
     midi_clock_pulse_interval_index = 0U;
     for (uint8_t i = 0U; i < MIDI_CLOCK_BPM_WINDOW_PULSES; i++)
     {
-        midi_clock_pulse_intervals_ms[i] = 0U;
+        midi_clock_pulse_intervals_us[i] = 0U;
     }
     midi_clock_external_bpm_x10 = 0U;
     midi_clock_external_bpm_valid = 0U;
     midi_clock_sync_lost = 0U;
 }
 
+static void midi_clock_get_timing_snapshot(uint32_t *last_pulse_us,
+                                           uint32_t *pulse_interval_sum_us,
+                                           uint8_t *pulse_interval_count)
+{
+    uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
+    *last_pulse_us = midi_clock_last_pulse_us;
+    *pulse_interval_sum_us = midi_clock_pulse_interval_sum_us;
+    *pulse_interval_count = midi_clock_pulse_interval_count;
+    if (primask == 0U)
+        __enable_irq();
+}
+
 static void midi_clock_update_sync_state(void)
 {
-    uint32_t average_pulse_ms;
-    uint32_t timeout_ms;
-    uint32_t now;
+    uint32_t average_pulse_us;
+    uint32_t timeout_us;
+    uint32_t last_pulse_us;
+    uint32_t pulse_interval_sum_us;
+    uint8_t pulse_interval_count;
 
-    if (!midi_transport_running || midi_clock_sync_lost || midi_clock_last_pulse_ms == 0U || midi_clock_pulse_interval_count == 0U)
+    if (!midi_transport_running || midi_clock_sync_lost)
         return;
 
-    average_pulse_ms = midi_clock_pulse_interval_sum_ms / (uint32_t)midi_clock_pulse_interval_count;
-    timeout_ms = average_pulse_ms * MIDI_CLOCK_LOST_TIMEOUT_PULSES + MIDI_CLOCK_LOST_TIMEOUT_PAD_MS;
-    if (timeout_ms < MIDI_CLOCK_LOST_TIMEOUT_MIN_MS)
-        timeout_ms = MIDI_CLOCK_LOST_TIMEOUT_MIN_MS;
+    midi_clock_get_timing_snapshot(&last_pulse_us, &pulse_interval_sum_us, &pulse_interval_count);
+    if (last_pulse_us == 0U || pulse_interval_count == 0U)
+        return;
 
-    now = HAL_GetTick();
-    if ((now - midi_clock_last_pulse_ms) > timeout_ms)
+    average_pulse_us = pulse_interval_sum_us / (uint32_t)pulse_interval_count;
+    timeout_us = average_pulse_us * MIDI_CLOCK_LOST_TIMEOUT_PULSES;
+    timeout_us += (uint32_t)MIDI_CLOCK_LOST_TIMEOUT_PAD_MS * 1000U;
+
+    uint32_t min_timeout_us = (uint32_t)MIDI_CLOCK_LOST_TIMEOUT_MIN_MS * 1000U;
+    if (timeout_us < min_timeout_us)
+        timeout_us = min_timeout_us;
+
+    uint32_t now_us = TIM2->CNT;
+    if ((now_us - last_pulse_us) > timeout_us)
     {
         midi_transport_running = 0U;
         midi_clock_external_bpm_valid = 0U;
@@ -292,32 +318,42 @@ void MidiReceive(uint8_t byte)
     if (byte != 0xF8U)
         return;
 
-    uint32_t now = HAL_GetTick();
 
-    if (midi_clock_last_pulse_ms != 0U && now > midi_clock_last_pulse_ms)
+    uint32_t now = TIM2->CNT;
+    if (midi_clock_sync_lost)
     {
-        uint16_t pulse_ms = (uint16_t)(now - midi_clock_last_pulse_ms);
+        midi_transport_running = 1U;
+        midi_clock_reset_sync();
+        midi_clock_last_pulse_us = now;
+        return;
+    }
+
+    if (midi_clock_last_pulse_us != 0U && now != midi_clock_last_pulse_us)
+    {
+        uint32_t interval_us = (now >= midi_clock_last_pulse_us)
+            ? (now - midi_clock_last_pulse_us)
+            : (0xFFFFFFFF - midi_clock_last_pulse_us + now + 1);
 
         if (midi_clock_pulse_interval_count == MIDI_CLOCK_BPM_WINDOW_PULSES)
         {
-            midi_clock_pulse_interval_sum_ms -=
-                midi_clock_pulse_intervals_ms[midi_clock_pulse_interval_index];
+            midi_clock_pulse_interval_sum_us -=
+                midi_clock_pulse_intervals_us[midi_clock_pulse_interval_index];
         }
         else
         {
             midi_clock_pulse_interval_count++;
         }
 
-        midi_clock_pulse_intervals_ms[midi_clock_pulse_interval_index] = pulse_ms;
-        midi_clock_pulse_interval_sum_ms += pulse_ms;
+        midi_clock_pulse_intervals_us[midi_clock_pulse_interval_index] = interval_us;
+        midi_clock_pulse_interval_sum_us += interval_us;
         midi_clock_pulse_interval_index =
             (uint8_t)((midi_clock_pulse_interval_index + 1U) % MIDI_CLOCK_BPM_WINDOW_PULSES);
 
-        if (midi_clock_pulse_interval_sum_ms > 0U)
+        if (midi_clock_pulse_interval_sum_us > 0U)
         {
-            uint32_t numerator = 600000U * (uint32_t)midi_clock_pulse_interval_count;
-            uint32_t denominator = 24U * midi_clock_pulse_interval_sum_ms;
-            uint32_t bpm_x10 = (numerator + (denominator / 2U)) / denominator;
+            uint64_t numerator = 600000000ULL * (uint64_t)midi_clock_pulse_interval_count;
+            uint32_t denominator = 24U * midi_clock_pulse_interval_sum_us;
+            uint32_t bpm_x10 = (uint32_t)((numerator + (uint64_t)(denominator / 2U)) / (uint64_t)denominator);
 
             if (bpm_x10 >= 200U && bpm_x10 <= 2400U)
             {
@@ -330,8 +366,7 @@ void MidiReceive(uint8_t byte)
             }
         }
     }
-
-    midi_clock_last_pulse_ms = now;
+    midi_clock_last_pulse_us = now;
 
     midi_clock_pulse_count++;
     if (midi_clock_pulse_count < 24U)

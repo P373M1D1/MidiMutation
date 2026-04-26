@@ -24,7 +24,7 @@ void Display_BL_FadeOut(void);
 void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm);
 void Display_UpdateBPM(uint16_t bpm);
 
-/* ── Screensaver (DVD-style bouncing box) ────────────────────────────────── */
+/* ── Screensaver (backlight idle mode) ───────────────────────────────────── */
 
 /** Draws a progress bar in the lower quarter and blocks for duration_ms. */
 void Display_LoadingBar(uint32_t duration_ms);
@@ -34,14 +34,14 @@ void Display_LoadingBarClear(void);
 /** Call on any user input to reset the inactivity timer. */
 void Display_ScreensaverActivity(void);
 
-/** Returns 1 while the screensaver is currently active. */
+/** Returns 1 while the backlight idle mode is currently active. */
 uint8_t Display_ScreensaverIsActive(void);
 
-/** Immediately dismiss the screensaver if active without drawing the main screen. */
+/** Immediately dismiss the backlight idle mode if active without drawing the main screen. */
 void Display_ScreensaverDismiss(void);
 
-/** Call every main-loop iteration. Activates after 15 min of inactivity;
- *  wakes back to the main screen on the next activity event.             */
+/** Call every main-loop iteration. Activates after the inactivity timeout;
+ *  fades the backlight out and restores the main screen on the next activity event. */
 void Display_ScreensaverUpdate(const Preset_t *p, uint16_t bpm);
 
 #ifdef __cplusplus

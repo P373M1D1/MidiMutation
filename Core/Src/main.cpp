@@ -82,6 +82,7 @@ static void MX_SPI1_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_USB_OTG_FS_PCD_Init(void);
 /* USER CODE BEGIN PFP */
+static void MX_TIM2_Init(void);
 static void MX_TIM6_Init(uint16_t bpm);
 /* USER CODE END PFP */
 
@@ -128,7 +129,8 @@ int main(void)
   MIDI_InitPort(0, UART4, GPIOC, GPIO_PIN_10, GPIO_AF8_UART4);  /* Echosystem – TRS-A */
   MIDI_InitPort(1, UART5, GPIOC, GPIO_PIN_12, GPIO_AF8_UART5);  /* Reverb     – DIN-5 */
   ST7796_Init();
-  ST7796_DrawImage(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT, image_data);
+  MX_TIM2_Init();
+  ST7796_DrawImageSwapRB(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT, image_data);
   Display_BL_FadeIn();
   /* BPM flash status — top-left corner, visible during loading bar */
   ST7796_WriteString(10U, 10U,
@@ -422,6 +424,24 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+// OWN EDIT: Using TIM2 for MIDI clock pulse instead of HAL(getTick) because HAL tick is too coarse (1 ms) for accurate BPM measurement at higher tempos.
+void MX_TIM2_Init(void)
+{
+    __HAL_RCC_TIM2_CLK_ENABLE();
+    TIM_HandleTypeDef htim2;
+    htim2.Instance = TIM2;
+    htim2.Init.Prescaler = 95; // 96MHz / (95+1) = 1MHz (1us per tick)
+    htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim2.Init.Period = 0xFFFFFFFF;
+    htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+    if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    HAL_TIM_Base_Start(&htim2);
+}
+
 /* ── TIM6 init: APB1 timer clock = 96 MHz ────────────────────────────────────
  * Prescaler 9600-1 → 10 kHz tick (0.1 ms resolution).
  * ARR = (600 000 / BPM) - 1  → fires once per full beat.
@@ -443,7 +463,7 @@ static void MX_TIM6_Init(uint16_t bpm)
   HAL_NVIC_SetPriority(TIM6_DAC_IRQn, 2U, 0U);
   HAL_NVIC_EnableIRQ(TIM6_DAC_IRQn);
 }
-
+  
 
 /* ── USER button EXTI: tap tempo ──────────────────────────────────────────
  * Records timestamps of the last TAP_BUF_SIZE presses, averages the
@@ -515,7 +535,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   uint32_t avg_ms = sum / (uint32_t)(n - 1U);
   if (avg_ms == 0U) return;
 
-  uint32_t new_bpm = 60000U / avg_ms;
+  //uint32_t new_bpm = 60000U / avg_ms;
+  uint32_t new_bpm = (uint32_t)((60000.0f / (float)avg_ms) + 0.5f);
   if (new_bpm < 20U || new_bpm > 240U) return;
 
   g_bpm = (uint16_t)new_bpm;

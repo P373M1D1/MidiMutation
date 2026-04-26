@@ -47,10 +47,14 @@ extern SPI_HandleTypeDef ST7796_SPI_PORT;
 /* RGB565 color definitions */
 #define ST7796_BLACK        0x0000
 #define ST7796_WHITE        0xFFFF
-#define ST7796_RED          0x001F
-#define ST7796_DARKRED      0x000C
+#define ST7796_RED          0xF800
+#define ST7796_DARKRED      0x8800
 #define ST7796_GREEN        0x07E0
-#define ST7796_BLUE         0x001F
+#define ST7796_DARKGREEN    0x0400
+#define ST7796_BLUE         0x025F
+#define ST7796_TRUEBLUE     0x2B58
+#define ST7796_DARKBLUE     0x0011
+#define ST7796_COBALTBLUE   0x0255
 #define ST7796_CYAN         0x07FF
 #define ST7796_MAGENTA      0xF81F
 #define ST7796_YELLOW       0xFFE0
@@ -114,6 +118,7 @@ void     ST7796_DrawCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color);
 void     ST7796_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color);
 
 void     ST7796_DrawImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t *data);
+void     ST7796_DrawImageSwapRB(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t *data);
 void     ST7796_FadeIn(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t *data, uint8_t steps, uint16_t step_delay_ms);
 void     ST7796_WriteChar(uint16_t x, uint16_t y, char ch, FontDef font, uint16_t color, uint16_t bgcolor);
 void     ST7796_WriteString(uint16_t x, uint16_t y, const char *str, FontDef font, uint16_t color, uint16_t bgcolor);
