@@ -20,7 +20,7 @@
 
 /* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef __MAIN_H
-#define __MAIN_H
+#define __MAIN_H /* include guard for CubeMX-generated board pin declarations */
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,65 +57,65 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define USER_Btn_Pin GPIO_PIN_13
-#define USER_Btn_GPIO_Port GPIOC
-#define TAP_Pin GPIO_PIN_15
-#define TAP_GPIO_Port GPIOG
-#define PRESET_BTN1_Pin GPIO_PIN_0
-#define PRESET_BTN2_Pin GPIO_PIN_1
-#define PRESET_BTN3_Pin GPIO_PIN_2
-#define PRESET_BTN4_Pin GPIO_PIN_3
-#define PRESET_BTN5_Pin GPIO_PIN_4
-#define PRESET_BTN6_Pin GPIO_PIN_5
-#define PRESET_BTN7_Pin GPIO_PIN_6
-#define PRESET_BTN8_Pin GPIO_PIN_7
-#define PRESET_BTN9_Pin GPIO_PIN_8
-#define PRESET_BTN10_Pin GPIO_PIN_9
-#define PRESET_BTN11_Pin GPIO_PIN_10
-#define PRESET_BTN_GPIO_Port GPIOE
-#define MCO_Pin GPIO_PIN_0
-#define MCO_GPIO_Port GPIOH
-#define LD1_Pin GPIO_PIN_0
-#define LD1_GPIO_Port GPIOB
-#define ST7796_RST_Pin GPIO_PIN_12
-#define ST7796_RST_GPIO_Port GPIOF
-#define LD3_Pin GPIO_PIN_14
-#define LD3_GPIO_Port GPIOB
-#define STLK_RX_Pin GPIO_PIN_8
-#define STLK_RX_GPIO_Port GPIOD
-#define STLK_TX_Pin GPIO_PIN_9
-#define STLK_TX_GPIO_Port GPIOD
-#define ST7796_CS_Pin GPIO_PIN_14
-#define ST7796_CS_GPIO_Port GPIOD
-#define ST7796_DC_Pin GPIO_PIN_15
-#define ST7796_DC_GPIO_Port GPIOD
-#define USB_PowerSwitchOn_Pin GPIO_PIN_6
-#define USB_PowerSwitchOn_GPIO_Port GPIOG
-#define USB_OverCurrent_Pin GPIO_PIN_7
-#define USB_OverCurrent_GPIO_Port GPIOG
-#define USB_SOF_Pin GPIO_PIN_8
-#define USB_SOF_GPIO_Port GPIOA
-#define USB_VBUS_Pin GPIO_PIN_9
-#define USB_VBUS_GPIO_Port GPIOA
-#define USB_ID_Pin GPIO_PIN_10
-#define USB_ID_GPIO_Port GPIOA
-#define USB_DM_Pin GPIO_PIN_11
-#define USB_DM_GPIO_Port GPIOA
-#define USB_DP_Pin GPIO_PIN_12
-#define USB_DP_GPIO_Port GPIOA
-#define TMS_Pin GPIO_PIN_13
-#define TMS_GPIO_Port GPIOA
-#define TCK_Pin GPIO_PIN_14
-#define TCK_GPIO_Port GPIOA
-#define SWO_Pin GPIO_PIN_3
-#define SWO_GPIO_Port GPIOB
-#define LD2_Pin GPIO_PIN_7
-#define LD2_GPIO_Port GPIOB
+#define USER_Btn_Pin GPIO_PIN_13 /* Nucleo user pushbutton GPIO pin number */
+#define USER_Btn_GPIO_Port GPIOC /* GPIO port that carries the Nucleo user pushbutton */
+#define TAP_Pin GPIO_PIN_15 /* tap-tempo footswitch GPIO pin number */
+#define TAP_GPIO_Port GPIOG /* GPIO port that carries the tap-tempo footswitch */
+#define PRESET_BTN1_Pin GPIO_PIN_0 /* preset footswitch 1 GPIO pin number */
+#define PRESET_BTN2_Pin GPIO_PIN_1 /* preset footswitch 2 GPIO pin number */
+#define PRESET_BTN3_Pin GPIO_PIN_2 /* preset footswitch 3 GPIO pin number */
+#define PRESET_BTN4_Pin GPIO_PIN_3 /* preset footswitch 4 GPIO pin number */
+#define PRESET_BTN5_Pin GPIO_PIN_4 /* preset footswitch 5 GPIO pin number */
+#define PRESET_BTN6_Pin GPIO_PIN_5 /* preset footswitch 6 GPIO pin number */
+#define PRESET_BTN7_Pin GPIO_PIN_6 /* preset footswitch 7 GPIO pin number */
+#define PRESET_BTN8_Pin GPIO_PIN_7 /* preset footswitch 8 GPIO pin number */
+#define PRESET_BTN9_Pin GPIO_PIN_8 /* random-action footswitch GPIO pin number */
+#define PRESET_BTN10_Pin GPIO_PIN_9 /* special-functions footswitch GPIO pin number */
+#define PRESET_BTN11_Pin GPIO_PIN_10 /* mute / bank-combo footswitch GPIO pin number */
+#define PRESET_BTN_GPIO_Port GPIOE /* GPIO port shared by the preset/special/mute footswitch bank */
+#define MCO_Pin GPIO_PIN_0 /* master clock output pin number */
+#define MCO_GPIO_Port GPIOH /* GPIO port that carries the master clock output */
+#define LD1_Pin GPIO_PIN_0 /* board LED1 GPIO pin number */
+#define LD1_GPIO_Port GPIOB /* GPIO port for board LED1 */
+#define ST7796_RST_Pin GPIO_PIN_12 /* display reset pin number */
+#define ST7796_RST_GPIO_Port GPIOF /* GPIO port that drives the display reset line */
+#define LD3_Pin GPIO_PIN_14 /* board LED3 GPIO pin number */
+#define LD3_GPIO_Port GPIOB /* GPIO port for board LED3 */
+#define STLK_RX_Pin GPIO_PIN_8 /* ST-LINK virtual COM RX pin number */
+#define STLK_RX_GPIO_Port GPIOD /* GPIO port for ST-LINK virtual COM RX */
+#define STLK_TX_Pin GPIO_PIN_9 /* ST-LINK virtual COM TX pin number */
+#define STLK_TX_GPIO_Port GPIOD /* GPIO port for ST-LINK virtual COM TX */
+#define ST7796_CS_Pin GPIO_PIN_14 /* display chip-select pin number */
+#define ST7796_CS_GPIO_Port GPIOD /* GPIO port that drives the display chip-select line */
+#define ST7796_DC_Pin GPIO_PIN_15 /* display data/command pin number */
+#define ST7796_DC_GPIO_Port GPIOD /* GPIO port that drives the display data/command line */
+#define USB_PowerSwitchOn_Pin GPIO_PIN_6 /* USB power-switch enable pin number */
+#define USB_PowerSwitchOn_GPIO_Port GPIOG /* GPIO port that controls the USB power switch */
+#define USB_OverCurrent_Pin GPIO_PIN_7 /* USB over-current sense pin number */
+#define USB_OverCurrent_GPIO_Port GPIOG /* GPIO port that reports USB over-current */
+#define USB_SOF_Pin GPIO_PIN_8 /* USB start-of-frame pin number */
+#define USB_SOF_GPIO_Port GPIOA /* GPIO port for USB start-of-frame */
+#define USB_VBUS_Pin GPIO_PIN_9 /* USB VBUS sense pin number */
+#define USB_VBUS_GPIO_Port GPIOA /* GPIO port for USB VBUS sense */
+#define USB_ID_Pin GPIO_PIN_10 /* USB OTG ID pin number */
+#define USB_ID_GPIO_Port GPIOA /* GPIO port for the USB OTG ID pin */
+#define USB_DM_Pin GPIO_PIN_11 /* USB D- pin number */
+#define USB_DM_GPIO_Port GPIOA /* GPIO port for USB D- */
+#define USB_DP_Pin GPIO_PIN_12 /* USB D+ pin number */
+#define USB_DP_GPIO_Port GPIOA /* GPIO port for USB D+ */
+#define TMS_Pin GPIO_PIN_13 /* SWD TMS pin number */
+#define TMS_GPIO_Port GPIOA /* GPIO port for SWD TMS */
+#define TCK_Pin GPIO_PIN_14 /* SWD TCK pin number */
+#define TCK_GPIO_Port GPIOA /* GPIO port for SWD TCK */
+#define SWO_Pin GPIO_PIN_3 /* SWO trace pin number */
+#define SWO_GPIO_Port GPIOB /* GPIO port for SWO trace */
+#define LD2_Pin GPIO_PIN_7 /* board LED2 GPIO pin number */
+#define LD2_GPIO_Port GPIOB /* GPIO port for board LED2 */
 
 /* USER CODE BEGIN Private defines */
 
-#define MIDI_IN_LED_Pin GPIO_PIN_15
-#define MIDI_IN_LED_GPIO_Port GPIOF
+#define MIDI_IN_LED_Pin GPIO_PIN_15 /* dedicated MIDI input activity LED pin number */
+#define MIDI_IN_LED_GPIO_Port GPIOF /* GPIO port for the MIDI input activity LED */
 
 /* USER CODE END Private defines */
 

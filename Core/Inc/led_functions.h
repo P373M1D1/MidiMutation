@@ -1,5 +1,5 @@
 #ifndef LED_FUNCTIONS_H
-#define LED_FUNCTIONS_H
+#define LED_FUNCTIONS_H /* include guard for LED helper declarations */
 
 #ifdef __cplusplus
 extern "C" {

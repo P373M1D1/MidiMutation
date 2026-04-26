@@ -1,5 +1,5 @@
 #ifndef PRESETS_H
-#define PRESETS_H
+#define PRESETS_H /* include guard for preset/bank declarations */
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -11,19 +11,20 @@ extern "C" {
 /* Regular presets are grouped in banks of eight to match the numbered
  * preset footswitches. PRESET_COUNT remains the flat total used by the
  * current activation and persistence logic. */
-#define PRESETS_PER_BANK     8U
-#define PRESET_BANK_COUNT    4U
-#define PRESET_COUNT         (PRESETS_PER_BANK * PRESET_BANK_COUNT)
-#define PRESET_BANK_NAME_MAXLEN  16U
+#define PRESETS_PER_BANK     8U  /* number of numbered preset footswitch slots in each bank */
+#define PRESET_BANK_COUNT    4U  /* number of banks compiled into the preset table */
+#define PRESET_COUNT         (PRESETS_PER_BANK * PRESET_BANK_COUNT) /* total flat preset count across all banks */
+#define PRESET_BANK_NAME_MAXLEN  16U /* maximum displayed character width reserved for a bank name */
 
 /* Shared sentinel values used by preset data tables and activation logic. */
-#define PRESET_PROGRAM_UNUSED     0xFFU
-#define PRESET_CC_CHANNEL_UNUSED  0U
-#define PRESET_CC_NUMBER_UNUSED   PRESET_PROGRAM_UNUSED
-#define PRESET_RELAY_OPEN         0U
-#define PRESET_RELAY_CLOSED       1U
+#define PRESET_PROGRAM_UNUSED     0xFFU /* sentinel meaning this device slot sends no Program Change */
+#define PRESET_CC_CHANNEL_UNUSED  0U    /* sentinel meaning this CC slot is unused */
+#define PRESET_CC_NUMBER_UNUSED   PRESET_PROGRAM_UNUSED /* sentinel CC number for an unused CC slot */
+#define PRESET_RELAY_OPEN         0U    /* relay state value for open/bypass */
+#define PRESET_RELAY_CLOSED       1U    /* relay state value for closed/engaged */
 
 extern const char * const bank_names[PRESET_BANK_COUNT];
+extern volatile uint8_t current_bank;
 
 /**
  * @brief  Return the name of the given bank (0-based).
@@ -36,7 +37,7 @@ const char *Presets_GetBankName(uint8_t bank);
  * Slot N maps directly to MidiDevices_Get(N) — no channel field needed here,
  * the channel lives in the device table.
  */
-#define PRESET_DEVICE_SLOTS  3U
+#define PRESET_DEVICE_SLOTS  3U /* number of per-device program slots stored in each preset */
 
 /**
  * @brief  Per-device MIDI data for one preset.
@@ -49,7 +50,7 @@ typedef struct {
 } PresetDevice_t;
 
 /** Number of extra per-preset MIDI CC messages. */
-#define PRESET_CC_SLOT_COUNT  4U
+#define PRESET_CC_SLOT_COUNT  4U /* number of extra CC messages stored in each preset */
 
 /**
  * @brief  One per-preset MIDI CC message.
@@ -67,7 +68,7 @@ typedef struct {
 } PresetCCSlot_t;
 
 /** Number of independent relay outputs. */
-#define PRESET_RELAY_COUNT  2U
+#define PRESET_RELAY_COUNT  2U /* number of relay outputs tracked per preset */
 
 /**
  * @brief  One preset.
@@ -115,22 +116,17 @@ void App_ActivatePreset(uint8_t idx);
 /**
  * @brief  Activate the random preset.
  */
-void activateRandom(void);
+void Presets_ActivateRandom(void);
 
 /**
- * @brief  Activate the special functions mode.
+ * @brief  Redraw the current screen after the special-functions state changes.
  */
-void activateSpecialFunctions(void);
-
-/**
- * @brief  Deactivate the special functions mode.
- */
-void deactivateSpecialFunctions(void);
+void Presets_RedrawActiveDisplay(void);
 
 /**
  * @brief  Activate the mute preset.
  */
-void activateMute(void);
+void Presets_ActivateMute(void);
 
 #ifdef __cplusplus
 }

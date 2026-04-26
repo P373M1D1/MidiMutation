@@ -1,5 +1,5 @@
 #ifndef MIDI_DEVICES_H
-#define MIDI_DEVICES_H
+#define MIDI_DEVICES_H /* include guard for MIDI device table declarations */
 
 #include <stdint.h>
 
@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 /* Maximum number of devices in the table */
-#define MIDI_DEVICE_COUNT  8U
+#define MIDI_DEVICE_COUNT  8U /* number of device slots compiled into the MIDI device table */
 
 /**
  * @brief  CC message descriptor – a controller number paired with the value

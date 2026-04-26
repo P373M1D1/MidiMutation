@@ -8,24 +8,28 @@
 extern volatile uint16_t  g_bpm;
 extern const Preset_t    *active_preset;
 
-#define FOOTSWITCH_COUNT 11U
-#define RANDOM_BUTTON_INDEX 8U
-#define SPECIAL_FUNCTION_BUTTON_INDEX 9U
-#define MUTE_BUTTON_INDEX 10U
-#define FOOTSWITCH_DEBOUNCE_MS 20U
-#define BANK_COMBO_WINDOW_MS 400U
-#define BUTTON_EVENT_QUEUE_DEPTH 4U
+#define FOOTSWITCH_COUNT 11U            /* total number of EXTI-driven footswitch inputs */
+#define RANDOM_BUTTON_INDEX 8U          /* preset-button slot used for the random preset action */
+#define SPECIAL_FUNCTION_BUTTON_INDEX 9U /* preset-button slot used to toggle the special-functions overlay */
+#define MUTE_BUTTON_INDEX 10U           /* preset-button slot used for mute / TAP+MUTE bank-up combo */
+#define FOOTSWITCH_DEBOUNCE_MS 20U      /* ignore edges that arrive too soon after the previous edge on the same switch */
+#define BANK_COMBO_WINDOW_MS 400U       /* tap+mute presses inside this window are treated as bank navigation */
+#define BUTTON_EVENT_QUEUE_DEPTH 4U     /* per-switch FIFO depth so short press/release bursts are not collapsed */
 
+/* `preset_button_state` is the foreground view of whether a button is still
+ * logically down. For the falling-edge buttons we re-arm this state only once
+ * the main loop sees the GPIO released again, which keeps switch bounce from
+ * toggling the action twice. */
 static uint8_t preset_button_state[FOOTSWITCH_COUNT] = {0U};
+/* EXTI only records compact per-button events here; the real work happens in
+ * Button_ProcessPendingEvents() so the interrupt handler stays short. */
 static volatile uint8_t preset_button_event_queue[FOOTSWITCH_COUNT][BUTTON_EVENT_QUEUE_DEPTH] = {{0U}};
 static volatile uint8_t preset_button_event_read_index[FOOTSWITCH_COUNT] = {0U};
 static volatile uint8_t preset_button_event_write_index[FOOTSWITCH_COUNT] = {0U};
 static volatile uint8_t preset_button_event_count[FOOTSWITCH_COUNT] = {0U};
-static volatile uint8_t preset_button_action_pending[FOOTSWITCH_COUNT] = {0U};
 static uint32_t preset_button_event_tick[FOOTSWITCH_COUNT] = {0U};
 static uint8_t special_functions_active = 0U;
 static uint8_t mute_activation_pending = 0U;
-static volatile uint8_t tap_button_action_pending = 0U;
 
 static const uint16_t preset_button_pins[FOOTSWITCH_COUNT] = {
     PRESET_BTN1_Pin,
@@ -60,9 +64,6 @@ static int8_t Button_TryResolveIndex(uint16_t gpio_pin)
 static void Button_ProcessPresetEvent(uint8_t index, uint8_t is_pressed, uint32_t now)
 {
     if (is_pressed == preset_button_state[index]) {
-        if (is_pressed) {
-            preset_button_action_pending[index] = 0U;
-        }
         return;
     }
 
@@ -73,16 +74,20 @@ static void Button_ProcessPresetEvent(uint8_t index, uint8_t is_pressed, uint32_
         Display_ScreensaverActivity();
 
         if (index == RANDOM_BUTTON_INDEX) {
-            activateRandom();
+            Presets_ActivateRandom();
         } else if (index == SPECIAL_FUNCTION_BUTTON_INDEX) {
+            /* The button module owns the mode bit; presets.c only redraws the
+             * active screen so the right-side status text follows that state. */
             if (special_functions_active == 0U) {
                 special_functions_active = 1U;
-                activateSpecialFunctions();
+                Presets_RedrawActiveDisplay();
             } else {
                 special_functions_active = 0U;
-                deactivateSpecialFunctions();
+                Presets_RedrawActiveDisplay();
             }
         } else if (index == MUTE_BUTTON_INDEX) {
+            /* Mute is two-stage: a quick tap may combine with TAP for bank up,
+             * otherwise the actual mute overlay is armed and committed later. */
             if (Button_HandleMutePress(now)) {
                 Button_CancelTapBankCombo();
                 Display_DrawMainScreen(active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
@@ -90,31 +95,10 @@ static void Button_ProcessPresetEvent(uint8_t index, uint8_t is_pressed, uint32_
         } else {
             App_ActivatePreset(current_bank * PRESETS_PER_BANK + index);
         }
-
-        preset_button_action_pending[index] = 0U;
     } else if ((index == MUTE_BUTTON_INDEX) && mute_activation_pending) {
         mute_activation_pending = 0U;
-        activateMute();
+        Presets_ActivateMute();
     }
-}
-
-uint8_t Button_ActionPending(uint8_t index)
-{
-    if (index >= FOOTSWITCH_COUNT) {
-        return 0U;
-    }
-
-    return preset_button_action_pending[index];
-}
-
-uint8_t Button_TapActionPending(void)
-{
-    return tap_button_action_pending;
-}
-
-void Button_SetTapActionPending(uint8_t is_pending)
-{
-    tap_button_action_pending = is_pending ? 1U : 0U;
 }
 
 uint8_t Button_SpecialFunctionsActive(void)
@@ -138,8 +122,8 @@ void Button_ResetSpecialFunctions(void)
 }
 
 
-// --- Bank switching state ---
-volatile uint8_t current_bank = 0U;
+/* Tap and mute share a short combo window so pressing them together can step
+ * banks without stealing normal tap-tempo or mute behavior. */
 static uint32_t button_last_tap_tick = 0U;
 static uint32_t button_last_mute_tick = 0U;
 
@@ -210,6 +194,9 @@ void Button_HandleInterrupt(uint16_t gpio_pin)
         return;
     }
 
+    /* Non-mute preset buttons are wired as falling-edge EXTI only, so their
+     * interrupt always means "press". Mute keeps both edges because release
+     * timing matters for the delayed mute action. */
     if ((uint8_t)index == MUTE_BUTTON_INDEX) {
         is_pressed = Button_ReadPresetPressed((uint8_t)index);
     } else {
@@ -225,10 +212,6 @@ void Button_HandleInterrupt(uint16_t gpio_pin)
         preset_button_event_count[(uint8_t)index]++;
     }
 
-    if (is_pressed) {
-        preset_button_action_pending[(uint8_t)index] = 1U;
-    }
-
     if ((uint8_t)index == MUTE_BUTTON_INDEX && is_pressed) {
         button_last_mute_tick = now;
     }
@@ -237,11 +220,15 @@ void Button_HandleInterrupt(uint16_t gpio_pin)
 void Button_ProcessPendingEvents(void) {
     uint32_t now = HAL_GetTick();
 
+    /* If mute was not consumed by the TAP+MUTE bank-up combo inside the combo
+     * window, commit it here as a normal mute press. */
     if (mute_activation_pending && ((now - button_last_mute_tick) >= BANK_COMBO_WINDOW_MS)) {
         mute_activation_pending = 0U;
-        activateMute();
+        Presets_ActivateMute();
     }
 
+    /* Falling-edge buttons stay logically pressed until the main loop sees
+     * the pin released again; mute keeps its explicit release edge handling. */
     for (uint8_t i = 0U; i < FOOTSWITCH_COUNT; ++i) {
         if ((i != MUTE_BUTTON_INDEX)
             && preset_button_state[i]
@@ -258,6 +245,8 @@ void Button_ProcessPendingEvents(void) {
             uint8_t is_pressed;
             uint8_t read_index;
 
+            /* Pop one queued edge with IRQs masked just long enough to keep
+             * the ring-buffer bookkeeping atomic with respect to EXTI. */
             primask = __get_PRIMASK();
             __disable_irq();
             queued_events = preset_button_event_count[i];

@@ -1,5 +1,5 @@
 #ifndef MIDI_FUNCTIONS_H
-#define MIDI_FUNCTIONS_H
+#define MIDI_FUNCTIONS_H /* include guard for MIDI I/O and clock declarations */
 
 /*
  * Two outgoing MIDI roles are used now:
@@ -29,10 +29,10 @@ extern "C" {
 #endif
 
 /** MIDI standard UART baud rate. */
-#define MIDI_BAUD_RATE  31250U
+#define MIDI_BAUD_RATE  31250U /* standard MIDI UART baud rate */
 
 /** MIDI clock uses 24 pulses per quarter note. */
-#define MIDI_CLOCK_PULSES_PER_QUARTER_NOTE  24U
+#define MIDI_CLOCK_PULSES_PER_QUARTER_NOTE  24U /* MIDI clock resolution defined by the standard */
 
 typedef enum
 {

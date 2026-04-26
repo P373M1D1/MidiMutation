@@ -26,35 +26,35 @@ static UART_HandleTypeDef midi_input_uart;
 
 /* MIDI wire-format and UART settings. Keep these values visible because they
  * come directly from the MIDI spec or from how this firmware represents BPM. */
-#define MIDI_TX_TIMEOUT_MS                 10U
-#define MIDI_UART_IRQ_PREEMPT_PRIORITY     2U
-#define MIDI_UART_IRQ_SUBPRIORITY          1U
-#define MIDI_CHANNEL_FIRST                 1U
-#define MIDI_CHANNEL_LAST                  16U
-#define MIDI_CHANNEL_STATUS_MASK           0x0FU
-#define MIDI_DATA_MASK                     0x7FU
-#define MIDI_STATUS_BIT                    0x80U
-#define MIDI_PROGRAM_CHANGE_STATUS         0xC0U
-#define MIDI_CONTROL_CHANGE_STATUS         0xB0U
-#define MIDI_TIMECODE_QUARTER_FRAME        0xF1U
-#define MIDI_REALTIME_CLOCK                0xF8U
-#define MIDI_REALTIME_START                0xFAU
-#define MIDI_REALTIME_CONTINUE             0xFBU
-#define MIDI_REALTIME_STOP                 0xFCU
-#define MIDI_REALTIME_STATUS_FIRST         0xF8U
-#define MIDI_UNUSED_SLOT                   0xFFU
-#define MIDI_TIMER_WRAP_VALUE              UINT32_MAX
-#define MIDI_CLOCK_US_PER_MS               1000U
-#define MIDI_CLOCK_US_PER_MINUTE_X10       600000000ULL
-#define MIDI_CLOCK_BPM_X10_MIN             200U
-#define MIDI_CLOCK_BPM_X10_MAX             2400U
-#define MIDI_BPM_X10_ROUNDING_OFFSET       5U
+#define MIDI_TX_TIMEOUT_MS                 10U          /* UART transmit timeout for short MIDI messages */
+#define MIDI_UART_IRQ_PREEMPT_PRIORITY     2U           /* USART2 IRQ priority: above UI work, below critical timers */
+#define MIDI_UART_IRQ_SUBPRIORITY          1U           /* secondary ordering for the MIDI input IRQ */
+#define MIDI_CHANNEL_FIRST                 1U           /* MIDI channels are encoded as 1..16 in public APIs */
+#define MIDI_CHANNEL_LAST                  16U          /* highest valid MIDI channel number */
+#define MIDI_CHANNEL_STATUS_MASK           0x0FU        /* low nibble of channel voice status bytes */
+#define MIDI_DATA_MASK                     0x7FU        /* MIDI data bytes are always 7-bit */
+#define MIDI_STATUS_BIT                    0x80U        /* distinguishes status bytes from data bytes */
+#define MIDI_PROGRAM_CHANGE_STATUS         0xC0U        /* status nibble for Program Change */
+#define MIDI_CONTROL_CHANGE_STATUS         0xB0U        /* status nibble for Control Change */
+#define MIDI_TIMECODE_QUARTER_FRAME        0xF1U        /* system-common quarter-frame timecode status */
+#define MIDI_REALTIME_CLOCK                0xF8U        /* realtime MIDI clock pulse */
+#define MIDI_REALTIME_START                0xFAU        /* realtime transport start */
+#define MIDI_REALTIME_CONTINUE             0xFBU        /* realtime transport continue */
+#define MIDI_REALTIME_STOP                 0xFCU        /* realtime transport stop */
+#define MIDI_REALTIME_STATUS_FIRST         0xF8U        /* first status value in the realtime-byte range */
+#define MIDI_UNUSED_SLOT                   0xFFU        /* sentinel meaning "do not send anything" */
+#define MIDI_TIMER_WRAP_VALUE              UINT32_MAX   /* TIM2 free-running 32-bit wrap value */
+#define MIDI_CLOCK_US_PER_MS               1000U        /* unit conversion used for timeout math */
+#define MIDI_CLOCK_US_PER_MINUTE_X10       600000000ULL /* 60 s/min expressed in microseconds and tenths of BPM */
+#define MIDI_CLOCK_BPM_X10_MIN             200U         /* reject external BPM below 20.0 */
+#define MIDI_CLOCK_BPM_X10_MAX             2400U        /* reject external BPM above 240.0 */
+#define MIDI_BPM_X10_ROUNDING_OFFSET       5U           /* convert x10 BPM to integer BPM with round-half-up */
 
-#define MIDI_CLOCK_BPM_WINDOW_PULSES 96U
-#define MIDI_CLOCK_LOST_TIMEOUT_MIN_MS 250U
-#define MIDI_CLOCK_LOST_TIMEOUT_PAD_MS 20U
-#define MIDI_CLOCK_LOST_TIMEOUT_PULSES 4U
-#define MIDI_THRU_BUFFER_SIZE 64U
+#define MIDI_CLOCK_BPM_WINDOW_PULSES 96U               /* average over four quarter notes at 24 ppqn */
+#define MIDI_CLOCK_LOST_TIMEOUT_MIN_MS 250U            /* never declare sync lost faster than this */
+#define MIDI_CLOCK_LOST_TIMEOUT_PAD_MS 20U             /* extra slack on top of the computed timeout */
+#define MIDI_CLOCK_LOST_TIMEOUT_PULSES 4U              /* allow roughly four missing clock pulses before loss */
+#define MIDI_THRU_BUFFER_SIZE 64U                      /* ring buffer size for non-blocking software thru */
 
 /* Clock-tracking fields are written from the USART2 IRQ path and read from
  * foreground code, so the shared timing state stays in this file and uses
@@ -140,6 +140,9 @@ static uint8_t midi_channel_is_valid(uint8_t channel)
 static uint32_t midi_clock_compute_activity_timeout_us(uint32_t pulse_interval_sum_us,
                                                        uint8_t pulse_interval_count)
 {
+    /* No clock history yet: fall back to a conservative fixed timeout. Once
+     * we have intervals, scale the timeout with the measured tempo so fast and
+     * slow songs both get a sensible sync-loss window. */
     uint32_t timeout_us = (uint32_t)MIDI_CLOCK_LOST_TIMEOUT_MIN_MS * MIDI_CLOCK_US_PER_MS;
 
     if (pulse_interval_count > 0U)
@@ -174,6 +177,9 @@ static void midi_input_queue_thru_byte(uint8_t byte)
 
 static void midi_input_service_thru_tx(void)
 {
+    /* TXE fires whenever the data register can accept another byte. Drain the
+     * ring buffer one byte at a time so the IRQ-driven thru path never blocks
+     * foreground code or the receive side. */
     if (midi_thru_tail == midi_thru_head)
     {
         __HAL_UART_DISABLE_IT(&midi_input_uart, UART_IT_TXE);
@@ -191,6 +197,8 @@ static uint8_t midi_clock_external_is_active(void)
 {
     uint32_t last_pulse_us = midi_clock_last_pulse_us;
 
+    /* While transport is explicitly running we treat external sync as active
+     * even if the UI has not asked for a fresh BPM sample yet. */
     if (midi_transport_running)
         return 1U;
 
@@ -250,6 +258,8 @@ void MIDI_SendCC(uint8_t channel, uint8_t cc_number, uint8_t value)
 
 static void midi_clock_reset_sync(void)
 {
+    /* Clear both the moving-average window and the transport-facing flags so a
+     * new START/CONTINUE/clock stream begins with clean timing history. */
     midi_clock_pulse_count = 0U;
     midi_clock_last_pulse_us = 0U;
     midi_clock_pulse_interval_sum_us = 0U;
@@ -289,6 +299,9 @@ static void midi_clock_update_sync_state(void)
     uint32_t pulse_interval_sum_us;
     uint8_t pulse_interval_count;
 
+    /* Sync loss is only meaningful while external transport is considered
+     * active. Once lost, the flag remains latched until a new external anchor
+     * arrives (START/CONTINUE/clock after loss) or the user returns to internal tempo. */
     if (!midi_transport_running || midi_clock_sync_lost)
         return;
 
@@ -340,6 +353,8 @@ static uint8_t midi_input_is_sync_byte(uint8_t byte)
 
 void MidiReceive(uint8_t byte)
 {
+    /* This path accepts only sync-related bytes for timing/transport state.
+     * Other MIDI content is still soft-thru forwarded by the USART2 IRQ path. */
     if (!midi_input_is_sync_byte(byte))
         return;
 
@@ -388,7 +403,9 @@ void MidiReceive(uint8_t byte)
     if (byte != MIDI_REALTIME_CLOCK)
         return;
 
-
+    /* Clock pulses update the moving-average window in microseconds. We keep
+     * the average in "sum of recent pulse intervals" form because that is cheap
+     * to maintain in the IRQ path and converts directly into BPM x10. */
     uint32_t now = TIM2->CNT;
     if (midi_clock_sync_lost)
     {
@@ -459,6 +476,8 @@ void MidiReceive(uint8_t byte)
 
 uint8_t MidiClockHandleInternalPulse(void)
 {
+    /* Internal clock is suppressed whenever an external source is currently
+     * active so the smart MIDI output never emits competing clock streams. */
     if (!midi_clock_external_is_active())
         midi_output_send_realtime_byte(MIDI_REALTIME_CLOCK);
 
@@ -523,6 +542,9 @@ void USART2_IRQHandler(void)
 {
     uint32_t status = USART2->SR;
 
+    /* Read RX data first to clear UART error conditions and keep the receive
+     * side draining promptly; soft-thru and sync decoding both hang off that
+     * same byte stream. */
     if (status & (USART_SR_RXNE | USART_SR_ORE | USART_SR_NE | USART_SR_FE | USART_SR_PE))
     {
         uint8_t byte = (uint8_t)USART2->DR;
@@ -544,6 +566,8 @@ void Midi_LoadPreset(const Preset_t *preset)
 {
     if (!preset) return;
 
+    /* Program changes are sent first so devices switch base patches before any
+     * follow-up CCs try to tweak parameters on the newly selected preset. */
     for (uint8_t i = 0U; i < PRESET_DEVICE_SLOTS; i++)
     {
         /* 0xFF in the program field means "don't send anything to this device" */

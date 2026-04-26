@@ -15,7 +15,7 @@ typedef struct {
     uint32_t bank_idx;
 } FlashState_t;
 
-/* ── Variables owned by main.cpp ─────────────────────────────────────────── */
+/* ── Shared runtime state owned elsewhere ────────────────────────────────── */
 extern volatile uint16_t  g_bpm;
 extern volatile uint8_t   bpm_dirty;
 extern volatile uint32_t  bpm_save_tick;
@@ -166,7 +166,7 @@ uint8_t BPM_Flash_IsValid(void)
 
 /* -------------------------------------------------------------------------- */
 
-void Handle_Tap_Tempo(void)
+void BPM_Service(void)
 {
     if (bpm_dirty)
     {

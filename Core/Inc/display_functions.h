@@ -1,5 +1,5 @@
 #ifndef DISPLAY_FUNCTIONS_H
-#define DISPLAY_FUNCTIONS_H
+#define DISPLAY_FUNCTIONS_H /* include guard for high-level display declarations */
 
 /*
  * High-level display routines: backlight control and main screen rendering.

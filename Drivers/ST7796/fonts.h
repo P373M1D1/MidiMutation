@@ -1,5 +1,5 @@
 #ifndef __FONTS_H
-#define __FONTS_H
+#define __FONTS_H /* include guard for bitmap font type declarations */
 
 #ifdef __cplusplus
 extern "C" {

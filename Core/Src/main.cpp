@@ -3,7 +3,7 @@
 /* USER CODE BEGIN Header */
 /**
   ******************************************************************************
-  * @file           : main.c
+   * @file           : main.cpp
   * @brief          : Main program body
   ******************************************************************************
   * @attention
@@ -47,31 +47,31 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define TAP_BUF_SIZE                     4U
+#define TAP_BUF_SIZE                     4U /* number of recent tap timestamps kept for tap-tempo averaging */
 
-#define STARTUP_SPLASH_X                 0U
-#define STARTUP_SPLASH_Y                 0U
-#define STARTUP_STATUS_TEXT_X           10U
-#define STARTUP_STATUS_TEXT_Y           10U
-#define STARTUP_STATUS_FONT             Font_7x10
-#define STARTUP_STATUS_FG_COLOUR        CHARCOAL
-#define STARTUP_STATUS_BG_COLOUR        BLACK
-#define STARTUP_FLASH_OK_TEXT           "flash_OK"
-#define STARTUP_FLASH_INVALID_TEXT      "flash_notOK"
-#define STARTUP_LOADING_BAR_MS        1000U
+#define STARTUP_SPLASH_X                 0U /* x origin for the startup splash image */
+#define STARTUP_SPLASH_Y                 0U /* y origin for the startup splash image */
+#define STARTUP_STATUS_TEXT_X           10U /* x position of the startup flash-status text */
+#define STARTUP_STATUS_TEXT_Y           10U /* y position of the startup flash-status text */
+#define STARTUP_STATUS_FONT             Font_7x10 /* font used for the startup flash-status text */
+#define STARTUP_STATUS_FG_COLOUR        CHARCOAL /* foreground colour of the startup flash-status text */
+#define STARTUP_STATUS_BG_COLOUR        BLACK /* background colour behind the startup splash/status area */
+#define STARTUP_FLASH_OK_TEXT           "flash_OK" /* status string shown when persisted flash state validates */
+#define STARTUP_FLASH_INVALID_TEXT      "flash_notOK" /* status string shown when persisted flash state is blank or invalid */
+#define STARTUP_LOADING_BAR_MS        1000U /* startup loading-bar duration before the main screen appears */
 
-#define MIDI_OUTPUT_UART_INSTANCE      UART4
-#define MIDI_OUTPUT_TX_GPIO_PORT       GPIOD
-#define MIDI_OUTPUT_TX_PIN             GPIO_PIN_1
-#define MIDI_OUTPUT_TX_AF              GPIO_AF11_UART4
+#define MIDI_OUTPUT_UART_INSTANCE      UART4 /* dedicated UART instance used for controller-managed MIDI output */
+#define MIDI_OUTPUT_TX_GPIO_PORT       GPIOD /* GPIO port for the dedicated MIDI output TX pin */
+#define MIDI_OUTPUT_TX_PIN             GPIO_PIN_1 /* GPIO pin number for the dedicated MIDI output TX pin */
+#define MIDI_OUTPUT_TX_AF              GPIO_AF11_UART4 /* alternate-function selection for the dedicated MIDI output TX pin */
 
-#define TIM6_TICK_HZ                   10000U
-#define TIM6_PRESCALER_DIVISOR          9600U
-#define TIM6_COUNTS_PER_MINUTE     (TIM6_TICK_HZ * 60U)
+#define TIM6_TICK_HZ                   10000U /* target counter frequency used for internal MIDI clock timing */
+#define TIM6_PRESCALER_DIVISOR          9600U /* timer prescaler divisor used to derive TIM6_TICK_HZ */
+#define TIM6_COUNTS_PER_MINUTE     (TIM6_TICK_HZ * 60U) /* number of TIM6 ticks that elapse in one minute */
 
-#define TAP_RESET_INTERVAL_MS       3000U
-#define TAP_MIN_INTERVAL_MS          250U
-#define TAP_MIN_COUNT                  2U
+#define TAP_RESET_INTERVAL_MS       3000U /* gap after which tap-tempo history is discarded as a new tap sequence */
+#define TAP_MIN_INTERVAL_MS          250U /* shortest accepted gap between taps to reject bounce or unreal tempos */
+#define TAP_MIN_COUNT                  2U /* minimum number of taps required before a BPM can be computed */
 
 /* USER CODE END PD */
 
@@ -202,7 +202,7 @@ int main(void)
     /* USER CODE END WHILE */
     /* Deferred work stays in the main loop: BPM/UI updates and flash-save
      * scheduling on one side, queued EXTI button events on the other. */
-    Handle_Tap_Tempo();
+    BPM_Service();
     Button_ProcessPendingEvents();
     /* USER CODE BEGIN 3 */
   }
@@ -565,8 +565,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     return;
   }
 
-  Button_SetTapActionPending(1U);
-
   uint32_t now = HAL_GetTick();
 
     Display_ScreensaverDismiss();
@@ -576,20 +574,17 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     {
       /* The first tap after idle should only wake the UI, not also retime BPM. */
       Display_DrawMainScreen(active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
-      Button_SetTapActionPending(0U);
       return;
     }
 
     if (Button_HandleTapPress(now)) {
       Button_CancelTapBankCombo();
       Display_DrawMainScreen(Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
-      Button_SetTapActionPending(0U);
       return;
     }
 
   /* Ignore tap tempo while an external MIDI clock is actively running */
   if (MidiTransportIsRunning()) {
-    Button_SetTapActionPending(0U);
     return;
   }
 
@@ -605,7 +600,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     }
     else if (interval < TAP_MIN_INTERVAL_MS)      /* too fast / bounce ??? ignore */
     {
-      Button_SetTapActionPending(0U);
       return;
     }
   }
@@ -616,7 +610,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   if (tap_count < TAP_BUF_SIZE) tap_count++;
 
   if (tap_count < TAP_MIN_COUNT) {
-    Button_SetTapActionPending(0U);
     return; /* need at least two taps */
   }
 
@@ -632,14 +625,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   }
   uint32_t avg_ms = sum / (uint32_t)(n - 1U);
   if (avg_ms == 0U) {
-    Button_SetTapActionPending(0U);
     return;
   }
 
   //uint32_t new_bpm = 60000U / avg_ms;
   uint32_t new_bpm = (uint32_t)((60000.0f / (float)avg_ms) + 0.5f);
   if (new_bpm < BPM_MIN || new_bpm > BPM_MAX) {
-    Button_SetTapActionPending(0U);
     return;
   }
 
@@ -656,7 +647,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
   bpm_dirty     = 1U;
   bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS; /* re-arm save timer */
-  Button_SetTapActionPending(0U);
 }
 
 /* USER CODE END 4 */

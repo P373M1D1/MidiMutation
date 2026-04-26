@@ -8,15 +8,15 @@
 
 /* ── Bank names ─────────────────────────────────────────────────────────────
  * You can change these to any theme: "A/B", "Clean/Dirty", etc. */
-#define PRESET_BANK_INVALID_NAME      "(bank?)"
-#define PRESET_CC(channel, cc_number, value)  {channel, cc_number, value}
+#define PRESET_BANK_INVALID_NAME      "(bank?)" /* fallback name returned for an out-of-range bank index */
+#define PRESET_CC(channel, cc_number, value)  {channel, cc_number, value} /* helper for writing compact CC slot literals */
 /* Shared "send nothing" CC list used by synthetic presets that exist only as
  * safe fallbacks or runtime overlays, not as real pedal-program recall data. */
-#define PRESET_CC_EMPTY                       PRESET_CC(PRESET_CC_CHANNEL_UNUSED, PRESET_CC_NUMBER_UNUSED, 0U)
-#define PRESET_CC_LIST_EMPTY                  { PRESET_CC_EMPTY, PRESET_CC_EMPTY, PRESET_CC_EMPTY, PRESET_CC_EMPTY }
-#define PRESET_RANDOM_LCG_SEED                0x6D2B79F5UL
-#define PRESET_RANDOM_LCG_MULTIPLIER          1664525UL
-#define PRESET_RANDOM_LCG_INCREMENT           1013904223UL
+#define PRESET_CC_EMPTY                       PRESET_CC(PRESET_CC_CHANNEL_UNUSED, PRESET_CC_NUMBER_UNUSED, 0U) /* one unused CC-slot initializer */
+#define PRESET_CC_LIST_EMPTY                  { PRESET_CC_EMPTY, PRESET_CC_EMPTY, PRESET_CC_EMPTY, PRESET_CC_EMPTY } /* four-slot initializer for presets with no extra CC messages */
+#define PRESET_RANDOM_LCG_SEED                0x6D2B79F5UL /* initial state for the random-preset pseudo-random generator */
+#define PRESET_RANDOM_LCG_MULTIPLIER          1664525UL /* LCG multiplier used when generating random preset programs */
+#define PRESET_RANDOM_LCG_INCREMENT           1013904223UL /* LCG increment used when generating random preset programs */
 
 const char * const bank_names[PRESET_BANK_COUNT] = {
     "[Strain I]",
@@ -37,6 +37,7 @@ extern volatile uint16_t  g_bpm;
 extern volatile uint32_t  bpm_save_tick;
 extern const Preset_t    *active_preset;
 extern uint8_t            active_preset_index;
+volatile uint8_t          current_bank = 0U;
 
 /* ── Preset table ────────────────────────────────────────────────────────────
  *
@@ -111,8 +112,8 @@ static const Preset_t blank_preset = {
     .relay = { PRESET_RELAY_OPEN, PRESET_RELAY_OPEN },
 };
 
-/* Runtime-built shell used by activateRandom().
- * It also starts fully "unused" for the same reason: until activateRandom()
+/* Runtime-built shell used by Presets_ActivateRandom().
+ * It also starts fully "unused" for the same reason: until Presets_ActivateRandom()
  * fills the real device slots, this preset must not accidentally send stale
  * Program Changes, CCs, or relay changes. The spare slot remains unused even
  * after generation because random mode currently mutates only the real pedals.
@@ -124,7 +125,7 @@ static Preset_t random_preset = {
     .relay = { PRESET_RELAY_OPEN, PRESET_RELAY_OPEN },
 };
 
-/* Overlay preset used by activateMute().
+/* Overlay preset used by Presets_ActivateMute().
  * Mute should not recall pedal patches or fire extra CCs, so every device slot
  * stays PRESET_PROGRAM_UNUSED and the CC list is empty. Both relays default to
  * open/bypass so engaging mute leaves the hardware path in the safest neutral state.
@@ -240,7 +241,7 @@ void App_ActivatePreset(uint8_t idx)
     App_ActivatePresetData(preset, 1U, idx);
 }
 
-void activateRandom(void)
+void Presets_ActivateRandom(void)
 {
     const MidiDevice_t *first_device = MidiDevices_Get(0U);
     const MidiDevice_t *second_device = MidiDevices_Get(1U);
@@ -254,7 +255,7 @@ void activateRandom(void)
     App_ActivatePresetData(&random_preset, 0U, 0U);
 }
 
-void activateSpecialFunctions(void)
+void Presets_RedrawActiveDisplay(void)
 {
     /* Special-functions state lives in button_functions.c; presets only need
      * to redraw the current screen so the right-side status text changes. */
@@ -262,15 +263,7 @@ void activateSpecialFunctions(void)
         Display_DrawMainScreen(active_preset, g_bpm);
 }
 
-void deactivateSpecialFunctions(void)
-{
-    /* Same redraw path as activation: the current preset stays loaded, only
-     * the displayed special-functions state flips back. */
-    if (active_preset)
-        Display_DrawMainScreen(active_preset, g_bpm);
-}
-
-void activateMute(void)
+void Presets_ActivateMute(void)
 {
     App_ActivatePresetData(&mute_preset, 0U, 0U);
 }

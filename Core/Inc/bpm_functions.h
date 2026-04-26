@@ -1,16 +1,16 @@
 #ifndef BPM_FUNCTIONS_H
-#define BPM_FUNCTIONS_H
+#define BPM_FUNCTIONS_H /* include guard for BPM/persistence declarations */
 
 #include <stdint.h>
 
-#define BPM_FLASH_ADDR    0x080E0000UL  /* first word of sector 11       */
-#define BPM_FLASH_SECTOR  FLASH_SECTOR_11
+#define BPM_FLASH_ADDR    0x080E0000UL  /* flash address where persisted BPM/bank/preset state starts */
+#define BPM_FLASH_SECTOR  FLASH_SECTOR_11 /* STM32 flash sector used for persisted BPM/bank/preset state */
 #define BPM_SAVE_DELAY_MS 2000U         /* save 2 s after last tap       */
 #define BPM_FLASH_WRITES_ENABLED 0U     /* temporary: avoid runtime flash stalls */
-#define BPM_MIN           20U
-#define BPM_MAX           240U
+#define BPM_MIN           20U           /* lowest accepted BPM value for internal or restored tempo */
+#define BPM_MAX           240U          /* highest accepted BPM value for internal or restored tempo */
 #define BPM_DEFAULT       120U          /* used when Flash is blank      */
-#define PRESET_DEFAULT    0U
+#define PRESET_DEFAULT    0U            /* preset index used when no valid preset was restored from flash */
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,7 +52,7 @@ uint8_t  BPM_Flash_IsValid(void);
  * @brief  Process BPM display update, deferred Flash save, LED update,
  *         and screensaver refresh. Call from the main while(1) loop.
  */
-void Handle_Tap_Tempo(void);
+void BPM_Service(void);
 
 #ifdef __cplusplus
 }
