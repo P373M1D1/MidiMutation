@@ -56,7 +56,7 @@
 
 /*
  * HAL_IncTick and SysTick_Handler are placed in .RamFunc so they keep
- * executing while BPM_Flash_Save erases/programs flash.  On STM32F4 a
+ * executing while RuntimeState_Flash_Save erases/programs flash.  On STM32F4 a
  * single-bank flash stalls ALL flash reads (including instruction fetches)
  * during any erase or program cycle; running from RAM avoids that stall.
  */

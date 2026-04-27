@@ -69,7 +69,7 @@ static uint8_t flash_state_read(FlashState_t *state)
 }
 
 /*
- * BPM_Flash_Save  –  placed in .RamFunc so it executes from SRAM.
+ * RuntimeState_Flash_Save  –  placed in .RamFunc so it executes from SRAM.
  *
  * STM32F4 has a single-bank Flash: while any erase or program is in
  * progress ALL Flash reads stall, including instruction fetches.
@@ -85,7 +85,7 @@ static uint8_t flash_state_read(FlashState_t *state)
  * would require fetching their code from Flash, defeating the purpose.
  */
 __attribute__((noinline, section(".RamFunc")))
-void BPM_Flash_Save(uint16_t bpm, uint8_t preset_idx, uint8_t bank_idx)
+void RuntimeState_Flash_Save(uint16_t bpm, uint8_t preset_idx, uint8_t bank_idx)
 {
 #if !BPM_FLASH_WRITES_ENABLED
     (void)bpm;
@@ -182,7 +182,7 @@ void BPM_Service(void)
     {
         bpm_save_tick = 0U;
 #if BPM_FLASH_WRITES_ENABLED
-        BPM_Flash_Save(g_bpm, active_preset_index, current_bank);
+        RuntimeState_Flash_Save(g_bpm, active_preset_index, current_bank);
         LED_FlashPulse();  /* brief blue blink to confirm write */
 #endif
     }

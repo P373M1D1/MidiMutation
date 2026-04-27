@@ -13,7 +13,7 @@ void LED_BeatPulse(void);
 
 /**
  * @brief  Turn on the Flash-write LED (LD2, blue) for 50 ms.
- *         Call immediately after BPM_Flash_Save().
+ *         Call immediately after RuntimeState_Flash_Save().
  */
 void LED_FlashPulse(void);
 
