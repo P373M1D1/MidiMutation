@@ -73,6 +73,15 @@
 #define TAP_MIN_INTERVAL_MS          250U /* shortest accepted gap between taps to reject bounce or unreal tempos */
 #define TAP_MIN_COUNT                  2U /* minimum number of taps required before a BPM can be computed */
 
+#define TEMPO_ENCODER_TRANSITIONS_PER_STEP 4 /* quadrature edges expected per mechanical detent */
+#define TEMPO_ENCODER_DIRECTION_SIGN    1 /* set to -1 if clockwise and counter-clockwise feel reversed */
+#define TEMPO_ENCODER_ACCEL_MID_MS     60U /* <= this detent interval uses medium acceleration */
+#define TEMPO_ENCODER_ACCEL_FAST_MS    35U /* <= this detent interval uses fast acceleration */
+#define TEMPO_ENCODER_ACCEL_VFAST_MS   20U /* <= this detent interval uses very-fast acceleration */
+#define TEMPO_ENCODER_STEP_MID         2 /* BPM delta per detent for medium-fast turns */
+#define TEMPO_ENCODER_STEP_FAST        4 /* BPM delta per detent for fast turns */
+#define TEMPO_ENCODER_STEP_VFAST       8 /* BPM delta per detent for very-fast turns */
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -99,6 +108,9 @@ volatile uint8_t         bpm_dirty    = 0U;  /* set by ISR, read by main */
 volatile uint32_t bpm_save_tick = 0U;  /* HAL_GetTick target to save BPM to Flash */
 const Preset_t   *active_preset = NULL; /* current preset, needed by screensaver wake */
 uint8_t active_preset_index = PRESET_DEFAULT;
+static uint8_t tempo_encoder_last_state = 0U; /* previous sampled CLK/DT state for quadrature decoding */
+static int8_t tempo_encoder_transition_accum = 0; /* transition accumulator to collapse 4 edges into 1 BPM step */
+static uint32_t tempo_encoder_last_step_tick = 0U; /* ms timestamp of the previous completed encoder detent */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -112,6 +124,9 @@ static void MX_MIDI_Output_UART_Init(void);
 static uint32_t MidiClockTimerPeriodForBpm(uint16_t bpm);
 static void MX_TIM2_Init(void);
 static void MX_TIM6_Init(uint16_t bpm);
+static void TempoEncoder_Init(void);
+static void TempoEncoder_Service(void);
+static void TempoEncoder_ApplyBpmStep(int8_t step);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -192,6 +207,7 @@ int main(void)
   App_ActivatePreset(active_preset_index);
   bpm_save_tick = 0U;
   Display_ScreensaverActivity();  /* seed inactivity timer from boot */
+  TempoEncoder_Init();
 
   /* USER CODE END 2 */
 
@@ -202,6 +218,7 @@ int main(void)
     /* USER CODE END WHILE */
     /* Deferred work stays in the main loop: BPM/UI updates and flash-save
      * scheduling on one side, queued EXTI button events on the other. */
+    TempoEncoder_Service();
     BPM_Service();
     Button_ProcessPendingEvents();
     /* USER CODE BEGIN 3 */
@@ -461,6 +478,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(MIDI_IN_LED_GPIO_Port, &GPIO_InitStruct);
+
+  /* Encoder 3 uses simple GPIO polling for tempo. SW is reserved for later. */
+  GPIO_InitStruct.Pin = ENC3_CLK_Pin | ENC3_DT_Pin | ENC3_SW_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
@@ -544,6 +567,90 @@ static void MX_TIM6_Init(uint16_t bpm)
   __HAL_TIM_CLEAR_FLAG(&htim6, TIM_FLAG_UPDATE); /* clear UIF set by UG during init */
   HAL_NVIC_SetPriority(TIM6_DAC_IRQn, 2U, 0U);
   HAL_NVIC_EnableIRQ(TIM6_DAC_IRQn);
+}
+
+static void TempoEncoder_Init(void)
+{
+  uint8_t clk_state = (HAL_GPIO_ReadPin(ENC3_CLK_GPIO_Port, ENC3_CLK_Pin) == GPIO_PIN_SET) ? 1U : 0U;
+  uint8_t dt_state = (HAL_GPIO_ReadPin(ENC3_DT_GPIO_Port, ENC3_DT_Pin) == GPIO_PIN_SET) ? 1U : 0U;
+
+  tempo_encoder_last_state = (uint8_t)((clk_state << 1U) | dt_state);
+  tempo_encoder_transition_accum = 0;
+  tempo_encoder_last_step_tick = 0U;
+}
+
+static void TempoEncoder_ApplyBpmStep(int8_t step)
+{
+  int32_t next_bpm = (int32_t)g_bpm + (int32_t)step;
+
+  if (next_bpm < (int32_t)BPM_MIN)
+    next_bpm = (int32_t)BPM_MIN;
+  else if (next_bpm > (int32_t)BPM_MAX)
+    next_bpm = (int32_t)BPM_MAX;
+
+  if ((uint16_t)next_bpm == g_bpm)
+    return;
+
+  g_bpm = (uint16_t)next_bpm;
+  TIM6->CNT = 0U;
+  TIM6->ARR = MidiClockTimerPeriodForBpm(g_bpm);
+  bpm_dirty = 1U;
+  bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
+}
+
+static void TempoEncoder_Service(void)
+{
+  static const int8_t transition_delta[16] = {
+     0, -1,  1,  0,
+     1,  0,  0, -1,
+    -1,  0,  0,  1,
+     0,  1, -1,  0
+  };
+  uint8_t clk_state = (HAL_GPIO_ReadPin(ENC3_CLK_GPIO_Port, ENC3_CLK_Pin) == GPIO_PIN_SET) ? 1U : 0U;
+  uint8_t dt_state = (HAL_GPIO_ReadPin(ENC3_DT_GPIO_Port, ENC3_DT_Pin) == GPIO_PIN_SET) ? 1U : 0U;
+  uint8_t current_state = (uint8_t)((clk_state << 1U) | dt_state);
+
+  if (current_state == tempo_encoder_last_state)
+    return;
+
+  uint8_t transition_index = (uint8_t)((tempo_encoder_last_state << 2U) | current_state);
+  tempo_encoder_last_state = current_state;
+  tempo_encoder_transition_accum += transition_delta[transition_index];
+
+  if (tempo_encoder_transition_accum >= TEMPO_ENCODER_TRANSITIONS_PER_STEP)
+  {
+    uint32_t now = HAL_GetTick();
+    uint32_t step_interval_ms = (tempo_encoder_last_step_tick == 0U) ? UINT32_MAX : (now - tempo_encoder_last_step_tick);
+    int8_t step_size = (int8_t)TEMPO_ENCODER_DIRECTION_SIGN;
+
+    if (step_interval_ms <= TEMPO_ENCODER_ACCEL_VFAST_MS)
+      step_size = (int8_t)(TEMPO_ENCODER_DIRECTION_SIGN * TEMPO_ENCODER_STEP_VFAST);
+    else if (step_interval_ms <= TEMPO_ENCODER_ACCEL_FAST_MS)
+      step_size = (int8_t)(TEMPO_ENCODER_DIRECTION_SIGN * TEMPO_ENCODER_STEP_FAST);
+    else if (step_interval_ms <= TEMPO_ENCODER_ACCEL_MID_MS)
+      step_size = (int8_t)(TEMPO_ENCODER_DIRECTION_SIGN * TEMPO_ENCODER_STEP_MID);
+
+    tempo_encoder_transition_accum = 0;
+    tempo_encoder_last_step_tick = now;
+    TempoEncoder_ApplyBpmStep(step_size);
+  }
+  else if (tempo_encoder_transition_accum <= -TEMPO_ENCODER_TRANSITIONS_PER_STEP)
+  {
+    uint32_t now = HAL_GetTick();
+    uint32_t step_interval_ms = (tempo_encoder_last_step_tick == 0U) ? UINT32_MAX : (now - tempo_encoder_last_step_tick);
+    int8_t step_size = (int8_t)(-TEMPO_ENCODER_DIRECTION_SIGN);
+
+    if (step_interval_ms <= TEMPO_ENCODER_ACCEL_VFAST_MS)
+      step_size = (int8_t)(-TEMPO_ENCODER_DIRECTION_SIGN * TEMPO_ENCODER_STEP_VFAST);
+    else if (step_interval_ms <= TEMPO_ENCODER_ACCEL_FAST_MS)
+      step_size = (int8_t)(-TEMPO_ENCODER_DIRECTION_SIGN * TEMPO_ENCODER_STEP_FAST);
+    else if (step_interval_ms <= TEMPO_ENCODER_ACCEL_MID_MS)
+      step_size = (int8_t)(-TEMPO_ENCODER_DIRECTION_SIGN * TEMPO_ENCODER_STEP_MID);
+
+    tempo_encoder_transition_accum = 0;
+    tempo_encoder_last_step_tick = now;
+    TempoEncoder_ApplyBpmStep(step_size);
+  }
 }
   
 

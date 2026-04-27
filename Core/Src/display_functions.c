@@ -168,6 +168,7 @@ static uint16_t bpm_display_value_x10 = 0U;
 static uint32_t bpm_display_external_update_tick = 0U;
 static char bpm_display_internal_text[8] = "";
 static char bpm_display_external_text[14] = "";
+static uint16_t bpm_display_internal_head_x = 0U;
 
 #define BPM_DISPLAY_AREA_X              280U                 // left edge of the rectangle reserved for BPM text updates
 #define BPM_DISPLAY_AREA_W              200U                 // width of the rectangle reserved for BPM text updates
@@ -186,7 +187,12 @@ static char bpm_display_external_text[14] = "";
 #define BPM_EXT_UPDATE_MIN_INTERVAL_MS  500U                 // minimum time between small external BPM redraws
 #define BPM_EXT_FORCE_UPDATE_DELTA_X10  5U                   // delta in tenths that forces an external BPM update
 #define BPM_EXT_SLEW_STEP_X10           1U                   // maximum smoothing step per update in tenths of BPM
-#define BPM_INTERNAL_TEXT_CHARS         7U                   // padded text width for internal BPM strings like "120 BPM"
+#define BPM_INTERNAL_HEAD_TEXT_CHARS    7U                   // width reserved for internal prefix+value, e.g. "INT 120"
+#define BPM_INTERNAL_SUFFIX_TEXT        " BPM"              // fixed suffix for internal BPM display
+#define BPM_INTERNAL_SUFFIX_TEXT_CHARS  4U                   // width of the fixed internal suffix text block
+#define BPM_INTERNAL_SUFFIX_TEXT_X      ((uint16_t)(BPM_DISPLAY_AREA_X + BPM_DISPLAY_AREA_W - (BPM_INTERNAL_SUFFIX_TEXT_CHARS * BPM_FONT.width))) // right-aligned x position of the fixed internal suffix
+#define BPM_INTERNAL_HEAD_TEXT_X        (BPM_INTERNAL_SUFFIX_TEXT_X - (BPM_INTERNAL_HEAD_TEXT_CHARS * BPM_FONT.width)) // left edge of the full internal prefix+value area
+#define BPM_INTERNAL_HEAD_AREA_W        (BPM_INTERNAL_HEAD_TEXT_CHARS * BPM_FONT.width) // pixel width of the full internal prefix+value area
 #define BPM_EXT_TEXT_CHARS              13U                  // padded text width for external BPM strings like "EXT 120.0 BPM"
 #define BPM_EXT_TEXT_X                  ((uint16_t)(BPM_DISPLAY_AREA_X + BPM_DISPLAY_AREA_W - (BPM_EXT_TEXT_CHARS * BPM_FONT.width))) // right-aligned x position of the external BPM string
 #define EXT_BPM_COLOUR                  COBALT_BLUE         // colour used for external BPM text
@@ -476,6 +482,7 @@ void Display_UpdateBPM(uint16_t bpm)
         bpm_display_external_update_tick = 0U;
         bpm_display_internal_text[0] = '\0';
         bpm_display_external_text[0] = '\0';
+        bpm_display_internal_head_x = 0U;
         return;
     }
 
@@ -497,13 +504,54 @@ void Display_UpdateBPM(uint16_t bpm)
             Display_ClearBpmArea();
         }
 
-        snprintf(buf, sizeof(buf), "%3u BPM", (unsigned)bpm);
-        Display_UpdateBpmTextCells(BPM_INTERNAL_VALUE_X,
-                                   BPM_TEXT_Y,
-                                   BPM_INTERNAL_TEXT_CHARS,
-                                   full_redraw ? "" : bpm_display_internal_text,
-                                   buf,
-                                   BPM_INTERNAL_COLOUR);
+        snprintf(buf, sizeof(buf), "INT %u", (unsigned)bpm);
+        uint8_t internal_head_len = (uint8_t)strlen(buf);
+        uint16_t internal_head_x = (uint16_t)(BPM_INTERNAL_SUFFIX_TEXT_X - ((uint16_t)internal_head_len * BPM_FONT.width));
+
+        if (full_redraw)
+        {
+            ST7796_WriteString32(BPM_INTERNAL_SUFFIX_TEXT_X,
+                                 BPM_TEXT_Y,
+                                 BPM_INTERNAL_SUFFIX_TEXT,
+                                 BPM_FONT,
+                                 BPM_INTERNAL_COLOUR,
+                                 BPM_BG_COLOUR);
+            ST7796_WriteString32(internal_head_x,
+                                 BPM_TEXT_Y,
+                                 buf,
+                                 BPM_FONT,
+                                 BPM_INTERNAL_COLOUR,
+                                 BPM_BG_COLOUR);
+        }
+
+        if (!full_redraw)
+        {
+            if (internal_head_x != bpm_display_internal_head_x)
+            {
+                ST7796_DrawFilledRectangle(BPM_INTERNAL_HEAD_TEXT_X,
+                                           BPM_TEXT_Y,
+                                           BPM_INTERNAL_HEAD_AREA_W,
+                                           BPM_FONT.height,
+                                           BPM_BG_COLOUR);
+                ST7796_WriteString32(internal_head_x,
+                                     BPM_TEXT_Y,
+                                     buf,
+                                     BPM_FONT,
+                                     BPM_INTERNAL_COLOUR,
+                                     BPM_BG_COLOUR);
+            }
+            else
+            {
+                Display_UpdateBpmTextCells(internal_head_x,
+                                           BPM_TEXT_Y,
+                                           BPM_INTERNAL_HEAD_TEXT_CHARS,
+                                           bpm_display_internal_text,
+                                           buf,
+                                           BPM_INTERNAL_COLOUR);
+            }
+        }
+
+        bpm_display_internal_head_x = internal_head_x;
         strcpy(bpm_display_internal_text, buf);
         bpm_display_external_text[0] = '\0';
 
@@ -737,7 +785,7 @@ void Display_ScreensaverUpdate(const Preset_t *p, uint16_t bpm)
     if (now - screensaver_last_activity_tick < SCREENSAVER_TIMEOUT_MS)
     {
         /* Activity was recorded since we went to sleep ??? wake up */
-        Display_ScreensaverDismiss();
+        //Display_ScreensaverDismiss();
         Display_DrawMainScreen(p, bpm);
         return;
     }

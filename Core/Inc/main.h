@@ -117,6 +117,13 @@ void Error_Handler(void);
 #define MIDI_IN_LED_Pin GPIO_PIN_15 /* dedicated MIDI input activity LED pin number */
 #define MIDI_IN_LED_GPIO_Port GPIOF /* GPIO port for the MIDI input activity LED */
 
+#define ENC3_SW_Pin GPIO_PIN_3 /* encoder 3 pushbutton switch (reserved for later use) */
+#define ENC3_SW_GPIO_Port GPIOD /* GPIO port for encoder 3 pushbutton switch */
+#define ENC3_CLK_Pin GPIO_PIN_12 /* encoder 3 quadrature A/CLK input */
+#define ENC3_CLK_GPIO_Port GPIOD /* GPIO port for encoder 3 quadrature A/CLK input */
+#define ENC3_DT_Pin GPIO_PIN_13 /* encoder 3 quadrature B/DT input */
+#define ENC3_DT_GPIO_Port GPIOD /* GPIO port for encoder 3 quadrature B/DT input */
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
