@@ -244,15 +244,30 @@ static void Display_UpdateBpmTextCells(uint16_t x,
     }
 }
 
-static void Display_FormatExternalBpmText(char *buffer, size_t buffer_size, uint16_t bpm_x10)
+typedef enum
+{
+    BPM_TEXT_MODE_INTERNAL = 0,
+    BPM_TEXT_MODE_EXTERNAL = 1
+} DisplayBpmTextMode_t;
+
+static void Display_FormatBpmText(char *buffer,
+                                  size_t buffer_size,
+                                  DisplayBpmTextMode_t mode,
+                                  uint16_t bpm_or_bpm_x10)
 {
     char text[20];
 
-    snprintf(text, sizeof(text), "EXT %u.%u BPM",
-             (unsigned)(bpm_x10 / 10U),
-             (unsigned)(bpm_x10 % 10U));
+    if (mode == BPM_TEXT_MODE_EXTERNAL)
+    {
+        snprintf(text, sizeof(text), "EXT %u.%u BPM",
+                 (unsigned)(bpm_or_bpm_x10 / 10U),
+                 (unsigned)(bpm_or_bpm_x10 % 10U));
 
-    snprintf(buffer, buffer_size, "%*s", (int)BPM_EXT_TEXT_CHARS, text);
+        snprintf(buffer, buffer_size, "%*s", (int)BPM_EXT_TEXT_CHARS, text);
+        return;
+    }
+
+    snprintf(buffer, buffer_size, "INT %u", (unsigned)bpm_or_bpm_x10);
 }
 
 static uint16_t Display_GetExternalBpmHysteresisX10(uint16_t reference_bpm_x10)
@@ -504,7 +519,7 @@ void Display_UpdateBPM(uint16_t bpm)
             Display_ClearBpmArea();
         }
 
-        snprintf(buf, sizeof(buf), "INT %u", (unsigned)bpm);
+        Display_FormatBpmText(buf, sizeof(buf), BPM_TEXT_MODE_INTERNAL, bpm);
         uint8_t internal_head_len = (uint8_t)strlen(buf);
         uint16_t internal_head_x = (uint16_t)(BPM_INTERNAL_SUFFIX_TEXT_X - ((uint16_t)internal_head_len * BPM_FONT.width));
 
@@ -607,7 +622,7 @@ void Display_UpdateBPM(uint16_t bpm)
         }
     }
 
-    Display_FormatExternalBpmText(buf, sizeof(buf), display_bpm_x10);
+    Display_FormatBpmText(buf, sizeof(buf), BPM_TEXT_MODE_EXTERNAL, display_bpm_x10);
     Display_UpdateBpmTextCells(BPM_EXT_TEXT_X,
                                BPM_TEXT_Y,
                                BPM_EXT_TEXT_CHARS,

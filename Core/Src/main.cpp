@@ -82,6 +82,9 @@
 #define TEMPO_ENCODER_STEP_FAST        4 /* BPM delta per detent for fast turns */
 #define TEMPO_ENCODER_STEP_VFAST       8 /* BPM delta per detent for very-fast turns */
 
+#define EXT_CLOCK_HOLDOVER_MIRROR_ENABLED 1U /* set to 0 to revert to legacy behavior without deleting code */
+#define EXT_CLOCK_MIRROR_STABLE_SAMPLES 3U /* consecutive equal-BPM external samples required before mirroring */
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -111,6 +114,8 @@ uint8_t active_preset_index = PRESET_DEFAULT;
 static uint8_t tempo_encoder_last_state = 0U; /* previous sampled CLK/DT state for quadrature decoding */
 static int8_t tempo_encoder_transition_accum = 0; /* transition accumulator to collapse 4 edges into 1 BPM step */
 static uint32_t tempo_encoder_last_step_tick = 0U; /* ms timestamp of the previous completed encoder detent */
+static uint16_t ext_mirror_candidate_bpm = 0U; /* latest external BPM candidate used by holdover mirroring */
+static uint8_t ext_mirror_stable_count = 0U; /* how many consecutive samples matched ext_mirror_candidate_bpm */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -127,6 +132,7 @@ static void MX_TIM6_Init(uint16_t bpm);
 static void TempoEncoder_Init(void);
 static void TempoEncoder_Service(void);
 static void TempoEncoder_ApplyBpmStep(int8_t step);
+static void ExternalClockHoldoverMirror_Service(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -218,6 +224,9 @@ int main(void)
     /* USER CODE END WHILE */
     /* Deferred work stays in the main loop: BPM/UI updates and flash-save
      * scheduling on one side, queued EXTI button events on the other. */
+  #if EXT_CLOCK_HOLDOVER_MIRROR_ENABLED
+    ExternalClockHoldoverMirror_Service();
+  #endif
     TempoEncoder_Service();
     BPM_Service();
     Button_ProcessPendingEvents();
@@ -651,6 +660,48 @@ static void TempoEncoder_Service(void)
     tempo_encoder_last_step_tick = now;
     TempoEncoder_ApplyBpmStep(step_size);
   }
+}
+
+static void ExternalClockHoldoverMirror_Service(void)
+{
+  uint16_t external_bpm_x10;
+  uint16_t external_bpm;
+
+  /* Mirror a stable external tempo into g_bpm so cable loss can fall through
+   * to internal clocking without a large tempo jump. This never sets bpm_dirty
+   * and never schedules flash writes, so it is runtime-only holdover state. */
+  if (!MidiTransportIsRunning() || !MidiClockGetExternalBpmX10(&external_bpm_x10))
+  {
+    ext_mirror_stable_count = 0U;
+    return;
+  }
+
+  external_bpm = (uint16_t)((external_bpm_x10 + 5U) / 10U);
+  if (external_bpm < BPM_MIN || external_bpm > BPM_MAX)
+  {
+    ext_mirror_stable_count = 0U;
+    return;
+  }
+
+  if (external_bpm != ext_mirror_candidate_bpm)
+  {
+    ext_mirror_candidate_bpm = external_bpm;
+    ext_mirror_stable_count = 1U;
+    return;
+  }
+
+  if (ext_mirror_stable_count < 0xFFU)
+    ext_mirror_stable_count++;
+
+  if (ext_mirror_stable_count < EXT_CLOCK_MIRROR_STABLE_SAMPLES)
+    return;
+
+  if (g_bpm == ext_mirror_candidate_bpm)
+    return;
+
+  g_bpm = ext_mirror_candidate_bpm;
+  TIM6->CNT = 0U;
+  TIM6->ARR = MidiClockTimerPeriodForBpm(g_bpm);
 }
   
 
