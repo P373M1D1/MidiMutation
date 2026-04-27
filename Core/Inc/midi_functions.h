@@ -116,6 +116,23 @@ uint8_t MidiClockGetExternalBpm(uint16_t *bpm);
 uint8_t MidiClockGetExternalBpmX10(uint16_t *bpm_x10);
 
 /**
+ * @brief  Return 1 when external MIDI clock pulses are currently present.
+ *         Unlike MidiTransportIsRunning(), this does not require a Start or
+ *         Continue transport event.
+ */
+uint8_t MidiClockIsExternalSignalPresent(void);
+
+/**
+ * @brief  Get external transport bar/beat position tracked from MIDI clock.
+ *         Position is anchored to 1.1 on Start/Continue and advances every
+ *         quarter note (24 MIDI clock pulses), cycling 1.1 .. 4.4.
+ * @param  bar   Output pointer for bar number (1..4).
+ * @param  beat  Output pointer for beat number (1..4).
+ * @retval 1 when a valid Start/Continue anchor exists, 0 otherwise.
+ */
+uint8_t MidiClockGetBarBeat(uint8_t *bar, uint8_t *beat);
+
+/**
  * @brief  Return and clear the last latched transport event.
  * @retval MIDI_TRANSPORT_EVENT_NONE if no new Start/Continue/Stop arrived
  *         since the previous call.

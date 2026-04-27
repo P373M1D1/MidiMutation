@@ -51,6 +51,8 @@ static UART_HandleTypeDef midi_input_uart;
 #define MIDI_BPM_X10_ROUNDING_OFFSET       5U           /* convert x10 BPM to integer BPM with round-half-up */
 
 #define MIDI_CLOCK_BPM_WINDOW_PULSES 96U               /* average over four quarter notes at 24 ppqn */
+#define MIDI_BARBEAT_BARS_PER_CYCLE 4U                 /* transport display cycles bars 1..4 */
+#define MIDI_BARBEAT_BEATS_PER_BAR 4U                  /* quarter-note beats per bar */
 #define MIDI_CLOCK_LOST_TIMEOUT_MIN_MS 250U            /* never declare sync lost faster than this */
 #define MIDI_CLOCK_LOST_TIMEOUT_PAD_MS 20U             /* extra slack on top of the computed timeout */
 #define MIDI_CLOCK_LOST_TIMEOUT_PULSES 4U              /* allow roughly four missing clock pulses before loss */
@@ -72,6 +74,9 @@ static uint8_t            midi_clock_pulse_interval_index = 0U;
 static volatile uint32_t  midi_clock_external_activity_timeout_us = 0U;
 static volatile uint16_t  midi_clock_external_bpm_x10 = 0U;
 static volatile uint8_t   midi_clock_external_bpm_valid = 0U;
+static volatile uint8_t   midi_barbeat_valid = 0U;
+static volatile uint8_t   midi_barbeat_bar = 1U;
+static volatile uint8_t   midi_barbeat_beat = 1U;
 static volatile uint8_t   midi_clock_sync_lost = 0U;
 static volatile uint8_t   midi_transport_running = 0U;
 static volatile MidiTransportEvent_t midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
@@ -273,6 +278,9 @@ static void midi_clock_reset_sync(void)
     }
     midi_clock_external_bpm_x10 = 0U;
     midi_clock_external_bpm_valid = 0U;
+    midi_barbeat_valid = 0U;
+    midi_barbeat_bar = 1U;
+    midi_barbeat_beat = 1U;
     midi_clock_sync_lost = 0U;
 }
 
@@ -374,6 +382,7 @@ void MidiReceive(uint8_t byte)
         midi_transport_event = MIDI_TRANSPORT_EVENT_START;
         LED_MidiInPulse();
         midi_clock_reset_sync();
+        midi_barbeat_valid = 1U;
        
         return;
     }
@@ -387,6 +396,7 @@ void MidiReceive(uint8_t byte)
         midi_transport_event = MIDI_TRANSPORT_EVENT_CONTINUE;
         LED_MidiInPulse();
         midi_clock_reset_sync();
+        midi_barbeat_valid = 1U;
         return;
     }
 
@@ -471,6 +481,22 @@ void MidiReceive(uint8_t byte)
         return;
 
     midi_clock_pulse_count = 0U;
+
+    if (midi_barbeat_valid)
+    {
+        if (midi_barbeat_beat < MIDI_BARBEAT_BEATS_PER_BAR)
+        {
+            midi_barbeat_beat++;
+        }
+        else
+        {
+            midi_barbeat_beat = 1U;
+            midi_barbeat_bar = (midi_barbeat_bar < MIDI_BARBEAT_BARS_PER_CYCLE)
+                ? (uint8_t)(midi_barbeat_bar + 1U)
+                : 1U;
+        }
+    }
+
     LED_MidiClockPulse();
 }
 
@@ -529,6 +555,30 @@ uint8_t MidiClockGetExternalBpmX10(uint16_t *bpm_x10)
 
     *bpm_x10 = midi_clock_external_bpm_x10;
     return 1U;
+}
+
+uint8_t MidiClockIsExternalSignalPresent(void)
+{
+    midi_clock_update_sync_state();
+    return midi_clock_external_is_active();
+}
+
+uint8_t MidiClockGetBarBeat(uint8_t *bar, uint8_t *beat)
+{
+    uint32_t primask = __get_PRIMASK();
+    uint8_t valid;
+
+    if (!bar || !beat)
+        return 0U;
+
+    __disable_irq();
+    valid = midi_barbeat_valid;
+    *bar = midi_barbeat_bar;
+    *beat = midi_barbeat_beat;
+    if (primask == 0U)
+        __enable_irq();
+
+    return valid;
 }
 
 MidiTransportEvent_t MidiTransportConsumeEvent(void)

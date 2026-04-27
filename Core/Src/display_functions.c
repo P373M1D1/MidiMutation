@@ -169,6 +169,7 @@ static uint32_t bpm_display_external_update_tick = 0U;
 static char bpm_display_internal_text[8] = "";
 static char bpm_display_external_text[14] = "";
 static uint16_t bpm_display_internal_head_x = 0U;
+static char transport_barbeat_text[4] = "";
 
 #define BPM_DISPLAY_AREA_X              280U                 // left edge of the rectangle reserved for BPM text updates
 #define BPM_DISPLAY_AREA_W              200U                 // width of the rectangle reserved for BPM text updates
@@ -198,6 +199,12 @@ static uint16_t bpm_display_internal_head_x = 0U;
 #define EXT_BPM_COLOUR                  COBALT_BLUE         // colour used for external BPM text
 #define BPM_SYNC_LOST_TEXT              "EXT SYNC LOST"      // message shown when external MIDI clock times out
 #define BPM_SYNC_LOST_COLOUR            RED                 // colour used for the EXT SYNC LOST warning
+
+#define TRANSPORT_BARBEAT_TEXT_X        10U                  // top-left x position for bar.beat transport readout
+#define TRANSPORT_BARBEAT_TEXT_Y        7U                   // top-left y position for bar.beat transport readout
+#define TRANSPORT_BARBEAT_TEXT_CHARS    3U                   // fixed width for values like "1.1" or "-.-"
+#define TRANSPORT_BARBEAT_TEXT_W        (TRANSPORT_BARBEAT_TEXT_CHARS * MAIN_PRESET_FONT.width) // clear/update width of bar.beat readout
+#define TRANSPORT_BARBEAT_TEXT_COLOUR   MAIN_PRESET_COLOUR   // use preset font colour as requested
 
 #define LOADING_BAR_X                   10U                  // left edge of the startup loading bar
 #define LOADING_BAR_Y                   262U                 // top edge of the startup loading bar
@@ -242,6 +249,75 @@ static void Display_UpdateBpmTextCells(uint16_t x,
             ST7796_WriteChar32(char_x, y, new_ch, BPM_FONT, colour, BPM_BG_COLOUR);
         }
     }
+}
+
+static void Display_UpdateTransportBarBeat(void)
+{
+    uint8_t bar;
+    uint8_t beat;
+    uint8_t external_signal_present;
+    uint8_t sync_lost;
+    char next_text[4];
+
+    external_signal_present = MidiClockIsExternalSignalPresent();
+    sync_lost = MidiClockIsSyncLost();
+
+    if (MidiClockGetBarBeat(&bar, &beat))
+    {
+        next_text[0] = (char)('0' + bar);
+        next_text[1] = '.';
+        next_text[2] = (char)('0' + beat);
+        next_text[3] = '\0';
+    }
+    else if (external_signal_present || sync_lost)
+    {
+        strcpy(next_text, "-.-");
+    }
+    else
+    {
+        next_text[0] = '\0';
+    }
+
+    if (strcmp(next_text, transport_barbeat_text) == 0)
+        return;
+
+    {
+        size_t old_len = strlen(transport_barbeat_text);
+        size_t new_len = strlen(next_text);
+
+        for (uint8_t index = 0U; index < TRANSPORT_BARBEAT_TEXT_CHARS; index++)
+        {
+            char old_ch = (index < old_len) ? transport_barbeat_text[index] : ' ';
+            char new_ch = (index < new_len) ? next_text[index] : ' ';
+            uint16_t char_x;
+
+            if (old_ch == new_ch)
+                continue;
+
+            char_x = (uint16_t)(TRANSPORT_BARBEAT_TEXT_X + ((uint16_t)index * MAIN_PRESET_FONT.width));
+            ST7796_DrawFilledRectangle(char_x,
+                                       TRANSPORT_BARBEAT_TEXT_Y,
+                                       MAIN_PRESET_FONT.width,
+                                       MAIN_PRESET_FONT.height,
+                                       DISPLAY_BG_COLOUR);
+            if (new_ch != ' ')
+            {
+                ST7796_WriteChar32(char_x,
+                                   TRANSPORT_BARBEAT_TEXT_Y,
+                                   new_ch,
+                                   MAIN_PRESET_FONT,
+                                   TRANSPORT_BARBEAT_TEXT_COLOUR,
+                                   DISPLAY_BG_COLOUR);
+            }
+        }
+    }
+
+    if (next_text[0] != '\0')
+    {
+        /* Characters are rendered above cell-by-cell; keep this branch only
+         * to preserve the previous blank/non-blank intent. */
+    }
+    strcpy(transport_barbeat_text, next_text);
 }
 
 typedef enum
@@ -479,6 +555,8 @@ void Display_UpdateBPM(uint16_t bpm)
     uint32_t now_ms = HAL_GetTick();
     uint8_t full_redraw;
     char buf[20];
+
+    Display_UpdateTransportBarBeat();
 
     if (sync_lost)
     {
