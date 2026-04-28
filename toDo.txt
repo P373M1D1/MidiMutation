@@ -3,7 +3,9 @@ Change: Flash stogare to RTC and use Vbat to protectr storage from failure / or 
 
 BUG: waking up screensaver clears entire screen after waking up
 
-
+Add: show unused preset number 
+Add: middle encoder becomes "value"
+Add: menu navigation left and middle encoder 
 Add: Rotary encoder to adjust internal tempo (bpm)
 Add: space out colours in header file
 Add: Relay functions ( i know the pins are a little short, but testing must be done)
