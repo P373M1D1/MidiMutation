@@ -34,7 +34,7 @@ static const MidiDevice_t device_table[MIDI_DEVICE_COUNT] = {
         .tap_tempo  = { .cc = 35U, .value = 64U  },
         .max_preset = 35U,
     },
-    /* 2–7 blank slots — reserve unique channels for future devices ──────── */
+    /* 2–7 blank slots — reserve unique channels for future devices ──────── INFO: Channel Numbers have only been added to check if the scrolling works*/
     { .channel = 3U, .engage = {0xFFU,0U}, .bypass = {0xFFU,0U}, .tap_tempo = {0xFFU,0U}, .max_preset = 127U },
     { .channel = 4U, .engage = {0xFFU,0U}, .bypass = {0xFFU,0U}, .tap_tempo = {0xFFU,0U}, .max_preset = 127U },
     { .channel = 5U, .engage = {0xFFU,0U}, .bypass = {0xFFU,0U}, .tap_tempo = {0xFFU,0U}, .max_preset = 127U },

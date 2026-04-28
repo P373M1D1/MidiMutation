@@ -113,9 +113,13 @@ void Display_BL_FadeOut(void)
 #define MAIN_FOOTBAR_Y                 298U                  // top edge of the footer/status bar
 #define MAIN_FOOTBAR_H                 (ST7796_HEIGHT - MAIN_FOOTBAR_Y) // footer height from its top edge to screen bottom
 #define MAIN_FOOTBAR_COLOR             CHARCOAL            // fill colour for the footer/status bar
-#define MAIN_FOOTBAR_TEXT              "MIDI / RELAY STATUS" // caption shown inside the footer bar
-#define MAIN_FOOTBAR_FONT              Font_11x18           // font used for the footer caption
+#define MAIN_FOOTBAR_FONT              Font_Consolas8x21    // font used for the footer caption
 #define MAIN_FOOTBAR_TEXT_COLOUR       WHITE                 // text colour for the footer caption
+#define MAIN_FOOTBAR_SECTION_COUNT     3U                    // footer is conceptually split into three unlabeled regions
+#define MAIN_FOOTBAR_SECTION_WIDTH     (ST7796_WIDTH / MAIN_FOOTBAR_SECTION_COUNT) // width of one footer region
+#define MAIN_FOOTBAR_LEFT_TEXT         "SCROLL"              // label for the left footer region under encoder 1
+#define MAIN_FOOTBAR_CENTER_TEXT       "UNUSED"               // currently unused middle footer region label
+#define MAIN_FOOTBAR_RIGHT_TEXT        "TEMPO"               // label for the right footer region under the tempo encoder
 #define MAIN_INFO_LEFT_X               30U                  // x origin of the left info column (MIDI programs)
 #define MAIN_INFO_RIGHT_X              220U                 // x origin of the right info column (relay / special state)
 #define MAIN_INFO_FONT                 Font_Consolas15x35   // font used for bank text, BPM text, and info rows
@@ -123,11 +127,15 @@ void Display_BL_FadeOut(void)
 #define MAIN_INFO_TEXT_BG_COLOUR       DISPLAY_BG_COLOUR    // background colour behind normal info text
 #define MAIN_INFO_SHARED_TEXT_COLOUR   DISPLAY_BG_COLOUR    // text colour when a shared program number is inverted
 #define MAIN_INFO_SHARED_BG_COLOUR     MAIN_INFO_TEXT_COLOUR // background colour when a shared program number is inverted
-#define MAIN_INFO_ROW_COUNT            PRESET_DEVICE_SLOTS  // number of vertically stacked info rows on the main screen
+#define MAIN_INFO_ROW_COUNT            3U                   // number of vertically stacked info rows currently visible on the main screen
 #define MAIN_INFO_PROGRAM_DIGITS       3U                   // fixed width of the displayed MIDI program number
 #define MAIN_INFO_SHARED_PAD_CHARS     2U                   // extra chars cleared when special-function text shrinks
 #define MAIN_UNUSED_PROGRAM            0xFFU                // sentinel meaning no MIDI program is assigned to that slot
 #define MAIN_EMPTY_RIGHT_INFO_TEXT     "                "   // blank filler used to clear an unused right-side row
+#define MAIN_SCROLL_INDICATOR_X        8U                   // x position of the device-list scroll indicator triangles
+#define MAIN_SCROLL_INDICATOR_W        9U                   // width of the scroll indicator triangles
+#define MAIN_SCROLL_INDICATOR_H        5U                   // height of the scroll indicator triangles
+#define MAIN_SCROLL_INDICATOR_COLOUR   MAIN_INFO_TEXT_COLOUR // colour of the up/down scroll indicators
 #define MAIN_PRESET_TEXT_Y             85U                  // y position of the large preset name line
 #define MAIN_PRESET_TEXT_CHARS         20U                  // fixed character width used when centering preset names
 #define MAIN_PRESET_FONT               Font_Consolas23x49   // large font for the preset name
@@ -170,6 +178,7 @@ static char bpm_display_internal_text[8] = "";
 static char bpm_display_external_text[14] = "";
 static uint16_t bpm_display_internal_head_x = 0U;
 static char transport_barbeat_text[4] = "";
+static uint8_t main_info_first_slot = 0U;
 
 #define BPM_DISPLAY_AREA_X              280U                 // left edge of the rectangle reserved for BPM text updates
 #define BPM_DISPLAY_AREA_W              200U                 // width of the rectangle reserved for BPM text updates
@@ -361,6 +370,77 @@ static void Display_ClearBpmArea(void)
     ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X, BPM_TEXT_Y, BPM_DISPLAY_AREA_W, BPM_FONT.height, BPM_BG_COLOUR);
 }
 
+static uint8_t Display_GetMainInfoScrollMax(void)
+{
+    return (PRESET_DEVICE_SLOTS > MAIN_INFO_ROW_COUNT)
+        ? (uint8_t)(PRESET_DEVICE_SLOTS - MAIN_INFO_ROW_COUNT)
+        : 0U;
+}
+
+static void Display_DrawMainInfoScrollIndicator(uint16_t x,
+                                                uint16_t y,
+                                                uint8_t point_up,
+                                                uint8_t visible)
+{
+    ST7796_DrawFilledRectangle(x,
+                               y,
+                               MAIN_SCROLL_INDICATOR_W,
+                               MAIN_SCROLL_INDICATOR_H,
+                               DISPLAY_BG_COLOUR);
+    if (!visible)
+        return;
+
+    for (uint8_t row = 0U; row < MAIN_SCROLL_INDICATOR_H; row++)
+    {
+        uint16_t line_y = point_up
+            ? (uint16_t)(y + row)
+            : (uint16_t)(y + (MAIN_SCROLL_INDICATOR_H - 1U - row));
+        uint16_t line_x0 = (uint16_t)(x + ((MAIN_SCROLL_INDICATOR_W / 2U) - row));
+        uint16_t line_x1 = (uint16_t)(x + ((MAIN_SCROLL_INDICATOR_W / 2U) + row));
+
+        ST7796_DrawLine(line_x0,
+                        line_y,
+                        line_x1,
+                        line_y,
+                        MAIN_SCROLL_INDICATOR_COLOUR);
+    }
+}
+
+static void Display_DrawMainInfoScrollIndicators(void)
+{
+    uint8_t max_scroll = Display_GetMainInfoScrollMax();
+    uint16_t up_y = (uint16_t)(main_info_row_y[0] + ((MAIN_INFO_FONT.height - MAIN_SCROLL_INDICATOR_H) / 2U));
+    uint16_t down_y = (uint16_t)(main_info_row_y[MAIN_INFO_ROW_COUNT - 1U] + ((MAIN_INFO_FONT.height - MAIN_SCROLL_INDICATOR_H) / 2U));
+
+    Display_DrawMainInfoScrollIndicator(MAIN_SCROLL_INDICATOR_X,
+                                        up_y,
+                                        1U,
+                                        (main_info_first_slot > 0U) ? 1U : 0U);
+    Display_DrawMainInfoScrollIndicator(MAIN_SCROLL_INDICATOR_X,
+                                        down_y,
+                                        0U,
+                                        (main_info_first_slot < max_scroll) ? 1U : 0U);
+}
+
+static void Display_DrawFootbarLabel(uint8_t section_index, const char *text)
+{
+    size_t text_len = strlen(text);
+    uint16_t section_x = (uint16_t)(section_index * MAIN_FOOTBAR_SECTION_WIDTH);
+    uint16_t text_w = (uint16_t)text_len * MAIN_FOOTBAR_FONT.width;
+    uint16_t text_x = (uint16_t)(section_x + ((MAIN_FOOTBAR_SECTION_WIDTH - text_w) / 2U));
+    uint16_t text_y = (uint16_t)(MAIN_FOOTBAR_Y + ((MAIN_FOOTBAR_H - MAIN_FOOTBAR_FONT.height) / 2U));
+
+    if (text_len == 0U)
+        return;
+
+    ST7796_WriteString32(text_x,
+                         text_y,
+                         text,
+                         MAIN_FOOTBAR_FONT,
+                         MAIN_FOOTBAR_TEXT_COLOUR,
+                         MAIN_FOOTBAR_COLOR);
+}
+
 static void Display_WriteCenteredPaddedText32(uint16_t y,
                                               const char *text,
                                               uint8_t width_chars,
@@ -390,14 +470,16 @@ static void Display_DrawMainInfoRows(const Preset_t *preset)
 
     for (uint8_t index = 0U; index < MAIN_INFO_ROW_COUNT; ++index)
     {
+        uint8_t slot_index = (uint8_t)(main_info_first_slot + index);
         uint16_t row_y = main_info_row_y[index];
-        const MidiDevice_t *device = MidiDevices_Get(index);
-        uint8_t program = preset->prg[index].program;
+        const MidiDevice_t *device = MidiDevices_Get(slot_index);
+        uint8_t program = preset->prg[slot_index].program;
+        uint8_t channel = device ? device->channel : MAIN_UNUSED_PROGRAM;
 
-        if (program != MAIN_UNUSED_PROGRAM) {
-            snprintf(buf, sizeof(buf), "CH %u: %3u", device->channel, program);
+        if (channel != MAIN_UNUSED_PROGRAM && program != MAIN_UNUSED_PROGRAM) {
+            snprintf(buf, sizeof(buf), "CH %u: %3u", channel, program);
 
-            if (Presets_DeviceProgramIsShared(index, program)) {
+            if (Presets_DeviceProgramIsShared(slot_index, program)) {
                 char prefix[16];
                 char *program_text = buf + strlen(buf) - MAIN_INFO_PROGRAM_DIGITS;
                 size_t prefix_len = (size_t)(program_text - buf);
@@ -478,6 +560,8 @@ static void Display_DrawMainInfoRows(const Preset_t *preset)
                              MAIN_INFO_TEXT_COLOUR,
                              MAIN_INFO_TEXT_BG_COLOUR);
     }
+
+    Display_DrawMainInfoScrollIndicators();
 }
 
 /* ?????? Display_DrawMainLayout ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
@@ -490,14 +574,32 @@ static void Display_DrawMainLayout(void)
 {
     ST7796_DrawFilledRectangle(0U, MAIN_FOOTBAR_Y, ST7796_WIDTH, MAIN_FOOTBAR_H, MAIN_FOOTBAR_COLOR);
 
-    /* Centre the label: total pixel width = number_of_chars ?? font_char_width */
-    ST7796_WriteString((uint16_t)((ST7796_WIDTH - ((sizeof(MAIN_FOOTBAR_TEXT) - 1U) * MAIN_FOOTBAR_FONT.width)) / 2U),
-                       (uint16_t)(MAIN_FOOTBAR_Y + ((MAIN_FOOTBAR_H - MAIN_FOOTBAR_FONT.height) / 2U)),
-                       MAIN_FOOTBAR_TEXT,
-                       MAIN_FOOTBAR_FONT,
-                       MAIN_FOOTBAR_TEXT_COLOUR,
-                       MAIN_FOOTBAR_COLOR);
+    Display_DrawFootbarLabel(0U, MAIN_FOOTBAR_LEFT_TEXT);
+    Display_DrawFootbarLabel(1U, MAIN_FOOTBAR_CENTER_TEXT);
+    Display_DrawFootbarLabel(2U, MAIN_FOOTBAR_RIGHT_TEXT);
     main_layout_dirty = 0U;
+}
+
+void Display_MainInfoScrollReset(void)
+{
+    main_info_first_slot = 0U;
+}
+
+uint8_t Display_MainInfoScrollBy(int8_t delta)
+{
+    int16_t next_slot = (int16_t)main_info_first_slot + (int16_t)delta;
+    uint8_t max_scroll = Display_GetMainInfoScrollMax();
+
+    if (next_slot < 0)
+        next_slot = 0;
+    else if (next_slot > (int16_t)max_scroll)
+        next_slot = (int16_t)max_scroll;
+
+    if ((uint8_t)next_slot == main_info_first_slot)
+        return 0U;
+
+    main_info_first_slot = (uint8_t)next_slot;
+    return 1U;
 }
 
 /* ?????? Display_DrawMainScreen ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
@@ -849,7 +951,7 @@ void Display_ScreensaverDismiss(void)
         return;
 
     screensaver_active = 0U;
-    main_layout_dirty = 1U;
+    main_layout_dirty = 0U;
     Display_BL_FadeIn();
 }
 
@@ -868,7 +970,7 @@ void Display_ScreensaverUpdate(const Preset_t *p, uint16_t bpm)
         if (now - screensaver_last_activity_tick >= SCREENSAVER_TIMEOUT_MS)
         {
             screensaver_active = 1U;
-            main_layout_dirty = 1U;
+            main_layout_dirty = 0U;
             Display_BL_FadeOut();
         }
         return;

@@ -71,6 +71,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # ST7796 display driver
     Drivers/ST7796/st7796.c
     Drivers/ST7796/fonts.c
+    Drivers/ST7796/font_consolas_8x21.c
     Drivers/ST7796/font_consolas_15x35.c
     Drivers/ST7796/font_consolas_23x49.c
     Drivers/ST7796/font_consolas_24x40.c

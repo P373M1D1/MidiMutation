@@ -3,6 +3,7 @@
  *
  * Format: each row stored as uint16_t, MSB = leftmost pixel.
  *   Font_7x10  : 7 wide × 10 tall,  10 uint16_t per glyph
+ *   Font_10x14 : 10 wide × 14 tall, 14 uint16_t per glyph
  *   Font_11x18 : 11 wide × 18 tall, 18 uint16_t per glyph
  *   Font_16x26 : 16 wide × 26 tall, 26 uint16_t per glyph
  *
@@ -120,6 +121,14 @@ static const uint16_t Font7x10_Table[] = {
 };
 
 FontDef Font_7x10 = { 7, 10, Font7x10_Table };
+
+/* ── Font_10x14 ─────────────────────────────────────────────────────────────── */
+/* Scaled from the existing 7x10 ASCII table so the footbar can use a real, slightly larger font. */
+static const uint16_t Font10x14_Table[] = {
+#include "font_10x14.inc"
+};
+
+FontDef Font_10x14 = { 10, 14, Font10x14_Table };
 
 /* ── Font_11x18 ─────────────────────────────────────────────────────────────── */
 /*

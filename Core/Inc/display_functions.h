@@ -23,6 +23,8 @@ void Display_BL_FadeOut(void);
 
 void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm);
 void Display_UpdateBPM(uint16_t bpm);
+void Display_MainInfoScrollReset(void);
+uint8_t Display_MainInfoScrollBy(int8_t delta);
 
 /* ── Screensaver (backlight idle mode) ───────────────────────────────────── */
 

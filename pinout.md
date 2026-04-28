@@ -37,9 +37,9 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PC12        | UART5_TX (AF8) — Morpho CN11                          | Spare second MIDI out (currently unused in firmware) |
 | PD5         | USART2_TX (AF7) — Morpho CN11                         | MIDI Thru — soft-thru copy of MIDI In |
 | PD6         | USART2_RX (AF7) — Morpho CN11                         | MIDI In (opto-isolated input) |
-| **Rotary Encoders — mixed mode (timer + GPIO polling, no EXTI used)**                          |
-| PA0         | TIM2_CH1 (AF1) — Morpho CN10                          | Encoder 1 — A channel         |
-| PA1         | TIM2_CH2 (AF1) — Morpho CN10                          | Encoder 1 — B channel         |
+| **Rotary Encoders — mixed mode (interrupt + GPIO polling)**                                    |
+| PG11        | GPIO input pull-up, EXTI11 (EXTI15_10_IRQn)          | Encoder 1 — A channel         |
+| PG12        | GPIO input pull-up, EXTI12 (EXTI15_10_IRQn)          | Encoder 1 — B channel         |
 | PB4         | TIM3_CH1 (AF2) — Morpho CN10                          | Encoder 2 — A channel         |
 | PB5         | TIM3_CH2 (AF2) — Morpho CN10                          | Encoder 2 — B channel         |
 | PD12        | GPIO input pull-up, polled — Morpho CN11              | Encoder 3 tempo — CLK (A)     |
@@ -47,7 +47,7 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PC6         | TIM8_CH1 (AF3) — Morpho CN10                          | Encoder 4 — A channel         |
 | PC7         | TIM8_CH2 (AF3) — Morpho CN10                          | Encoder 4 — B channel         |
 | **Encoder push buttons — wired, not yet used by firmware**                                   |
-| PD0         | Encoder 1 push button — wired to MCU input             | Encoder 1 switch (not used)   |
+| PG14        | GPIO input pull-up, EXTI14 (EXTI15_10_IRQn)          | Encoder 1 switch              |
 | PD1         | Reassigned to UART4_TX (AF11)                         | MIDI Out 1 — smart output     |
 | PD3         | Encoder 3 push button — wired to MCU input             | Encoder 3 switch (not used)   |
 | PD4         | Encoder 4 push button — wired to MCU input             | Encoder 4 switch (not used)   |
@@ -103,7 +103,8 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 
 > **Encoder push buttons status:** Encoder pushbutton lines are wired to the MCU but not yet used by firmware.
 
-> **Encoder input mode:** Encoder 1/2/4 remain mapped to TIM2/TIM3/TIM8 timer-encoder channels.
+> **Encoder input mode:** Encoder 1 now uses GPIO interrupts on PG11/PG12/PG14 to avoid EXTI conflicts with the preset buttons and the TIM2 MIDI timebase.
+> Encoder 2/4 remain mapped to TIM3/TIM8 timer-encoder channels.
 > Encoder 3 (tempo) is currently decoded in firmware from polled GPIO inputs on PD12/PD13, and
 > its pushbutton is present on PD3 but intentionally reserved for a later feature.
 

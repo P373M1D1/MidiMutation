@@ -37,7 +37,7 @@ const char *Presets_GetBankName(uint8_t bank);
  * Slot N maps directly to MidiDevices_Get(N) — no channel field needed here,
  * the channel lives in the device table.
  */
-#define PRESET_DEVICE_SLOTS  3U /* number of per-device program slots stored in each preset */
+#define PRESET_DEVICE_SLOTS  6U /* number of per-device program slots stored in each preset */
 
 /**
  * @brief  Per-device MIDI data for one preset.
@@ -75,7 +75,7 @@ typedef struct {
  *
  *  name      — display name, max 20 chars + NUL.
  *  prg[N]    — Program Change data for device N; index matches MidiDevices_Get(N).
- *              prg[0] = Echosystem (ch1), prg[1] = Reverb (ch2), prg[2] = spare (ch3).
+ *              prg[0]..prg[5] map directly to device slots 0..5.
  *  cc[N]     — extra CC messages to send when this preset is activated.
  *  relay[N]  — state of relay N, independent of any MIDI device.
  *              PRESET_RELAY_OPEN = open/bypass,

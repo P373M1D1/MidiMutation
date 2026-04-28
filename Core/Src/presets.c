@@ -14,6 +14,9 @@
  * safe fallbacks or runtime overlays, not as real pedal-program recall data. */
 #define PRESET_CC_EMPTY                       PRESET_CC(PRESET_CC_CHANNEL_UNUSED, PRESET_CC_NUMBER_UNUSED, 0U) /* one unused CC-slot initializer */
 #define PRESET_CC_LIST_EMPTY                  { PRESET_CC_EMPTY, PRESET_CC_EMPTY, PRESET_CC_EMPTY, PRESET_CC_EMPTY } /* four-slot initializer for presets with no extra CC messages */
+#define PRESET_PROGRAM_SLOT(program_number)   {program_number} /* helper for one per-device Program Change slot */
+#define PRESET_PROGRAM_LIST_6(p0, p1, p2, p3, p4, p5) { PRESET_PROGRAM_SLOT(p0), PRESET_PROGRAM_SLOT(p1), PRESET_PROGRAM_SLOT(p2), PRESET_PROGRAM_SLOT(p3), PRESET_PROGRAM_SLOT(p4), PRESET_PROGRAM_SLOT(p5) } /* six-slot Program Change initializer matching preset/device slot order */
+#define PRESET_PROGRAM_LIST_3(p0, p1, p2) PRESET_PROGRAM_LIST_6(p0, p1, p2, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED) /* legacy three-slot initializer with the new extra slots left unused */
 #define PRESET_RANDOM_LCG_SEED                0x6D2B79F5UL /* initial state for the random-preset pseudo-random generator */
 #define PRESET_RANDOM_LCG_MULTIPLIER          1664525UL /* LCG multiplier used when generating random preset programs */
 #define PRESET_RANDOM_LCG_INCREMENT           1013904223UL /* LCG increment used when generating random preset programs */
@@ -46,56 +49,59 @@ volatile uint8_t          current_bank = 0U;
  * Presets are stored banked so bank 2 / preset 1 is visually distinct in the
  * source from bank 1 / preset 1. External code still uses flat indices for now.
  *
- *   prg[0] → Empress Echosystem  (channel 1 on the shared MIDI out)
- *   prg[1] → Empress Reverb      (channel 2 on the shared MIDI out)
- *   prg[2] → spare               (channel 3 reserved)
+ *   prg[0] → device slot 0 (currently channel 1)
+ *   prg[1] → device slot 1 (currently channel 2)
+ *   prg[2] → device slot 2 (currently channel 3)
+ *   prg[3] → device slot 3 (currently channel 4)
+ *   prg[4] → device slot 4 (currently channel 5)
+ *   prg[5] → device slot 5 (currently channel 6)
  *
  *   pg      = Program Change number to send on load  (0xFF = skip)
  *   cc[N]   = extra CC messages sent on preset load (channel 0 / cc 0xFF = skip)
  *   relay   = relay state  0=open/bypass  1=closed/engaged
  *
  * ─────────────────────────────────────────────────────────────────────────── */
-//     name                  Echosystem  Reverb  spare      cc1..cc4               relay1 relay2
+//     name                  slots 0..5                                cc1..cc4               relay1 relay2
 static const Preset_t preset_table[PRESET_BANK_COUNT][PRESETS_PER_BANK] = {
     {
-        { "Soft Reverb",	{{11}, {11}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{1, 0} },
-        { "Perfect Tape",	{{ 7}, {11}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{1, 0} },
-        { "Deep Cave",	{{11}, {12}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Press Tap to Hold",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Stars at Night",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Fade to Pad",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Empty Preset",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Empty Preset",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Soft Reverb",	    PRESET_PROGRAM_LIST_3(11, 11, 0),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{1, 0} },
+        { "Perfect Tape",	    PRESET_PROGRAM_LIST_3(7, 11, 0),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{1, 0} },
+        { "Deep Cave",	        PRESET_PROGRAM_LIST_3(11, 12, 0),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Press Tap to Hold",	PRESET_PROGRAM_LIST_3(0, 0, 0),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Stars at Night",	    PRESET_PROGRAM_LIST_3(0, 0, 0),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Fade to Pad",	    PRESET_PROGRAM_LIST_3(0, 0, 0),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Psyco Shred",	    PRESET_PROGRAM_LIST_3(0, 0, 0),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Third Eye Open",	    PRESET_PROGRAM_LIST_3(0, 0, 0),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
     },
     {
-        { "Yoooo",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Paaaaaaaa ",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "triiickkk!!",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "was ",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "geeeeeeeeeht",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "aaaaaaaabb!!",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 7",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 8",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Yoooo",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Paaaaaaaa ",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "triiickkk!!",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "was ",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "geeeeeeeeeht",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "aaaaaaaabb!!",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Preset 7",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Preset 8",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
     },
     {
-        { "und",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "ey",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "...",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "external tempo geht",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "sogar mit error",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "woohooo!!",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 7",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 8",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "und",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "ey",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "...",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "external tempo geht",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "sogar mit error",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "woohooo!!",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Preset 7",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Preset 8",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
     },
     {
-        { "Preset 1",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 2",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 3",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 4",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 5",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 6",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 7",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
-        { "Preset 8",	{{0xFF}, {0xFF}, {0xFF}},	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Preset 1",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Preset 2",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Preset 3",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Preset 4",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Preset 5",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Preset 6",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Preset 7",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
+        { "Preset 8",	PRESET_PROGRAM_LIST_3(0xFF, 0xFF, 0xFF),	{{0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}, {0U, 0xFFU, 0U}},	{0, 0} },
     },
 };
 
@@ -107,7 +113,7 @@ static const Preset_t preset_table[PRESET_BANK_COUNT][PRESETS_PER_BANK] = {
  */
 static const Preset_t blank_preset = {
     .name  = "---",
-    .prg   = { {PRESET_PROGRAM_UNUSED}, {PRESET_PROGRAM_UNUSED}, {PRESET_PROGRAM_UNUSED} },
+    .prg   = PRESET_PROGRAM_LIST_6(PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED),
     .cc    = PRESET_CC_LIST_EMPTY,
     .relay = { PRESET_RELAY_OPEN, PRESET_RELAY_OPEN },
 };
@@ -115,12 +121,12 @@ static const Preset_t blank_preset = {
 /* Runtime-built shell used by Presets_ActivateRandom().
  * It also starts fully "unused" for the same reason: until Presets_ActivateRandom()
  * fills the real device slots, this preset must not accidentally send stale
- * Program Changes, CCs, or relay changes. The spare slot remains unused even
- * after generation because random mode currently mutates only the real pedals.
+ * Program Changes, CCs, or relay changes. The remaining slots stay unused
+ * because random mode currently mutates only the real pedals.
  */
 static Preset_t random_preset = {
     .name  = "Mutate Preset",
-    .prg   = { {PRESET_PROGRAM_UNUSED}, {PRESET_PROGRAM_UNUSED}, {PRESET_PROGRAM_UNUSED} },
+    .prg   = PRESET_PROGRAM_LIST_6(PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED),
     .cc    = PRESET_CC_LIST_EMPTY,
     .relay = { PRESET_RELAY_OPEN, PRESET_RELAY_OPEN },
 };
@@ -132,7 +138,7 @@ static Preset_t random_preset = {
  */
 static const Preset_t mute_preset = {
     .name  = "Mute / Bypass",
-    .prg   = { {PRESET_PROGRAM_UNUSED}, {PRESET_PROGRAM_UNUSED}, {PRESET_PROGRAM_UNUSED} },
+    .prg   = PRESET_PROGRAM_LIST_6(PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED),
     .cc    = PRESET_CC_LIST_EMPTY,
     .relay = { PRESET_RELAY_OPEN, PRESET_RELAY_OPEN },
 };
@@ -149,6 +155,7 @@ static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index,
 
     Button_ResetSpecialFunctions();
     Display_ScreensaverDismiss();
+    Display_MainInfoScrollReset();
 
     if (update_index)
         active_preset_index = idx;
@@ -247,10 +254,13 @@ void Presets_ActivateRandom(void)
     const MidiDevice_t *second_device = MidiDevices_Get(1U);
 
     /* Random preset picks one legal program per real device and leaves the
-     * spare slot intentionally unused. */
+     * remaining slots intentionally unused. */
     random_preset.prg[0].program = Presets_NextRandomProgram(first_device->max_preset);
     random_preset.prg[1].program = Presets_NextRandomProgram(second_device->max_preset);
-    random_preset.prg[2].program = PRESET_PROGRAM_UNUSED;
+    for (uint8_t slot = 2U; slot < PRESET_DEVICE_SLOTS; slot++)
+    {
+        random_preset.prg[slot].program = PRESET_PROGRAM_UNUSED;
+    }
 
     App_ActivatePresetData(&random_preset, 0U, 0U);
 }

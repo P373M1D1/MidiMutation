@@ -81,6 +81,8 @@
 #define TEMPO_ENCODER_STEP_MID         2 /* BPM delta per detent for medium-fast turns */
 #define TEMPO_ENCODER_STEP_FAST        4 /* BPM delta per detent for fast turns */
 #define TEMPO_ENCODER_STEP_VFAST       8 /* BPM delta per detent for very-fast turns */
+#define ROTARY1_SCROLL_TRANSITIONS_PER_STEP 4 /* quadrature edges expected per mechanical detent for encoder 1 */
+#define ROTARY1_SCROLL_DIRECTION_SIGN  1 /* set to -1 if clockwise and counter-clockwise feel reversed for encoder 1 */
 
 #define EXT_CLOCK_HOLDOVER_MIRROR_ENABLED 1U /* set to 0 to revert to legacy behavior without deleting code */
 #define EXT_CLOCK_MIRROR_STABLE_SAMPLES 3U /* consecutive equal-BPM external samples required before mirroring */
@@ -114,6 +116,10 @@ uint8_t active_preset_index = PRESET_DEFAULT;
 static uint8_t tempo_encoder_last_state = 0U; /* previous sampled CLK/DT state for quadrature decoding */
 static int8_t tempo_encoder_transition_accum = 0; /* transition accumulator to collapse 4 edges into 1 BPM step */
 static uint32_t tempo_encoder_last_step_tick = 0U; /* ms timestamp of the previous completed encoder detent */
+static uint8_t rotary1_last_state = 0U; /* previous sampled CLK/DT state for encoder 1 quadrature decoding */
+static int8_t rotary1_transition_accum = 0; /* transition accumulator to collapse 4 edges into 1 device-list scroll step */
+static volatile int8_t rotary1_pending_steps = 0; /* queued encoder 1 scroll steps waiting for foreground redraw */
+static volatile uint8_t rotary1_activity_pending = 0U; /* set by encoder 1 IRQ activity so the main loop can wake the UI */
 static uint16_t ext_mirror_candidate_bpm = 0U; /* latest external BPM candidate used by holdover mirroring */
 static uint8_t ext_mirror_stable_count = 0U; /* how many consecutive samples matched ext_mirror_candidate_bpm */
 /* USER CODE END PV */
@@ -129,6 +135,10 @@ static void MX_MIDI_Output_UART_Init(void);
 static uint32_t MidiClockTimerPeriodForBpm(uint16_t bpm);
 static void MX_TIM2_Init(void);
 static void MX_TIM6_Init(uint16_t bpm);
+static void Rotary1_Init(void);
+static void Rotary1_HandleInterrupt(uint16_t gpio_pin);
+static void Rotary1_ProcessPending(void);
+static void Rotary1_RecordActivity(void);
 static void TempoEncoder_Init(void);
 static void TempoEncoder_Service(void);
 static void TempoEncoder_ApplyBpmStep(int8_t step);
@@ -213,6 +223,7 @@ int main(void)
   App_ActivatePreset(active_preset_index);
   bpm_save_tick = 0U;
   Display_ScreensaverActivity();  /* seed inactivity timer from boot */
+  Rotary1_Init();
   TempoEncoder_Init();
 
   /* USER CODE END 2 */
@@ -227,6 +238,7 @@ int main(void)
   #if EXT_CLOCK_HOLDOVER_MIRROR_ENABLED
     ExternalClockHoldoverMirror_Service();
   #endif
+    Rotary1_ProcessPending();
     TempoEncoder_Service();
     BPM_Service();
     Button_ProcessPendingEvents();
@@ -488,6 +500,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(MIDI_IN_LED_GPIO_Port, &GPIO_InitStruct);
 
+  /* Rotary 1 uses free EXTI lines 11/12/14, so it can wake the UI on both
+   * quadrature motion and switch presses without colliding with the preset bank. */
+  GPIO_InitStruct.Pin = ENC1_CLK_Pin | ENC1_DT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(ENC1_CLK_GPIO_Port, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = ENC1_SW_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(ENC1_SW_GPIO_Port, &GPIO_InitStruct);
+
   /* Encoder 3 uses simple GPIO polling for tempo. SW is reserved for later. */
   GPIO_InitStruct.Pin = ENC3_CLK_Pin | ENC3_DT_Pin | ENC3_SW_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
@@ -576,6 +600,108 @@ static void MX_TIM6_Init(uint16_t bpm)
   __HAL_TIM_CLEAR_FLAG(&htim6, TIM_FLAG_UPDATE); /* clear UIF set by UG during init */
   HAL_NVIC_SetPriority(TIM6_DAC_IRQn, 2U, 0U);
   HAL_NVIC_EnableIRQ(TIM6_DAC_IRQn);
+}
+
+static void Rotary1_Init(void)
+{
+  uint8_t clk_state = (HAL_GPIO_ReadPin(ENC1_CLK_GPIO_Port, ENC1_CLK_Pin) == GPIO_PIN_SET) ? 1U : 0U;
+  uint8_t dt_state = (HAL_GPIO_ReadPin(ENC1_DT_GPIO_Port, ENC1_DT_Pin) == GPIO_PIN_SET) ? 1U : 0U;
+
+  rotary1_last_state = (uint8_t)((clk_state << 1U) | dt_state);
+  rotary1_transition_accum = 0;
+  rotary1_pending_steps = 0;
+  rotary1_activity_pending = 0U;
+}
+
+static void Rotary1_HandleInterrupt(uint16_t gpio_pin)
+{
+  static const int8_t transition_delta[16] = {
+     0, -1,  1,  0,
+     1,  0,  0, -1,
+    -1,  0,  0,  1,
+     0,  1, -1,  0
+  };
+
+  rotary1_activity_pending = 1U;
+
+  if (gpio_pin == ENC1_SW_Pin)
+    return;
+
+  uint8_t clk_state = (HAL_GPIO_ReadPin(ENC1_CLK_GPIO_Port, ENC1_CLK_Pin) == GPIO_PIN_SET) ? 1U : 0U;
+  uint8_t dt_state = (HAL_GPIO_ReadPin(ENC1_DT_GPIO_Port, ENC1_DT_Pin) == GPIO_PIN_SET) ? 1U : 0U;
+  uint8_t current_state = (uint8_t)((clk_state << 1U) | dt_state);
+
+  if (current_state == rotary1_last_state)
+    return;
+
+  uint8_t transition_index = (uint8_t)((rotary1_last_state << 2U) | current_state);
+  rotary1_last_state = current_state;
+  rotary1_transition_accum += transition_delta[transition_index];
+
+  if (rotary1_transition_accum >= ROTARY1_SCROLL_TRANSITIONS_PER_STEP)
+  {
+    int16_t queued_steps = (int16_t)rotary1_pending_steps + (int16_t)ROTARY1_SCROLL_DIRECTION_SIGN;
+
+    if (queued_steps > INT8_MAX)
+      queued_steps = INT8_MAX;
+    rotary1_pending_steps = (int8_t)queued_steps;
+    rotary1_transition_accum = 0;
+  }
+  else if (rotary1_transition_accum <= -ROTARY1_SCROLL_TRANSITIONS_PER_STEP)
+  {
+    int16_t queued_steps = (int16_t)rotary1_pending_steps - (int16_t)ROTARY1_SCROLL_DIRECTION_SIGN;
+
+    if (queued_steps < INT8_MIN)
+      queued_steps = INT8_MIN;
+    rotary1_pending_steps = (int8_t)queued_steps;
+    rotary1_transition_accum = 0;
+  }
+}
+
+static void Rotary1_RecordActivity(void)
+{
+  uint8_t screensaver_was_active = Display_ScreensaverIsActive();
+
+  Display_ScreensaverDismiss();
+  Display_ScreensaverActivity();
+
+  if (screensaver_was_active)
+  {
+    Display_DrawMainScreen(active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
+  }
+}
+
+static void Rotary1_ProcessPending(void)
+{
+  uint32_t primask;
+  uint8_t activity_pending;
+  int8_t pending_steps;
+
+  primask = __get_PRIMASK();
+  __disable_irq();
+  activity_pending = rotary1_activity_pending;
+  pending_steps = rotary1_pending_steps;
+  rotary1_activity_pending = 0U;
+  rotary1_pending_steps = 0;
+  if (primask == 0U)
+    __enable_irq();
+
+  if (!activity_pending && (pending_steps == 0))
+    return;
+
+  if (Display_ScreensaverIsActive())
+  {
+    Rotary1_RecordActivity();
+    return;
+  }
+
+  Display_ScreensaverActivity();
+
+  if (pending_steps != 0 && active_preset != NULL)
+  {
+    if (Display_MainInfoScrollBy(pending_steps))
+      Display_DrawMainScreen(active_preset, g_bpm);
+  }
 }
 
 static void TempoEncoder_Init(void)
@@ -713,7 +839,19 @@ static void ExternalClockHoldoverMirror_Service(void)
  */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+  if (GPIO_Pin == ENC1_CLK_Pin || GPIO_Pin == ENC1_DT_Pin || GPIO_Pin == ENC1_SW_Pin)
+  {
+    Rotary1_HandleInterrupt(GPIO_Pin);
+    return;
+  }
+
   uint8_t screensaver_was_active = Display_ScreensaverIsActive();
+
+  if (GPIO_Pin == ENC1_CLK_Pin || GPIO_Pin == ENC1_DT_Pin || GPIO_Pin == ENC1_SW_Pin)
+  {
+    Rotary1_RecordActivity();
+    return;
+  }
 
   /* TAP is handled immediately here; the other footswitches are latched on
    * EXTI and finished later in Button_ProcessPendingEvents(). */
