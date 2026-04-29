@@ -7,6 +7,7 @@ Bug: Random Preset button needs debouncing. Can be pressed multiple times so fla
 
 
 
+Add: Rotary encoder to adjust internal tempo (bpm)
 Add: space out colours in header file
 Add: Relay functions ( i know the pins are a little short, but testing must be done)
 Add: Menu layout file
