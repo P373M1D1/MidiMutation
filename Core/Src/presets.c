@@ -125,7 +125,7 @@ static const Preset_t blank_preset = {
  * because random mode currently mutates only the real pedals.
  */
 static Preset_t random_preset = {
-    .name  = "Mutate Preset",
+    .name  = "Screw this gig!", /* placeholder name shown while the real random preset is being built at runtime */
     .prg   = PRESET_PROGRAM_LIST_6(PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED, PRESET_PROGRAM_UNUSED),
     .cc    = PRESET_CC_LIST_EMPTY,
     .relay = { PRESET_RELAY_OPEN, PRESET_RELAY_OPEN },

@@ -1,14 +1,19 @@
+
+
 Change: Flash stogare to RTC and use Vbat to protectr storage from failure / or use SD card
 
 
-BUG: waking up screensaver clears entire screen after waking up
+Bug: Random Preset button needs debouncing. Can be pressed multiple times so flag won't work. (others can't ba activated mutliple times)
 
 
-Add: Rotary encoder to adjust internal tempo (bpm)
+
 Add: space out colours in header file
 Add: Relay functions ( i know the pins are a little short, but testing must be done)
 Add: Menu layout file
 Add: LEDs
 Add: Copy Midi out (UART4) to two more UART TX
-Add: counter that Counts from 1.1 --1.4, 2.1-----to 4.4 with each quarter note
-
+Add: FIUnd a way to show usused preset numbers when setting up new presets
+Add: Find a way to add 8 Channels of program changes and 8 CCs (including individual Channel) for each preset. 
+Add scroll down enrtire Set so CCs can also be displayed while scrolling down. 
+Add another special Functuion button
+Add: display layout RHS: Func1 - Func2 - Relais then scroll

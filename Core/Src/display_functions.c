@@ -112,13 +112,13 @@ void Display_BL_FadeOut(void)
 /* ?????? Screen layout constants ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 #define MAIN_FOOTBAR_Y                 298U                  // top edge of the footer/status bar
 #define MAIN_FOOTBAR_H                 (ST7796_HEIGHT - MAIN_FOOTBAR_Y) // footer height from its top edge to screen bottom
-#define MAIN_FOOTBAR_COLOR             CHARCOAL            // fill colour for the footer/status bar
+#define MAIN_FOOTBAR_COLOR             JET           // fill colour for the footer/status bar
 #define MAIN_FOOTBAR_FONT              Font_Consolas8x21    // font used for the footer caption
 #define MAIN_FOOTBAR_TEXT_COLOUR       WHITE                 // text colour for the footer caption
 #define MAIN_FOOTBAR_SECTION_COUNT     3U                    // footer is conceptually split into three unlabeled regions
 #define MAIN_FOOTBAR_SECTION_WIDTH     (ST7796_WIDTH / MAIN_FOOTBAR_SECTION_COUNT) // width of one footer region
 #define MAIN_FOOTBAR_LEFT_TEXT         "SCROLL"              // label for the left footer region under encoder 1
-#define MAIN_FOOTBAR_CENTER_TEXT       "UNUSED"               // currently unused middle footer region label
+#define MAIN_FOOTBAR_CENTER_TEXT       "VALUE"               // currently unused middle footer region label
 #define MAIN_FOOTBAR_RIGHT_TEXT        "TEMPO"               // label for the right footer region under the tempo encoder
 #define MAIN_INFO_LEFT_X               30U                  // x origin of the left info column (MIDI programs)
 #define MAIN_INFO_RIGHT_X              220U                 // x origin of the right info column (relay / special state)
