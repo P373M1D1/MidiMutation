@@ -5,6 +5,7 @@
 #include "midi_functions.h"
 #include "bpm_functions.h"
 #include "stm32f4xx_hal.h"
+#include <string.h>
 
 /* ── Bank names ─────────────────────────────────────────────────────────────
  * You can change these to any theme: "A/B", "Clean/Dirty", etc. */
@@ -909,6 +910,18 @@ static const Preset_t preset_table[PRESET_BANK_COUNT][PRESETS_PER_BANK] = {
     },
 };
 
+static Preset_t preset_store[PRESET_COUNT];
+static uint8_t preset_store_initialized = 0U;
+
+static void Presets_EnsureRuntimeStore(void)
+{
+    if (preset_store_initialized)
+        return;
+
+    memcpy(preset_store, preset_table, sizeof(preset_store));
+    preset_store_initialized = 1U;
+}
+
 /* Fallback returned when index is out of range.
  * Every per-device program slot is explicitly marked PRESET_PROGRAM_UNUSED
  * because Preset_t has no single "disabled" flag for the whole preset: each
@@ -957,6 +970,9 @@ static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index,
     if (!preset)
         return;
 
+    if (Display_PresetEditIsActive() && !update_index)
+        Display_PresetEditExit();
+
     Button_ResetSpecialFunctions();
     Display_ScreensaverDismiss();
     Display_MainInfoScrollReset();
@@ -990,13 +1006,12 @@ static const Preset_t *Presets_GetFlat(uint8_t index)
 {
     /* Presets are stored banked for readability in the source table, but most
      * runtime code still addresses them through a flat 0..PRESET_COUNT-1 index. */
-    uint8_t bank = index / PRESETS_PER_BANK;
-    uint8_t slot = index % PRESETS_PER_BANK;
+    Presets_EnsureRuntimeStore();
 
-    if (bank >= PRESET_BANK_COUNT)
+    if (index >= PRESET_COUNT)
         return &blank_preset;
 
-    return &preset_table[bank][slot];
+    return &preset_store[index];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1006,17 +1021,16 @@ bool Presets_DeviceProgramIsShared(uint8_t slot, uint8_t program)
     if (program == PRESET_PROGRAM_UNUSED || slot >= PRESET_DEVICE_SLOTS)
         return false;
 
-    uint8_t count = 0U;
-    for (uint8_t bank = 0U; bank < PRESET_BANK_COUNT; bank++)
-    {
-        for (uint8_t preset = 0U; preset < PRESETS_PER_BANK; preset++)
-        {
-            if (preset_table[bank][preset].prg[slot].program == program)
-                count++;
+    Presets_EnsureRuntimeStore();
 
-            if (count > 1U)
-                return true;
-        }
+    uint8_t count = 0U;
+    for (uint8_t index = 0U; index < PRESET_COUNT; index++)
+    {
+        if (preset_store[index].prg[slot].program == program)
+            count++;
+
+        if (count > 1U)
+            return true;
     }
 
     return false;
@@ -1029,6 +1043,16 @@ const Preset_t *Presets_Get(uint8_t index)
     if (index >= PRESET_COUNT)
         return &blank_preset;
     return Presets_GetFlat(index);
+}
+
+Preset_t *Presets_GetMutable(uint8_t index)
+{
+    Presets_EnsureRuntimeStore();
+
+    if (index >= PRESET_COUNT)
+        return NULL;
+
+    return &preset_store[index];
 }
 
 uint8_t Presets_Count(void)

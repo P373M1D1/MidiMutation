@@ -127,8 +127,15 @@ void Display_BL_FadeOut(void)
 #define MAIN_INFO_TEXT_BG_COLOUR       DISPLAY_BG_COLOUR    // background colour behind normal info text
 #define MAIN_INFO_SHARED_TEXT_COLOUR   DISPLAY_BG_COLOUR    // text colour when a shared program number is inverted
 #define MAIN_INFO_SHARED_BG_COLOUR     MAIN_INFO_TEXT_COLOUR // background colour when a shared program number is inverted
+#define MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR  BLACK            // text colour inside the active edit cursor field
+#define MAIN_INFO_EDIT_CURSOR_BG_COLOUR    WHITE            // background colour for the active edit cursor field
+#define MAIN_INFO_EDIT_CURSOR_SHARED_BG_COLOUR YELLOW       // caution background for an edited program value that is also used in another preset
 #define MAIN_INFO_ROW_COUNT            3U                   // number of vertically stacked info rows currently visible on the main screen
 #define MAIN_INFO_PROGRAM_DIGITS       3U                   // fixed width of the displayed MIDI program number
+#define MAIN_INFO_CC_CHANNEL_DIGITS    2U                   // fixed width of the displayed MIDI CC channel number
+#define MAIN_INFO_CC_VALUE_DIGITS      3U                   // fixed width of the displayed MIDI CC number/value fields
+#define MAIN_INFO_EDIT_INITIAL_PROGRAM_COUNT 3U             // the first three program slots stay on the first page before relay editing
+#define MAIN_INFO_EDIT_FIELD_COUNT     (PRESET_DEVICE_SLOTS + PRESET_RELAY_COUNT + (PRESET_CC_SLOT_COUNT * 3U)) // number of editable fields in preset edit mode
 #define MAIN_INFO_SHARED_PAD_CHARS     2U                   // extra chars cleared when special-function text shrinks
 #define MAIN_UNUSED_PROGRAM            0xFFU                // sentinel meaning no MIDI program is assigned to that slot
 #define MAIN_EMPTY_RIGHT_INFO_TEXT     "                "   // blank filler used to clear an unused right-side row
@@ -177,6 +184,8 @@ static char bpm_display_external_text[14] = "";
 static uint16_t bpm_display_internal_head_x = 0U;
 static char transport_barbeat_text[4] = "";
 static uint8_t main_info_first_slot = 0U;
+static uint8_t preset_edit_mode_active = 0U;
+static uint8_t preset_edit_cursor_index = 0U;
 
 #define BPM_DISPLAY_AREA_X              280U                 // left edge of the rectangle reserved for BPM text updates
 #define BPM_DISPLAY_AREA_W              200U                 // width of the rectangle reserved for BPM text updates
@@ -230,6 +239,76 @@ static uint8_t main_info_first_slot = 0U;
 #define LOADING_BAR_DONE_TEXT           "mutation complete" // final message shown when startup loading completes
 
 #define SCREENSAVER_TIMEOUT_MS          (10UL * 60UL * 1000UL) // idle time before the backlight-only screensaver activates
+
+static DisplayPresetEditField_t Display_GetPresetEditFieldForCursor(uint8_t cursor_index)
+{
+    DisplayPresetEditField_t field = { DISPLAY_PRESET_EDIT_FIELD_NONE, 0U };
+
+    if (cursor_index < MAIN_INFO_EDIT_INITIAL_PROGRAM_COUNT)
+    {
+        field.type = DISPLAY_PRESET_EDIT_FIELD_PROGRAM;
+        field.itemIndex = cursor_index;
+        return field;
+    }
+
+    cursor_index = (uint8_t)(cursor_index - MAIN_INFO_EDIT_INITIAL_PROGRAM_COUNT);
+    if (cursor_index < PRESET_RELAY_COUNT)
+    {
+        field.type = DISPLAY_PRESET_EDIT_FIELD_RELAY;
+        field.itemIndex = cursor_index;
+        return field;
+    }
+
+    cursor_index = (uint8_t)(cursor_index - PRESET_RELAY_COUNT);
+    if (cursor_index < (PRESET_DEVICE_SLOTS - MAIN_INFO_EDIT_INITIAL_PROGRAM_COUNT))
+    {
+        field.type = DISPLAY_PRESET_EDIT_FIELD_PROGRAM;
+        field.itemIndex = (uint8_t)(MAIN_INFO_EDIT_INITIAL_PROGRAM_COUNT + cursor_index);
+        return field;
+    }
+
+    cursor_index = (uint8_t)(cursor_index - (PRESET_DEVICE_SLOTS - MAIN_INFO_EDIT_INITIAL_PROGRAM_COUNT));
+    field.itemIndex = (uint8_t)(cursor_index / 3U);
+
+    switch (cursor_index % 3U)
+    {
+    case 0U:
+        field.type = DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL;
+        break;
+    case 1U:
+        field.type = DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER;
+        break;
+    default:
+        field.type = DISPLAY_PRESET_EDIT_FIELD_CC_VALUE;
+        break;
+    }
+
+    return field;
+}
+
+static uint8_t Display_GetPresetEditScrollFirstSlot(uint8_t cursor_index)
+{
+    DisplayPresetEditField_t field = Display_GetPresetEditFieldForCursor(cursor_index);
+
+    if (field.type == DISPLAY_PRESET_EDIT_FIELD_PROGRAM)
+    {
+        if (field.itemIndex < MAIN_INFO_ROW_COUNT)
+            return 0U;
+
+        return (uint8_t)(field.itemIndex - (MAIN_INFO_ROW_COUNT - 1U));
+    }
+
+    if (field.type == DISPLAY_PRESET_EDIT_FIELD_RELAY)
+        return 0U;
+
+    return (uint8_t)((PRESET_DEVICE_SLOTS - (MAIN_INFO_ROW_COUNT - 1U)) + field.itemIndex);
+}
+
+static uint8_t Display_PresetEditFieldsMatch(DisplayPresetEditField_t first,
+                                             DisplayPresetEditField_t second)
+{
+    return (first.type == second.type && first.itemIndex == second.itemIndex) ? 1U : 0U;
+}
 
 static void Display_UpdateBpmTextCells(uint16_t x,
                                        uint16_t y,
@@ -484,10 +563,10 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
                                            uint8_t slot_index,
                                            uint16_t row_y)
 {
-    char buf[32];
+    char prefix[16];
     const MidiDevice_t *device = MidiDevices_Get(slot_index);
-    uint8_t program = preset->prg[slot_index].program;
     uint8_t channel = device ? device->channel : MAIN_UNUSED_PROGRAM;
+    uint16_t prefix_px;
 
     if (channel == MAIN_UNUSED_PROGRAM)
     {
@@ -500,38 +579,97 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
         return;
     }
 
-    if (program == MAIN_UNUSED_PROGRAM)
+    snprintf(prefix, sizeof(prefix), "CH %u: ", channel);
+    prefix_px = MAIN_INFO_FONT.width * (uint16_t)strlen(prefix);
+
+    ST7796_WriteString32(MAIN_INFO_LEFT_X,
+                         row_y,
+                         prefix,
+                         MAIN_INFO_FONT,
+                         MAIN_INFO_TEXT_COLOUR,
+                         MAIN_INFO_TEXT_BG_COLOUR);
+
     {
-        snprintf(buf, sizeof(buf), "CH %u: ---", channel);
-        ST7796_WriteString32(MAIN_INFO_LEFT_X,
+        DisplayPresetEditField_t edit_field = Display_PresetEditGetField();
+        uint8_t highlight_program = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_PROGRAM && edit_field.itemIndex == slot_index) ? 1U : 0U;
+        char program_text[MAIN_INFO_PROGRAM_DIGITS + 1U];
+        uint8_t program = preset->prg[slot_index].program;
+        uint8_t program_is_shared = (program != MAIN_UNUSED_PROGRAM && Presets_DeviceProgramIsShared(slot_index, program)) ? 1U : 0U;
+
+        if (program == MAIN_UNUSED_PROGRAM)
+            strcpy(program_text, "---");
+        else
+            snprintf(program_text, sizeof(program_text), "%3u", program);
+
+        if (highlight_program)
+        {
+            ST7796_WriteString32(MAIN_INFO_LEFT_X + prefix_px,
+                                 row_y,
+                                 program_text,
+                                 MAIN_INFO_FONT,
+                                 MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR,
+                                 program_is_shared ? MAIN_INFO_EDIT_CURSOR_SHARED_BG_COLOUR : MAIN_INFO_EDIT_CURSOR_BG_COLOUR);
+            return;
+        }
+
+        if (program_is_shared)
+        {
+            ST7796_WriteString32(MAIN_INFO_LEFT_X + prefix_px,
+                                 row_y,
+                                 program_text,
+                                 MAIN_INFO_FONT,
+                                 MAIN_INFO_SHARED_TEXT_COLOUR,
+                                 MAIN_INFO_SHARED_BG_COLOUR);
+            return;
+        }
+
+        ST7796_WriteString32(MAIN_INFO_LEFT_X + prefix_px,
                              row_y,
-                             buf,
+                             program_text,
                              MAIN_INFO_FONT,
                              MAIN_INFO_TEXT_COLOUR,
                              MAIN_INFO_TEXT_BG_COLOUR);
+    }
+}
+
+static void Display_DrawMainInfoProgramField(const Preset_t *preset,
+                                             uint8_t slot_index,
+                                             uint16_t row_y,
+                                             uint8_t highlight_program)
+{
+    char program_text[MAIN_INFO_PROGRAM_DIGITS + 1U];
+    const MidiDevice_t *device = MidiDevices_Get(slot_index);
+    uint8_t program;
+    uint8_t channel = device ? device->channel : MAIN_UNUSED_PROGRAM;
+    uint16_t value_x;
+    uint8_t program_is_shared;
+
+    if (!preset || channel == MAIN_UNUSED_PROGRAM)
+        return;
+
+    program = preset->prg[slot_index].program;
+    program_is_shared = (program != MAIN_UNUSED_PROGRAM && Presets_DeviceProgramIsShared(slot_index, program)) ? 1U : 0U;
+    value_x = (uint16_t)(MAIN_INFO_LEFT_X + (strlen("CH 0: ") * MAIN_INFO_FONT.width));
+
+    if (program == MAIN_UNUSED_PROGRAM)
+        strcpy(program_text, "---");
+    else
+        snprintf(program_text, sizeof(program_text), "%3u", program);
+
+    if (highlight_program)
+    {
+        ST7796_WriteString32(value_x,
+                             row_y,
+                             program_text,
+                             MAIN_INFO_FONT,
+                             MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR,
+                             program_is_shared ? MAIN_INFO_EDIT_CURSOR_SHARED_BG_COLOUR : MAIN_INFO_EDIT_CURSOR_BG_COLOUR);
         return;
     }
 
-    snprintf(buf, sizeof(buf), "CH %u: %3u", channel, program);
-
-    if (Presets_DeviceProgramIsShared(slot_index, program))
+    if (program_is_shared)
     {
-        char prefix[16];
-        char *program_text = buf + strlen(buf) - MAIN_INFO_PROGRAM_DIGITS;
-        size_t prefix_len = (size_t)(program_text - buf);
-        uint16_t prefix_px;
-
-        memcpy(prefix, buf, prefix_len);
-        prefix[prefix_len] = '\0';
-        prefix_px = MAIN_INFO_FONT.width * (uint16_t)prefix_len;
-
-        ST7796_WriteString32(MAIN_INFO_LEFT_X,
-                             row_y,
-                             prefix,
-                             MAIN_INFO_FONT,
-                             MAIN_INFO_TEXT_COLOUR,
-                             MAIN_INFO_TEXT_BG_COLOUR);
-        ST7796_WriteString32(MAIN_INFO_LEFT_X + prefix_px,
+        ST7796_WriteString32(value_x,
                              row_y,
                              program_text,
                              MAIN_INFO_FONT,
@@ -540,32 +678,165 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
         return;
     }
 
-    ST7796_WriteString32(MAIN_INFO_LEFT_X,
+    ST7796_WriteString32(value_x,
                          row_y,
-                         buf,
+                         program_text,
                          MAIN_INFO_FONT,
                          MAIN_INFO_TEXT_COLOUR,
                          MAIN_INFO_TEXT_BG_COLOUR);
+}
+
+static void Display_DrawMainInfoCcField(const Preset_t *preset,
+                                        uint8_t cc_index,
+                                        DisplayPresetEditFieldType_t field_type,
+                                        uint16_t row_y,
+                                        uint8_t highlight_field)
+{
+    const PresetCCSlot_t *cc;
+    char field_text[MAIN_INFO_CC_VALUE_DIGITS + 1U];
+    uint16_t field_x;
+    uint16_t foreground = highlight_field ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR : MAIN_INFO_TEXT_COLOUR;
+    uint16_t background = highlight_field ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR : MAIN_INFO_TEXT_BG_COLOUR;
+
+    if (!preset || cc_index >= PRESET_CC_SLOT_COUNT)
+        return;
+
+    cc = &preset->cc[cc_index];
+    switch (field_type)
+    {
+    case DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL:
+        if (cc->channel == PRESET_CC_CHANNEL_UNUSED)
+            strcpy(field_text, "--");
+        else
+            snprintf(field_text, sizeof(field_text), "%02u", cc->channel);
+        field_x = (uint16_t)(MAIN_INFO_LEFT_X + (strlen("CH ") * MAIN_INFO_FONT.width));
+        break;
+
+    case DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER:
+        if (cc->cc_number == PRESET_CC_NUMBER_UNUSED)
+            strcpy(field_text, "---");
+        else
+            snprintf(field_text, sizeof(field_text), "%3u", cc->cc_number);
+        field_x = (uint16_t)(MAIN_INFO_LEFT_X + ((strlen("CH ") + MAIN_INFO_CC_CHANNEL_DIGITS + strlen(" CC:")) * MAIN_INFO_FONT.width));
+        break;
+
+    case DISPLAY_PRESET_EDIT_FIELD_CC_VALUE:
+        if (cc->value == PRESET_CC_VALUE_UNUSED)
+            strcpy(field_text, "---");
+        else
+            snprintf(field_text, sizeof(field_text), "%3u", cc->value);
+        field_x = (uint16_t)(MAIN_INFO_LEFT_X + ((strlen("CH ") + MAIN_INFO_CC_CHANNEL_DIGITS + strlen(" CC:") + MAIN_INFO_CC_VALUE_DIGITS + strlen(" Value:")) * MAIN_INFO_FONT.width));
+        break;
+
+    default:
+        return;
+    }
+
+    ST7796_WriteString32(field_x,
+                         row_y,
+                         field_text,
+                         MAIN_INFO_FONT,
+                         foreground,
+                         background);
+}
+
+static void Display_DrawMainInfoRelayField(const Preset_t *preset,
+                                           uint8_t relay_index,
+                                           uint16_t row_y,
+                                           uint8_t highlight_state)
+{
+    char state_text[8];
+    uint16_t state_x;
+
+    if (!preset || relay_index >= PRESET_RELAY_COUNT)
+        return;
+
+    snprintf(state_text, sizeof(state_text), "%-6s", preset->relay[relay_index] ? "closed" : "open");
+    state_x = (uint16_t)(MAIN_INFO_RIGHT_X + (strlen("Relay_0: ") * MAIN_INFO_FONT.width));
+
+    ST7796_WriteString32(state_x,
+                         row_y,
+                         state_text,
+                         MAIN_INFO_FONT,
+                         highlight_state ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR : MAIN_INFO_TEXT_COLOUR,
+                         highlight_state ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR : MAIN_INFO_TEXT_BG_COLOUR);
 }
 
 static void Display_DrawMainInfoCcRow(const Preset_t *preset,
                                       uint8_t cc_index,
                                       uint16_t row_y)
 {
-    char buf[48];
+    const char *channel_prefix = "CH ";
+    const char *cc_prefix = " CC:";
+    const char *value_prefix = " Value:";
+    char channel_text[MAIN_INFO_CC_CHANNEL_DIGITS + 2U];
+    char cc_number_text[MAIN_INFO_CC_VALUE_DIGITS + 1U];
+    char value_text[MAIN_INFO_CC_VALUE_DIGITS + 1U];
+    uint16_t draw_x = MAIN_INFO_LEFT_X;
     const PresetCCSlot_t *cc = &preset->cc[cc_index];
+    DisplayPresetEditField_t edit_field = Display_PresetEditGetField();
+    uint8_t highlight_channel = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL && edit_field.itemIndex == cc_index) ? 1U : 0U;
+    uint8_t highlight_cc_number = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER && edit_field.itemIndex == cc_index) ? 1U : 0U;
+    uint8_t highlight_value = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_VALUE && edit_field.itemIndex == cc_index) ? 1U : 0U;
 
-    if (cc->channel == PRESET_CC_CHANNEL_UNUSED || cc->cc_number == PRESET_CC_NUMBER_UNUSED || cc->value == PRESET_CC_VALUE_UNUSED)
-        snprintf(buf, sizeof(buf), "CH - CC: --- Value: ---");
+    if (cc->channel == PRESET_CC_CHANNEL_UNUSED)
+        strcpy(channel_text, "--");
     else
-        snprintf(buf, sizeof(buf), "CH %u CC:%3u Value:%3u", cc->channel, cc->cc_number, cc->value);
+        snprintf(channel_text, sizeof(channel_text), "%02u", cc->channel);
 
-    ST7796_WriteString32(MAIN_INFO_LEFT_X,
+    if (cc->cc_number == PRESET_CC_NUMBER_UNUSED)
+        strcpy(cc_number_text, "---");
+    else
+        snprintf(cc_number_text, sizeof(cc_number_text), "%3u", cc->cc_number);
+
+    if (cc->value == PRESET_CC_VALUE_UNUSED)
+        strcpy(value_text, "---");
+    else
+        snprintf(value_text, sizeof(value_text), "%3u", cc->value);
+
+    ST7796_WriteString32(draw_x,
                          row_y,
-                         buf,
+                         channel_prefix,
                          MAIN_INFO_FONT,
                          MAIN_INFO_TEXT_COLOUR,
                          MAIN_INFO_TEXT_BG_COLOUR);
+    draw_x = (uint16_t)(draw_x + (strlen(channel_prefix) * MAIN_INFO_FONT.width));
+
+    Display_DrawMainInfoCcField(preset,
+                                cc_index,
+                                DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL,
+                                row_y,
+                                highlight_channel);
+    draw_x = (uint16_t)(draw_x + (strlen(channel_text) * MAIN_INFO_FONT.width));
+
+    ST7796_WriteString32(draw_x,
+                         row_y,
+                         cc_prefix,
+                         MAIN_INFO_FONT,
+                         MAIN_INFO_TEXT_COLOUR,
+                         MAIN_INFO_TEXT_BG_COLOUR);
+    draw_x = (uint16_t)(draw_x + (strlen(cc_prefix) * MAIN_INFO_FONT.width));
+
+    Display_DrawMainInfoCcField(preset,
+                                cc_index,
+                                DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER,
+                                row_y,
+                                highlight_cc_number);
+    draw_x = (uint16_t)(draw_x + (strlen(cc_number_text) * MAIN_INFO_FONT.width));
+
+    ST7796_WriteString32(draw_x,
+                         row_y,
+                         value_prefix,
+                         MAIN_INFO_FONT,
+                         MAIN_INFO_TEXT_COLOUR,
+                         MAIN_INFO_TEXT_BG_COLOUR);
+    draw_x = (uint16_t)(draw_x + (strlen(value_prefix) * MAIN_INFO_FONT.width));
+
+    Display_DrawMainInfoCcField(preset,
+                                cc_index,
+                                DISPLAY_PRESET_EDIT_FIELD_CC_VALUE,
+                                row_y,
+                                highlight_value);
 }
 
 static void Display_DrawMainInfoSpecialState(uint16_t row_y)
@@ -609,18 +880,21 @@ static void Display_DrawMainInfoRightRow(const Preset_t *preset,
                                          uint8_t right_item_index,
                                          uint16_t row_y)
 {
-    char buf[32];
-
     if (right_item_index < PRESET_RELAY_COUNT)
     {
-        snprintf(buf, sizeof(buf), "Relay_%u: %-6s", right_item_index + 1U,
-                 preset->relay[right_item_index] ? "closed" : "open");
+        char prefix[16];
+        DisplayPresetEditField_t edit_field = Display_PresetEditGetField();
+        uint8_t highlight_state = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_RELAY && edit_field.itemIndex == right_item_index) ? 1U : 0U;
+
+        snprintf(prefix, sizeof(prefix), "Relay_%u: ", right_item_index + 1U);
+
         ST7796_WriteString32(MAIN_INFO_RIGHT_X,
                              row_y,
-                             buf,
+                             prefix,
                              MAIN_INFO_FONT,
                              MAIN_INFO_TEXT_COLOUR,
                              MAIN_INFO_TEXT_BG_COLOUR);
+        Display_DrawMainInfoRelayField(preset, right_item_index, row_y, highlight_state);
         return;
     }
 
@@ -667,7 +941,9 @@ static void Display_DrawMainLayout(void)
 
 void Display_MainInfoScrollReset(void)
 {
-    main_info_first_slot = 0U;
+    main_info_first_slot = preset_edit_mode_active
+        ? Display_GetPresetEditScrollFirstSlot(preset_edit_cursor_index)
+        : 0U;
 }
 
 uint8_t Display_MainInfoScrollBy(int8_t delta)
@@ -685,6 +961,179 @@ uint8_t Display_MainInfoScrollBy(int8_t delta)
 
     main_info_first_slot = (uint8_t)next_slot;
     return 1U;
+}
+
+void Display_PresetEditEnter(void)
+{
+    preset_edit_mode_active = 1U;
+    preset_edit_cursor_index = 0U;
+    main_info_first_slot = Display_GetPresetEditScrollFirstSlot(preset_edit_cursor_index);
+}
+
+void Display_PresetEditExit(void)
+{
+    preset_edit_mode_active = 0U;
+}
+
+uint8_t Display_PresetEditIsActive(void)
+{
+    return preset_edit_mode_active;
+}
+
+uint8_t Display_PresetEditMoveCursor(int8_t delta)
+{
+    int16_t next_cursor;
+
+    if (!preset_edit_mode_active || delta == 0)
+        return 0U;
+
+    next_cursor = (int16_t)preset_edit_cursor_index + (int16_t)delta;
+    if (next_cursor < 0)
+        next_cursor = 0;
+    else if (next_cursor >= (int16_t)MAIN_INFO_EDIT_FIELD_COUNT)
+        next_cursor = (int16_t)(MAIN_INFO_EDIT_FIELD_COUNT - 1U);
+
+    if ((uint8_t)next_cursor == preset_edit_cursor_index)
+        return 0U;
+
+    preset_edit_cursor_index = (uint8_t)next_cursor;
+    main_info_first_slot = Display_GetPresetEditScrollFirstSlot(preset_edit_cursor_index);
+    return 1U;
+}
+
+uint8_t Display_PresetEditMoveCursorAndRefresh(const Preset_t *preset, int8_t delta)
+{
+    DisplayPresetEditField_t previous_field;
+    DisplayPresetEditField_t next_field;
+    uint8_t previous_first_slot;
+    uint8_t moved;
+
+    if (!preset || !preset_edit_mode_active)
+        return 0U;
+
+    previous_field = Display_PresetEditGetField();
+    previous_first_slot = main_info_first_slot;
+    moved = Display_PresetEditMoveCursor(delta);
+    if (!moved)
+        return 0U;
+
+    next_field = Display_PresetEditGetField();
+    if (main_info_first_slot != previous_first_slot)
+    {
+        Display_DrawMainInfoRows(preset);
+        return 1U;
+    }
+
+    switch (previous_field.type)
+    {
+    case DISPLAY_PRESET_EDIT_FIELD_PROGRAM:
+        if (previous_field.itemIndex >= previous_first_slot
+            && previous_field.itemIndex < (uint8_t)(previous_first_slot + MAIN_INFO_ROW_COUNT))
+        {
+            Display_DrawMainInfoProgramField(preset,
+                                             previous_field.itemIndex,
+                                             main_info_row_y[previous_field.itemIndex - previous_first_slot],
+                                             0U);
+        }
+        break;
+
+    case DISPLAY_PRESET_EDIT_FIELD_RELAY:
+        if (previous_field.itemIndex < MAIN_INFO_ROW_COUNT)
+        {
+            Display_DrawMainInfoRelayField(preset,
+                                           previous_field.itemIndex,
+                                           main_info_row_y[previous_field.itemIndex],
+                                           0U);
+        }
+        break;
+
+    case DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL:
+    case DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER:
+    case DISPLAY_PRESET_EDIT_FIELD_CC_VALUE:
+        if ((PRESET_DEVICE_SLOTS + previous_field.itemIndex) >= previous_first_slot
+            && (PRESET_DEVICE_SLOTS + previous_field.itemIndex) < (uint8_t)(previous_first_slot + MAIN_INFO_ROW_COUNT))
+        {
+            Display_DrawMainInfoCcField(preset,
+                                        previous_field.itemIndex,
+                                        previous_field.type,
+                                        main_info_row_y[(PRESET_DEVICE_SLOTS + previous_field.itemIndex) - previous_first_slot],
+                                        0U);
+        }
+        break;
+
+    default:
+        break;
+    }
+
+    if (!Display_PresetEditFieldsMatch(previous_field, next_field))
+        Display_PresetEditRefreshCurrentField(preset);
+
+    return 1U;
+}
+
+DisplayPresetEditField_t Display_PresetEditGetField(void)
+{
+    if (!preset_edit_mode_active)
+    {
+        DisplayPresetEditField_t field = { DISPLAY_PRESET_EDIT_FIELD_NONE, 0U };
+        return field;
+    }
+
+    return Display_GetPresetEditFieldForCursor(preset_edit_cursor_index);
+}
+
+void Display_PresetEditRefreshCurrentField(const Preset_t *preset)
+{
+    DisplayPresetEditField_t field;
+    uint8_t row_index;
+    uint16_t row_y;
+
+    if (!preset || !preset_edit_mode_active)
+        return;
+
+    field = Display_PresetEditGetField();
+    row_index = 0xFFU;
+
+    switch (field.type)
+    {
+    case DISPLAY_PRESET_EDIT_FIELD_PROGRAM:
+        if (field.itemIndex < main_info_first_slot)
+            return;
+
+        row_index = (uint8_t)(field.itemIndex - main_info_first_slot);
+        if (row_index >= MAIN_INFO_ROW_COUNT)
+            return;
+
+        row_y = main_info_row_y[row_index];
+        Display_DrawMainInfoProgramField(preset, field.itemIndex, row_y, 1U);
+        return;
+
+    case DISPLAY_PRESET_EDIT_FIELD_RELAY:
+        if (field.itemIndex >= PRESET_RELAY_COUNT)
+            return;
+
+        row_index = field.itemIndex;
+        if (row_index >= MAIN_INFO_ROW_COUNT)
+            return;
+
+        row_y = main_info_row_y[row_index];
+    Display_DrawMainInfoRelayField(preset, field.itemIndex, row_y, 1U);
+        return;
+
+    case DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL:
+    case DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER:
+    case DISPLAY_PRESET_EDIT_FIELD_CC_VALUE:
+        row_index = (uint8_t)((PRESET_DEVICE_SLOTS + field.itemIndex) - main_info_first_slot);
+        if (row_index >= MAIN_INFO_ROW_COUNT)
+            return;
+
+        row_y = main_info_row_y[row_index];
+        Display_DrawMainInfoCcField(preset, field.itemIndex, field.type, row_y, 1U);
+        return;
+
+    default:
+        return;
+    }
 }
 
 /* ?????? Display_DrawMainScreen ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????

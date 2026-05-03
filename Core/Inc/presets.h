@@ -99,6 +99,12 @@ typedef struct {
 const Preset_t *Presets_Get(uint8_t index);
 
 /**
+ * @brief  Return a mutable pointer to the preset at @p index.
+ *         Returns NULL if @p index is out of range.
+ */
+Preset_t *Presets_GetMutable(uint8_t index);
+
+/**
  * @brief  Return the number of presets defined in the table.
  */
 uint8_t Presets_Count(void);

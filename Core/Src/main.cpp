@@ -163,6 +163,10 @@ static void TempoEncoder_Init(void);
 static void TempoEncoder_ProcessPending(void);
 static void TempoEncoder_ApplyBpmStep(int8_t step);
 static void ExternalClockHoldoverMirror_Service(void);
+static uint8_t PresetEdit_Enter(void);
+static void PresetEdit_Exit(void);
+static uint8_t PresetEdit_ApplyDelta(int8_t delta);
+static uint8_t PresetEdit_CurrentPresetIsEditable(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -176,6 +180,151 @@ extern "C" int __io_putchar(int ch)
     HAL_UART_Transmit(&huart3, &byte, 1U, 10U);
 
   return ch;
+}
+
+static uint8_t PresetEdit_CurrentPresetIsEditable(void)
+{
+  const Preset_t *active_real_preset = Presets_Get(active_preset_index);
+
+  return (active_preset != NULL && active_preset == active_real_preset) ? 1U : 0U;
+}
+
+static uint8_t PresetEdit_AdjustSentinelValue(uint8_t *value,
+                                              uint8_t unused_value,
+                                              uint8_t min_value,
+                                              uint8_t max_value,
+                                              int8_t delta)
+{
+  int16_t current_value;
+  int16_t next_value;
+  int16_t unused_marker = (int16_t)min_value - 1;
+
+  if (delta == 0)
+    return 0U;
+
+  current_value = (*value == unused_value) ? unused_marker : (int16_t)(*value);
+  next_value = current_value + (int16_t)delta;
+
+  if (next_value < unused_marker)
+    next_value = unused_marker;
+  else if (next_value > (int16_t)max_value)
+    next_value = (int16_t)max_value;
+
+  if (next_value == current_value)
+    return 0U;
+
+  *value = (next_value == unused_marker) ? unused_value : (uint8_t)next_value;
+  return 1U;
+}
+
+static uint8_t PresetEdit_AdjustProgramValue(Preset_t *preset, uint8_t slot, int8_t delta)
+{
+  const MidiDevice_t *device;
+  uint8_t max_program;
+
+  if (!preset || slot >= PRESET_DEVICE_SLOTS)
+    return 0U;
+
+  device = MidiDevices_Get(slot);
+  max_program = device ? device->max_preset : 127U;
+
+  return PresetEdit_AdjustSentinelValue(&preset->prg[slot].program,
+                                        PRESET_PROGRAM_NONE,
+                                        0U,
+                                        max_program,
+                                        delta);
+}
+
+static uint8_t PresetEdit_ApplyDelta(int8_t delta)
+{
+  Preset_t *preset;
+  DisplayPresetEditField_t field;
+
+  if (!Display_PresetEditIsActive() || delta == 0)
+    return 0U;
+
+  if (!PresetEdit_CurrentPresetIsEditable())
+  {
+    PresetEdit_Exit();
+    return 0U;
+  }
+
+  preset = Presets_GetMutable(active_preset_index);
+  if (!preset)
+    return 0U;
+
+  field = Display_PresetEditGetField();
+  switch (field.type)
+  {
+  case DISPLAY_PRESET_EDIT_FIELD_PROGRAM:
+    return PresetEdit_AdjustProgramValue(preset, field.itemIndex, delta);
+
+  case DISPLAY_PRESET_EDIT_FIELD_RELAY:
+    if (field.itemIndex >= PRESET_RELAY_COUNT)
+      return 0U;
+
+    {
+      uint8_t next_state = (delta > 0) ? PRESET_RELAY_CLOSED : PRESET_RELAY_OPEN;
+
+      if (preset->relay[field.itemIndex] == next_state)
+        return 0U;
+
+      preset->relay[field.itemIndex] = next_state;
+      return 1U;
+    }
+
+  case DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL:
+    if (field.itemIndex >= PRESET_CC_SLOT_COUNT)
+      return 0U;
+    return PresetEdit_AdjustSentinelValue(&preset->cc[field.itemIndex].channel,
+                                          PRESET_CC_CHANNEL_UNUSED,
+                                          1U,
+                                          16U,
+                                          delta);
+
+  case DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER:
+    if (field.itemIndex >= PRESET_CC_SLOT_COUNT)
+      return 0U;
+    return PresetEdit_AdjustSentinelValue(&preset->cc[field.itemIndex].cc_number,
+                                          PRESET_CC_NUMBER_UNUSED,
+                                          0U,
+                                          127U,
+                                          delta);
+
+  case DISPLAY_PRESET_EDIT_FIELD_CC_VALUE:
+    if (field.itemIndex >= PRESET_CC_SLOT_COUNT)
+      return 0U;
+    return PresetEdit_AdjustSentinelValue(&preset->cc[field.itemIndex].value,
+                                          PRESET_CC_VALUE_UNUSED,
+                                          0U,
+                                          127U,
+                                          delta);
+
+  default:
+    return 0U;
+  }
+}
+
+static uint8_t PresetEdit_Enter(void)
+{
+  if (Display_PresetEditIsActive() || !PresetEdit_CurrentPresetIsEditable())
+    return 0U;
+
+  Display_ScreensaverDismiss();
+  Display_ScreensaverActivity();
+  Display_PresetEditEnter();
+  Display_DrawMainScreen(active_preset, g_bpm);
+  return 1U;
+}
+
+static void PresetEdit_Exit(void)
+{
+  if (!Display_PresetEditIsActive())
+    return;
+
+  Display_PresetEditExit();
+  Display_ScreensaverActivity();
+  Display_DrawMainScreen(active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
 }
 
 /* USER CODE END 0 */
@@ -736,6 +885,28 @@ static void EncoderCheck_ProcessPending(void)
 #else
   (void)press_mask;
 #endif
+
+  if (press_mask == 0U)
+    return;
+
+  if (Display_ScreensaverIsActive())
+  {
+    Rotary1_RecordActivity();
+    return;
+  }
+
+  Display_ScreensaverActivity();
+
+  if ((press_mask & 0x04U) && Display_PresetEditIsActive())
+  {
+    PresetEdit_Exit();
+    return;
+  }
+
+  if ((press_mask & 0x01U) && !Display_PresetEditIsActive())
+  {
+    PresetEdit_Enter();
+  }
 }
 
 static uint8_t Encoder_ReadState(GPIO_TypeDef *clk_gpio_port, uint16_t clk_gpio_pin,
@@ -880,7 +1051,17 @@ static void Rotary1_ProcessPending(void)
 
   if (pending_steps != 0 && active_preset != NULL)
   {
-    if (Display_MainInfoScrollBy(pending_steps))
+    if (Display_PresetEditIsActive())
+    {
+      if (!PresetEdit_CurrentPresetIsEditable())
+      {
+        PresetEdit_Exit();
+        return;
+      }
+
+      Display_PresetEditMoveCursorAndRefresh(active_preset, pending_steps);
+    }
+    else if (Display_MainInfoScrollBy(pending_steps))
       Display_DrawMainScreen(active_preset, g_bpm);
   }
 }
@@ -954,6 +1135,12 @@ static void Encoder2_ProcessPending(void)
   }
 
   Display_ScreensaverActivity();
+
+  if (Display_PresetEditIsActive())
+  {
+    if (PresetEdit_ApplyDelta(pending_steps))
+      Display_PresetEditRefreshCurrentField(active_preset);
+  }
 }
 
 static void TempoEncoder_Init(void)
@@ -1069,6 +1256,13 @@ static void TempoEncoder_ProcessPending(void)
   }
 
   Display_ScreensaverActivity();
+
+  if (Display_PresetEditIsActive())
+  {
+    if (!PresetEdit_CurrentPresetIsEditable())
+      PresetEdit_Exit();
+    return;
+  }
 
   if (pending_delta != 0)
     TempoEncoder_ApplyBpmStep(pending_delta);

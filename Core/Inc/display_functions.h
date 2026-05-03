@@ -13,6 +13,20 @@
 extern "C" {
 #endif
 
+typedef enum {
+	DISPLAY_PRESET_EDIT_FIELD_NONE = 0,
+	DISPLAY_PRESET_EDIT_FIELD_PROGRAM,
+	DISPLAY_PRESET_EDIT_FIELD_RELAY,
+	DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL,
+	DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER,
+	DISPLAY_PRESET_EDIT_FIELD_CC_VALUE,
+} DisplayPresetEditFieldType_t;
+
+typedef struct {
+	DisplayPresetEditFieldType_t type;
+	uint8_t itemIndex;
+} DisplayPresetEditField_t;
+
 /* ── Backlight (DAC1 CH1 on PA4) ─────────────────────────────────────────── */
 
 void Display_BL_Init(void);
@@ -25,6 +39,13 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm);
 void Display_UpdateBPM(uint16_t bpm);
 void Display_MainInfoScrollReset(void);
 uint8_t Display_MainInfoScrollBy(int8_t delta);
+void Display_PresetEditEnter(void);
+void Display_PresetEditExit(void);
+uint8_t Display_PresetEditIsActive(void);
+uint8_t Display_PresetEditMoveCursor(int8_t delta);
+uint8_t Display_PresetEditMoveCursorAndRefresh(const Preset_t *p, int8_t delta);
+DisplayPresetEditField_t Display_PresetEditGetField(void);
+void Display_PresetEditRefreshCurrentField(const Preset_t *p);
 
 /* ── Screensaver (backlight idle mode) ───────────────────────────────────── */
 
