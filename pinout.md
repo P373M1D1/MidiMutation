@@ -26,31 +26,30 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PG6         | USB power switch enable (output)                      | USB power switch IC           |
 | PG7         | USB overcurrent sense (input)                         | USB power switch IC           |
 | **SPI1 — ST7796 Display**                                                                     |
+| PA4         | Backlight Pin for fade                               | ST7796 LED                     |
 | PA5         | SPI1_SCK  (AF5) — CN7 / Arduino D13                  | ST7796 SCK                    |
 | PA6         | SPI1_MISO (AF5) — CN7 / Arduino D12                  | ST7796 MISO                   |
 | PA7         | SPI1_MOSI (AF5) — CN7 / Arduino D11                  | ST7796 MOSI                   |
 | PD14        | ST7796_CS  — chip select (output) — Morpho CN11       | ST7796 CS                     |
-| PD15        | ST7796_DC  — data/command select (output) — Morpho CN11 | ST7796 DC                   |
+| PD15        | ST7796_DC  — data/command select (output) — Morpho CN11 | ST7796 DC / RS              |
 | PF12        | ST7796_RST — reset (output) — Morpho CN11             | ST7796 RST                    |
 | **MIDI UART Ports**                                                                           |
 | PD1         | UART4_TX (AF11) — Morpho CN11                         | MIDI Out 1 — smart output (preset MIDI + internal/external clock) |
 | PC12        | UART5_TX (AF8) — Morpho CN11                          | Spare second MIDI out (currently unused in firmware) |
 | PD5         | USART2_TX (AF7) — Morpho CN11                         | MIDI Thru — soft-thru copy of MIDI In |
 | PD6         | USART2_RX (AF7) — Morpho CN11                         | MIDI In (opto-isolated input) |
-| **Rotary Encoders — mixed mode (interrupt + GPIO polling)**                                    |
-| PG11        | GPIO input pull-up, EXTI11 (EXTI15_10_IRQn)          | Encoder 1 — A channel         |
-| PG12        | GPIO input pull-up, EXTI12 (EXTI15_10_IRQn)          | Encoder 1 — B channel         |
-| PB4         | TIM3_CH1 (AF2) — Morpho CN10                          | Encoder 2 — A channel         |
-| PB5         | TIM3_CH2 (AF2) — Morpho CN10                          | Encoder 2 — B channel         |
-| PD12        | GPIO input pull-up, polled — Morpho CN11              | Encoder 3 tempo — CLK (A)     |
-| PD13        | GPIO input pull-up, polled — Morpho CN11              | Encoder 3 tempo — DT (B)      |
-| PC6         | TIM8_CH1 (AF3) — Morpho CN10                          | Encoder 4 — A channel         |
-| PC7         | TIM8_CH2 (AF3) — Morpho CN10                          | Encoder 4 — B channel         |
-| **Encoder push buttons — wired, not yet used by firmware**                                   |
-| PG14        | GPIO input pull-up, EXTI14 (EXTI15_10_IRQn)          | Encoder 1 switch              |
-| PD1         | Reassigned to UART4_TX (AF11)                         | MIDI Out 1 — smart output     |
-| PD3         | Encoder 3 push button — wired to MCU input             | Encoder 3 switch (not used)   |
-| PD4         | Encoder 4 push button — wired to MCU input             | Encoder 4 switch (not used)   |
+| **Rotary Encoders — practical 3-controller plan**                                             |
+| PG11        | GPIO input pull-up, sampled from TIM7 IRQ            | Encoder 1 — A channel (scroll encoder, active in firmware) |
+| PG12        | GPIO input pull-up, sampled from TIM7 IRQ            | Encoder 1 — B channel (scroll encoder, active in firmware) |
+| PB4         | GPIO input pull-up, sampled from TIM7 IRQ — Morpho CN10 | Encoder 2 — A channel (middle encoder, interrupt-driven, function still unassigned) |
+| PB5         | GPIO input pull-up, sampled from TIM7 IRQ — Morpho CN10 | Encoder 2 — B channel (middle encoder, interrupt-driven, function still unassigned) |
+| PD12        | GPIO input pull-up, sampled from TIM7 IRQ — Morpho CN11 | Encoder 3 tempo — CLK (A) (active in firmware) |
+| PD13        | GPIO input pull-up, sampled from TIM7 IRQ — Morpho CN11 | Encoder 3 tempo — DT (B) (active in firmware) |
+| **Encoder push buttons**                                                                       |
+| PG14        | GPIO input pull-up, EXTI14 (EXTI15_10_IRQn)          | Encoder 1 switch (wired and interrupt-routed; action not yet assigned) |
+| PD4         | GPIO input pull-up, EXTI4 (EXTI4_IRQn)               | Encoder 2 switch (interrupt-routed; action not yet assigned) |
+| PD3         | GPIO input pull-up, EXTI3 (EXTI3_IRQn)               | Encoder 3 switch (interrupt-routed; action not yet assigned) |
+| PD1         | Reassigned to UART4_TX (AF11)                        | Not available for an encoder switch |
 | **Pushbutton LEDs — GPIO output**                                                             |
 | PF0         | Button 1  LED output                                  | Pushbutton 1 LED              |
 | PF1         | Button 2  LED output                                  | Pushbutton 2 LED              |
@@ -76,8 +75,8 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PE0         | Button 1  — INPUT_PULLUP, EXTI0  (EXTI0_IRQn)         | Pushbutton 1                  | Preset 1
 | PE1         | Button 2  — INPUT_PULLUP, EXTI1  (EXTI1_IRQn)         | Pushbutton 2                  | Preset 2
 | PE2         | Button 3  — INPUT_PULLUP, EXTI2  (EXTI2_IRQn)         | Pushbutton 3                  | Preset 3
-| PE3         | Button 4  — INPUT_PULLUP, EXTI3  (EXTI3_IRQn)         | Pushbutton 4                  | Preset 4
-| PE4         | Button 5  — INPUT_PULLUP, EXTI4  (EXTI4_IRQn)         | Pushbutton 5                  | Preset 5
+| PE11        | Button 4  — INPUT_PULLUP, EXTI11 (EXTI15_10_IRQn)     | Pushbutton 4                  | Preset 4
+| PE12        | Button 5  — INPUT_PULLUP, EXTI12 (EXTI15_10_IRQn)     | Pushbutton 5                  | Preset 5
 | PE5         | Button 6  — INPUT_PULLUP, EXTI5  (EXTI9_5_IRQn)       | Pushbutton 6                  | Preset 6
 | PE6         | Button 7  — INPUT_PULLUP, EXTI6  (EXTI9_5_IRQn)       | Pushbutton 7                  | Preset 7
 | PE7         | Button 8  — INPUT_PULLUP, EXTI7  (EXTI9_5_IRQn)       | Pushbutton 8                  | Preset 8
@@ -97,16 +96,15 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 > pin. The firmware therefore routes smart MIDI out on [Core/Src/main.cpp](Core/Src/main.cpp#L64)
 > through `PD1`, while `USART3` remains on `PD8`/`PD9` for the ST-LINK VCP.
 
-> **\* EXTI15_10_IRQn shared ISR (current firmware):** PE10 (Button 11) and PG15 (Tap) are serviced in the shared handler.
+> **\* EXTI15_10_IRQn shared ISR (current firmware):** PE10/PE11/PE12 (Buttons 11/4/5), PG14 (Encoder 1 switch), and PG15 (Tap) are serviced in the shared handler.
 
 > **EXTI9_5_IRQn shared ISR:** PE5–PE9 share `EXTI9_5_IRQn`. Same rule — check each pending flag.
 
-> **Encoder push buttons status:** Encoder pushbutton lines are wired to the MCU but not yet used by firmware.
+> **EXTI4 / EXTI3 ownership:** PD4 now carries Encoder 2 switch on `EXTI4_IRQn`, and PD3 carries Encoder 3 switch on `EXTI3_IRQn`.
 
-> **Encoder input mode:** Encoder 1 now uses GPIO interrupts on PG11/PG12/PG14 to avoid EXTI conflicts with the preset buttons and the TIM2 MIDI timebase.
-> Encoder 2/4 remain mapped to TIM3/TIM8 timer-encoder channels.
-> Encoder 3 (tempo) is currently decoded in firmware from polled GPIO inputs on PD12/PD13, and
-> its pushbutton is present on PD3 but intentionally reserved for a later feature.
+> **Encoder push buttons status:** All three encoder switches are now configured with pull-ups and routed through interrupts. Their presses currently wake or mark UI activity, but no encoder-switch-specific application action is assigned yet.
+
+> **Encoder input mode:** All three encoder A/B pairs are decoded from the shared `TIM7` interrupt sampler. Encoder 1 now uses a lighter single-CLK-edge decoder inside that sampler because `EXTI11`/`EXTI12` are already consumed by Buttons 4 and 5 on `PE11`/`PE12`. The numbered buttons and encoder switches still use direct GPIO EXTI interrupts.
 
 ---
 

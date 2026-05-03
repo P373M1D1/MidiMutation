@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "midi_devices.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,9 +18,11 @@ extern "C" {
 #define PRESET_BANK_NAME_MAXLEN  16U /* maximum displayed character width reserved for a bank name */
 
 /* Shared sentinel values used by preset data tables and activation logic. */
-#define PRESET_PROGRAM_UNUSED     0xFFU /* sentinel meaning this device slot sends no Program Change */
-#define PRESET_CC_CHANNEL_UNUSED  0U    /* sentinel meaning this CC slot is unused */
-#define PRESET_CC_NUMBER_UNUSED   PRESET_PROGRAM_UNUSED /* sentinel CC number for an unused CC slot */
+#define PRESET_PROGRAM_NONE       0xFFU /* sentinel meaning this device slot sends no Program Change; cannot be NULL because Program Change 0 is valid data */
+#define PRESET_PROGRAM_UNUSED     PRESET_PROGRAM_NONE /* backward-compatible alias for older code and table entries */
+#define PRESET_CC_CHANNEL_UNUSED  0xFFU /* sentinel meaning this CC slot is unused */
+#define PRESET_CC_NUMBER_UNUSED   PRESET_PROGRAM_NONE /* sentinel CC number for an unused CC slot */
+#define PRESET_CC_VALUE_UNUSED    0xFFU /* sentinel CC value for an unused CC slot */
 #define PRESET_RELAY_OPEN         0U    /* relay state value for open/bypass */
 #define PRESET_RELAY_CLOSED       1U    /* relay state value for closed/engaged */
 
@@ -37,20 +40,20 @@ const char *Presets_GetBankName(uint8_t bank);
  * Slot N maps directly to MidiDevices_Get(N) — no channel field needed here,
  * the channel lives in the device table.
  */
-#define PRESET_DEVICE_SLOTS  6U /* number of per-device program slots stored in each preset */
+#define PRESET_DEVICE_SLOTS  MIDI_DEVICE_COUNT /* number of per-device program slots stored in each preset */
 
 /**
  * @brief  Per-device MIDI data for one preset.
  *
  *  program  — Program Change number to send when this preset loads (0–127).
- *             PRESET_PROGRAM_UNUSED = do not send a Program Change.
+ *             PRESET_PROGRAM_NONE = do not send a Program Change.
  */
 typedef struct {
     uint8_t program;
 } PresetDevice_t;
 
 /** Number of extra per-preset MIDI CC messages. */
-#define PRESET_CC_SLOT_COUNT  4U /* number of extra CC messages stored in each preset */
+#define PRESET_CC_SLOT_COUNT  8U /* number of extra CC messages stored in each preset */
 
 /**
  * @brief  One per-preset MIDI CC message.
@@ -60,6 +63,7 @@ typedef struct {
  *  cc_number  — CC number to send (0-127).
  *               PRESET_CC_NUMBER_UNUSED = unused slot.
  *  value      — CC value to send (0-127).
+ *               PRESET_CC_VALUE_UNUSED = unused slot.
  */
 typedef struct {
     uint8_t channel;
@@ -75,7 +79,7 @@ typedef struct {
  *
  *  name      — display name, max 20 chars + NUL.
  *  prg[N]    — Program Change data for device N; index matches MidiDevices_Get(N).
- *              prg[0]..prg[5] map directly to device slots 0..5.
+ *              prg[0]..prg[7] map directly to device slots 0..7.
  *  cc[N]     — extra CC messages to send when this preset is activated.
  *  relay[N]  — state of relay N, independent of any MIDI device.
  *              PRESET_RELAY_OPEN = open/bypass,
@@ -101,7 +105,7 @@ uint8_t Presets_Count(void);
 
 /**
  * @brief  Returns true if the given program number is used in more than one preset
- *         for the given device slot (ignores PRESET_PROGRAM_UNUSED).
+ *         for the given device slot (ignores PRESET_PROGRAM_NONE).
  * @param  slot      Device slot index (0..PRESET_DEVICE_SLOTS-1).
  * @param  program   Program number to check (0..127).
  */

@@ -14,8 +14,12 @@ extern "C" {
  * Resolution: 480x320 (native)
  * Interface:  SPI
  *
- * GPIO pin setup in STM32CubeMX:
- *   Assign User Labels to the GPIO output pins:
+ * GPIO pin setup:
+ *   The driver consumes the GPIO and SPI symbols exported via main.h.
+ *   Those symbols may come from CubeMX generation or from manual project
+ *   maintenance, as long as the names remain compatible.
+ *
+ *   Typical pin labels are:
  *     ST7796_DC   -> Data/Command select
  *     ST7796_RST  -> Reset (active low)
  *     ST7796_CS   -> Chip select (active low)
@@ -32,8 +36,9 @@ extern "C" {
 extern SPI_HandleTypeDef ST7796_SPI_PORT;
 
 /* Uncomment to enable DMA for bulk transfers (faster fills / image draws).
- * Requires the SPI DMA Tx channel to be enabled in CubeMX. */
-// #define ST7796_USE_DMA
+ * In this project SPI1 TX DMA is configured manually in stm32f4xx_hal_msp.c,
+ * not regenerated from CubeMX. */
+#define ST7796_USE_DMA
 
 /* Uncomment if CS is hard-wired to GND (no software CS control needed) */
 // #define ST7796_CFG_NO_CS
@@ -43,7 +48,7 @@ extern SPI_HandleTypeDef ST7796_SPI_PORT;
 #define ST7796_HEIGHT   320 /* native display height in pixels */
 
 /* Default rotation: 0=portrait, 1=landscape, 2=portrait inverted, 3=landscape inverted */
-#define ST7796_ROTATION 1 /* default panel rotation used during initialization */
+#define ST7796_ROTATION 3 /* default panel rotation used during initialization */
 
 /* ST7796 command registers */
 #define ST7796_NOP          0x00 /* controller no-operation command */

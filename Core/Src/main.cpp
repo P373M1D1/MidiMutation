@@ -68,6 +68,11 @@
 #define TIM6_TICK_HZ                   10000U /* target counter frequency used for internal MIDI clock timing */
 #define TIM6_PRESCALER_DIVISOR          9600U /* timer prescaler divisor used to derive TIM6_TICK_HZ */
 #define TIM6_COUNTS_PER_MINUTE     (TIM6_TICK_HZ * 60U) /* number of TIM6 ticks that elapse in one minute */
+#define TIM7_TICK_HZ                 1000000U /* shared encoder-sampler timer tick rate */
+#define TIM7_PRESCALER_DIVISOR            96U /* 96 MHz APB1 timer clock divided down to 1 MHz */
+#define ENCODER_SAMPLE_HZ              2000U /* shared interrupt rate for encoder quadrature sampling */
+#define ENCODER_CHECK_SERIAL_ENABLED      1U /* set to 0 to disable temporary serial encoder test output */
+#define ENCODER_SWITCH_DEBOUNCE_MS       20U /* debounce window for encoder pushbutton test prints */
 
 #define TAP_RESET_INTERVAL_MS       3000U /* gap after which tap-tempo history is discarded as a new tap sequence */
 #define TAP_MIN_INTERVAL_MS          250U /* shortest accepted gap between taps to reject bounce or unreal tempos */
@@ -82,7 +87,7 @@
 #define TEMPO_ENCODER_STEP_FAST        4 /* BPM delta per detent for fast turns */
 #define TEMPO_ENCODER_STEP_VFAST       8 /* BPM delta per detent for very-fast turns */
 #define ROTARY1_SCROLL_TRANSITIONS_PER_STEP 4 /* quadrature edges expected per mechanical detent for encoder 1 */
-#define ROTARY1_SCROLL_DIRECTION_SIGN  1 /* set to -1 if clockwise and counter-clockwise feel reversed for encoder 1 */
+#define ROTARY1_SCROLL_DIRECTION_SIGN -1 /* set to 1 if clockwise and counter-clockwise feel reversed for encoder 1 */
 
 #define EXT_CLOCK_HOLDOVER_MIRROR_ENABLED 1U /* set to 0 to revert to legacy behavior without deleting code */
 #define EXT_CLOCK_MIRROR_STABLE_SAMPLES 3U /* consecutive equal-BPM external samples required before mirroring */
@@ -97,6 +102,7 @@
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
 TIM_HandleTypeDef htim6;
+TIM_HandleTypeDef htim7;
 
 UART_HandleTypeDef huart3;
 UART_HandleTypeDef huart4;
@@ -104,6 +110,7 @@ UART_HandleTypeDef huart4;
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
+DMA_HandleTypeDef hdma_spi1_tx;
 /* ?????? Tap tempo state ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 static volatile uint32_t tap_ts[TAP_BUF_SIZE]; /* tap timestamps (ms)      */
 static volatile uint8_t  tap_count = 0U;        /* valid entries in buffer  */
@@ -113,11 +120,20 @@ volatile uint8_t         bpm_dirty    = 0U;  /* set by ISR, read by main */
 volatile uint32_t bpm_save_tick = 0U;  /* HAL_GetTick target to save BPM to Flash */
 const Preset_t   *active_preset = NULL; /* current preset, needed by screensaver wake */
 uint8_t active_preset_index = PRESET_DEFAULT;
+static volatile uint8_t encoder_button_press_pending_mask = 0U; /* queued encoder switch press events waiting for serial test output */
+static uint32_t encoder_button_press_tick[3] = {0U, 0U, 0U}; /* last accepted encoder switch press tick for debounce */
+static uint8_t encoder_switch_last_level[3] = {1U, 1U, 1U}; /* last sampled raw level for encoder switches so presses can be detected without relying on EXTI routing */
+static uint8_t encoder2_last_state = 0U; /* previous sampled CLK/DT state for encoder 2 quadrature decoding */
+static int8_t encoder2_transition_accum = 0; /* transition accumulator to collapse 4 edges into 1 future value step */
+static volatile int8_t encoder2_pending_steps = 0; /* queued encoder 2 steps until a function is assigned */
+static volatile uint8_t encoder2_activity_pending = 0U; /* set by encoder 2 motion or switch so the main loop can wake the UI */
 static uint8_t tempo_encoder_last_state = 0U; /* previous sampled CLK/DT state for quadrature decoding */
 static int8_t tempo_encoder_transition_accum = 0; /* transition accumulator to collapse 4 edges into 1 BPM step */
 static uint32_t tempo_encoder_last_step_tick = 0U; /* ms timestamp of the previous completed encoder detent */
+static volatile int8_t tempo_encoder_pending_delta = 0; /* queued BPM delta accumulated in the encoder ISR */
+static volatile uint8_t tempo_encoder_activity_pending = 0U; /* set by tempo encoder motion or switch so the main loop can wake the UI */
 static uint8_t rotary1_last_state = 0U; /* previous sampled CLK/DT state for encoder 1 quadrature decoding */
-static int8_t rotary1_transition_accum = 0; /* transition accumulator to collapse 4 edges into 1 device-list scroll step */
+static uint8_t rotary1_last_clk_level = 1U; /* last sampled CLK level so encoder 1 can scroll from a single stable edge per detent */
 static volatile int8_t rotary1_pending_steps = 0; /* queued encoder 1 scroll steps waiting for foreground redraw */
 static volatile uint8_t rotary1_activity_pending = 0U; /* set by encoder 1 IRQ activity so the main loop can wake the UI */
 static uint16_t ext_mirror_candidate_bpm = 0U; /* latest external BPM candidate used by holdover mirroring */
@@ -135,18 +151,32 @@ static void MX_MIDI_Output_UART_Init(void);
 static uint32_t MidiClockTimerPeriodForBpm(uint16_t bpm);
 static void MX_TIM2_Init(void);
 static void MX_TIM6_Init(uint16_t bpm);
+static void MX_TIM7_Init(void);
+static void EncoderCheck_Init(void);
+static void EncoderCheck_ProcessPending(void);
 static void Rotary1_Init(void);
-static void Rotary1_HandleInterrupt(uint16_t gpio_pin);
 static void Rotary1_ProcessPending(void);
 static void Rotary1_RecordActivity(void);
+static void Encoder2_Init(void);
+static void Encoder2_ProcessPending(void);
 static void TempoEncoder_Init(void);
-static void TempoEncoder_Service(void);
+static void TempoEncoder_ProcessPending(void);
 static void TempoEncoder_ApplyBpmStep(int8_t step);
 static void ExternalClockHoldoverMirror_Service(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+extern "C" int __io_putchar(int ch)
+{
+  uint8_t byte = (uint8_t)ch;
+
+  if (huart3.Instance == USART3)
+    HAL_UART_Transmit(&huart3, &byte, 1U, 10U);
+
+  return ch;
+}
 
 /* USER CODE END 0 */
 
@@ -224,7 +254,11 @@ int main(void)
   bpm_save_tick = 0U;
   Display_ScreensaverActivity();  /* seed inactivity timer from boot */
   Rotary1_Init();
+  Encoder2_Init();
   TempoEncoder_Init();
+  MX_TIM7_Init();
+  HAL_TIM_Base_Start_IT(&htim7);
+  EncoderCheck_Init();
 
   /* USER CODE END 2 */
 
@@ -239,7 +273,9 @@ int main(void)
     ExternalClockHoldoverMirror_Service();
   #endif
     Rotary1_ProcessPending();
-    TempoEncoder_Service();
+    Encoder2_ProcessPending();
+    TempoEncoder_ProcessPending();
+    EncoderCheck_ProcessPending();
     BPM_Service();
     Button_ProcessPendingEvents();
     /* USER CODE BEGIN 3 */
@@ -500,10 +536,9 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(MIDI_IN_LED_GPIO_Port, &GPIO_InitStruct);
 
-  /* Rotary 1 uses free EXTI lines 11/12/14, so it can wake the UI on both
-   * quadrature motion and switch presses without colliding with the preset bank. */
+  /* Rotary 1 A/B stay on plain inputs because EXTI11/12 are already needed by PE11/12. */
   GPIO_InitStruct.Pin = ENC1_CLK_Pin | ENC1_DT_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(ENC1_CLK_GPIO_Port, &GPIO_InitStruct);
 
@@ -512,11 +547,27 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(ENC1_SW_GPIO_Port, &GPIO_InitStruct);
 
-  /* Encoder 3 uses simple GPIO polling for tempo. SW is reserved for later. */
-  GPIO_InitStruct.Pin = ENC3_CLK_Pin | ENC3_DT_Pin | ENC3_SW_Pin;
+  /* Encoder 2 motion is sampled from TIM7; its switch now uses EXTI4. */
+  GPIO_InitStruct.Pin = ENC2_CLK_Pin | ENC2_DT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(ENC2_CLK_GPIO_Port, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = ENC2_SW_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(ENC2_SW_GPIO_Port, &GPIO_InitStruct);
+
+  /* Encoder 3 motion is sampled from TIM7; its switch now uses EXTI3. */
+  GPIO_InitStruct.Pin = ENC3_CLK_Pin | ENC3_DT_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = ENC3_SW_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(ENC3_SW_GPIO_Port, &GPIO_InitStruct);
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
@@ -602,18 +653,136 @@ static void MX_TIM6_Init(uint16_t bpm)
   HAL_NVIC_EnableIRQ(TIM6_DAC_IRQn);
 }
 
-static void Rotary1_Init(void)
+static void MX_TIM7_Init(void)
 {
-  uint8_t clk_state = (HAL_GPIO_ReadPin(ENC1_CLK_GPIO_Port, ENC1_CLK_Pin) == GPIO_PIN_SET) ? 1U : 0U;
-  uint8_t dt_state = (HAL_GPIO_ReadPin(ENC1_DT_GPIO_Port, ENC1_DT_Pin) == GPIO_PIN_SET) ? 1U : 0U;
-
-  rotary1_last_state = (uint8_t)((clk_state << 1U) | dt_state);
-  rotary1_transition_accum = 0;
-  rotary1_pending_steps = 0;
-  rotary1_activity_pending = 0U;
+  __HAL_RCC_TIM7_CLK_ENABLE();
+  htim7.Instance = TIM7;
+  htim7.Init.Prescaler = TIM7_PRESCALER_DIVISOR - 1U;
+  htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim7.Init.Period = (TIM7_TICK_HZ / ENCODER_SAMPLE_HZ) - 1U;
+  htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
+    Error_Handler();
+  __HAL_TIM_CLEAR_FLAG(&htim7, TIM_FLAG_UPDATE);
+  HAL_NVIC_SetPriority(TIM7_IRQn, 3U, 0U);
+  HAL_NVIC_EnableIRQ(TIM7_IRQn);
 }
 
-static void Rotary1_HandleInterrupt(uint16_t gpio_pin)
+static uint8_t Encoder_ReadLevel(GPIO_TypeDef *gpio_port, uint16_t gpio_pin)
+{
+  return ((gpio_port->IDR & gpio_pin) != 0U) ? 1U : 0U;
+}
+
+static uint8_t Encoder2_ReadSwitchLevel(void)
+{
+  return Encoder_ReadLevel(ENC2_SW_GPIO_Port, ENC2_SW_Pin);
+}
+
+static void EncoderCheck_LogTurn(uint8_t encoder_index, int8_t delta)
+{
+#if ENCODER_CHECK_SERIAL_ENABLED
+  if (delta > 0)
+    printf("ENC%u CW\r\n", (unsigned)encoder_index);
+  else if (delta < 0)
+    printf("ENC%u CCW\r\n", (unsigned)encoder_index);
+#else
+  (void)encoder_index;
+  (void)delta;
+#endif
+}
+
+static void EncoderCheck_QueueButtonPress(uint8_t encoder_index)
+{
+  uint8_t event_index = (uint8_t)(encoder_index - 1U);
+  uint32_t now = HAL_GetTick();
+
+  if ((now - encoder_button_press_tick[event_index]) < ENCODER_SWITCH_DEBOUNCE_MS)
+    return;
+
+  encoder_button_press_tick[event_index] = now;
+  encoder_button_press_pending_mask |= (uint8_t)(1U << event_index);
+}
+
+static void EncoderCheck_Init(void)
+{
+  encoder_switch_last_level[0] = Encoder_ReadLevel(ENC1_SW_GPIO_Port, ENC1_SW_Pin);
+  encoder_switch_last_level[1] = Encoder2_ReadSwitchLevel();
+  encoder_switch_last_level[2] = Encoder_ReadLevel(ENC3_SW_GPIO_Port, ENC3_SW_Pin);
+#if ENCODER_CHECK_SERIAL_ENABLED
+  printf("\r\nEncoder check ready on USART3 @ 115200\r\n");
+  printf("Turn encoders or press encoder switches to verify wiring.\r\n");
+#endif
+}
+
+static void EncoderCheck_ProcessPending(void)
+{
+  uint32_t primask;
+  uint8_t press_mask;
+
+  primask = __get_PRIMASK();
+  __disable_irq();
+  press_mask = encoder_button_press_pending_mask;
+  encoder_button_press_pending_mask = 0U;
+  if (primask == 0U)
+    __enable_irq();
+
+#if ENCODER_CHECK_SERIAL_ENABLED
+  if (press_mask & 0x01U)
+    printf("ENC1 BUTTON\r\n");
+  if (press_mask & 0x02U)
+    printf("ENC2 BUTTON\r\n");
+  if (press_mask & 0x04U)
+    printf("ENC3 BUTTON\r\n");
+#else
+  (void)press_mask;
+#endif
+}
+
+static uint8_t Encoder_ReadState(GPIO_TypeDef *clk_gpio_port, uint16_t clk_gpio_pin,
+                                 GPIO_TypeDef *dt_gpio_port, uint16_t dt_gpio_pin)
+{
+  return (uint8_t)((Encoder_ReadLevel(clk_gpio_port, clk_gpio_pin) << 1U)
+                   | Encoder_ReadLevel(dt_gpio_port, dt_gpio_pin));
+}
+
+static void EncoderCheck_SampleSwitches(void)
+{
+  uint8_t encoder1_sw_level = Encoder_ReadLevel(ENC1_SW_GPIO_Port, ENC1_SW_Pin);
+  uint8_t encoder2_sw_level = Encoder2_ReadSwitchLevel();
+  uint8_t encoder3_sw_level = Encoder_ReadLevel(ENC3_SW_GPIO_Port, ENC3_SW_Pin);
+
+  if (encoder1_sw_level != encoder_switch_last_level[0])
+  {
+    encoder_switch_last_level[0] = encoder1_sw_level;
+    if (encoder1_sw_level == 0U)
+    {
+      rotary1_activity_pending = 1U;
+      EncoderCheck_QueueButtonPress(1U);
+    }
+  }
+
+  if (encoder2_sw_level != encoder_switch_last_level[1])
+  {
+    encoder_switch_last_level[1] = encoder2_sw_level;
+    if (encoder2_sw_level == 0U)
+    {
+      encoder2_activity_pending = 1U;
+      EncoderCheck_QueueButtonPress(2U);
+    }
+  }
+
+  if (encoder3_sw_level != encoder_switch_last_level[2])
+  {
+    encoder_switch_last_level[2] = encoder3_sw_level;
+    if (encoder3_sw_level == 0U)
+    {
+      tempo_encoder_activity_pending = 1U;
+      EncoderCheck_QueueButtonPress(3U);
+    }
+  }
+}
+
+static int8_t Encoder_TransitionDelta(uint8_t previous_state, uint8_t current_state)
 {
   static const int8_t transition_delta[16] = {
      0, -1,  1,  0,
@@ -622,40 +791,49 @@ static void Rotary1_HandleInterrupt(uint16_t gpio_pin)
      0,  1, -1,  0
   };
 
-  rotary1_activity_pending = 1U;
+  return transition_delta[(previous_state << 2U) | current_state];
+}
 
-  if (gpio_pin == ENC1_SW_Pin)
-    return;
+static void Rotary1_Init(void)
+{
+  rotary1_last_state = Encoder_ReadState(ENC1_CLK_GPIO_Port, ENC1_CLK_Pin,
+                                         ENC1_DT_GPIO_Port, ENC1_DT_Pin);
+  rotary1_last_clk_level = (uint8_t)((rotary1_last_state >> 1U) & 0x01U);
+  rotary1_pending_steps = 0;
+  rotary1_activity_pending = 0U;
+}
 
-  uint8_t clk_state = (HAL_GPIO_ReadPin(ENC1_CLK_GPIO_Port, ENC1_CLK_Pin) == GPIO_PIN_SET) ? 1U : 0U;
-  uint8_t dt_state = (HAL_GPIO_ReadPin(ENC1_DT_GPIO_Port, ENC1_DT_Pin) == GPIO_PIN_SET) ? 1U : 0U;
-  uint8_t current_state = (uint8_t)((clk_state << 1U) | dt_state);
+static void Rotary1_SampleInterrupt(void)
+{
+  uint8_t current_state = Encoder_ReadState(ENC1_CLK_GPIO_Port, ENC1_CLK_Pin,
+                                            ENC1_DT_GPIO_Port, ENC1_DT_Pin);
+  uint8_t current_clk_level = (uint8_t)((current_state >> 1U) & 0x01U);
+  uint8_t current_dt_level = (uint8_t)(current_state & 0x01U);
+  int16_t queued_steps;
 
   if (current_state == rotary1_last_state)
     return;
 
-  uint8_t transition_index = (uint8_t)((rotary1_last_state << 2U) | current_state);
   rotary1_last_state = current_state;
-  rotary1_transition_accum += transition_delta[transition_index];
 
-  if (rotary1_transition_accum >= ROTARY1_SCROLL_TRANSITIONS_PER_STEP)
-  {
-    int16_t queued_steps = (int16_t)rotary1_pending_steps + (int16_t)ROTARY1_SCROLL_DIRECTION_SIGN;
+  if (current_clk_level == rotary1_last_clk_level)
+    return;
 
-    if (queued_steps > INT8_MAX)
-      queued_steps = INT8_MAX;
-    rotary1_pending_steps = (int8_t)queued_steps;
-    rotary1_transition_accum = 0;
-  }
-  else if (rotary1_transition_accum <= -ROTARY1_SCROLL_TRANSITIONS_PER_STEP)
-  {
-    int16_t queued_steps = (int16_t)rotary1_pending_steps - (int16_t)ROTARY1_SCROLL_DIRECTION_SIGN;
+  rotary1_last_clk_level = current_clk_level;
+  if (current_clk_level == 0U)
+    return;
 
-    if (queued_steps < INT8_MIN)
-      queued_steps = INT8_MIN;
-    rotary1_pending_steps = (int8_t)queued_steps;
-    rotary1_transition_accum = 0;
-  }
+  rotary1_activity_pending = 1U;
+  queued_steps = (int16_t)rotary1_pending_steps
+               + ((current_dt_level != 0U) ? (int16_t)ROTARY1_SCROLL_DIRECTION_SIGN
+                                          : (int16_t)-ROTARY1_SCROLL_DIRECTION_SIGN);
+
+  if (queued_steps > INT8_MAX)
+    queued_steps = INT8_MAX;
+  else if (queued_steps < INT8_MIN)
+    queued_steps = INT8_MIN;
+
+  rotary1_pending_steps = (int8_t)queued_steps;
 }
 
 static void Rotary1_RecordActivity(void)
@@ -686,6 +864,9 @@ static void Rotary1_ProcessPending(void)
   if (primask == 0U)
     __enable_irq();
 
+  if (pending_steps != 0)
+    EncoderCheck_LogTurn(1U, pending_steps);
+
   if (!activity_pending && (pending_steps == 0))
     return;
 
@@ -704,14 +885,85 @@ static void Rotary1_ProcessPending(void)
   }
 }
 
+static void Encoder2_Init(void)
+{
+  encoder2_last_state = Encoder_ReadState(ENC2_CLK_GPIO_Port, ENC2_CLK_Pin,
+                                          ENC2_DT_GPIO_Port, ENC2_DT_Pin);
+  encoder2_transition_accum = 0;
+  encoder2_pending_steps = 0;
+  encoder2_activity_pending = 0U;
+}
+
+static void Encoder2_SampleInterrupt(void)
+{
+  uint8_t current_state = Encoder_ReadState(ENC2_CLK_GPIO_Port, ENC2_CLK_Pin,
+                                            ENC2_DT_GPIO_Port, ENC2_DT_Pin);
+
+  if (current_state == encoder2_last_state)
+    return;
+
+  encoder2_activity_pending = 1U;
+  encoder2_transition_accum += Encoder_TransitionDelta(encoder2_last_state, current_state);
+  encoder2_last_state = current_state;
+
+  if (encoder2_transition_accum >= ROTARY1_SCROLL_TRANSITIONS_PER_STEP)
+  {
+    int16_t queued_steps = (int16_t)encoder2_pending_steps + 1;
+
+    if (queued_steps > INT8_MAX)
+      queued_steps = INT8_MAX;
+    encoder2_pending_steps = (int8_t)queued_steps;
+    encoder2_transition_accum = 0;
+  }
+  else if (encoder2_transition_accum <= -ROTARY1_SCROLL_TRANSITIONS_PER_STEP)
+  {
+    int16_t queued_steps = (int16_t)encoder2_pending_steps - 1;
+
+    if (queued_steps < INT8_MIN)
+      queued_steps = INT8_MIN;
+    encoder2_pending_steps = (int8_t)queued_steps;
+    encoder2_transition_accum = 0;
+  }
+}
+
+static void Encoder2_ProcessPending(void)
+{
+  uint32_t primask;
+  uint8_t activity_pending;
+  int8_t pending_steps;
+
+  primask = __get_PRIMASK();
+  __disable_irq();
+  activity_pending = encoder2_activity_pending;
+  pending_steps = encoder2_pending_steps;
+  encoder2_activity_pending = 0U;
+  encoder2_pending_steps = 0;
+  if (primask == 0U)
+    __enable_irq();
+
+  if (pending_steps != 0)
+    EncoderCheck_LogTurn(2U, pending_steps);
+
+  if (!activity_pending && (pending_steps == 0))
+    return;
+
+  if (Display_ScreensaverIsActive())
+  {
+    Rotary1_RecordActivity();
+    return;
+  }
+
+  Display_ScreensaverActivity();
+}
+
 static void TempoEncoder_Init(void)
 {
-  uint8_t clk_state = (HAL_GPIO_ReadPin(ENC3_CLK_GPIO_Port, ENC3_CLK_Pin) == GPIO_PIN_SET) ? 1U : 0U;
-  uint8_t dt_state = (HAL_GPIO_ReadPin(ENC3_DT_GPIO_Port, ENC3_DT_Pin) == GPIO_PIN_SET) ? 1U : 0U;
-
-  tempo_encoder_last_state = (uint8_t)((clk_state << 1U) | dt_state);
+  tempo_encoder_last_state = Encoder_ReadState(ENC3_CLK_GPIO_Port, ENC3_CLK_Pin,
+                                               ENC3_DT_GPIO_Port, ENC3_DT_Pin);
   tempo_encoder_transition_accum = 0;
   tempo_encoder_last_step_tick = 0U;
+  tempo_encoder_pending_delta = 0;
+  tempo_encoder_activity_pending = 0U;
 }
 
 static void TempoEncoder_ApplyBpmStep(int8_t step)
@@ -733,30 +985,24 @@ static void TempoEncoder_ApplyBpmStep(int8_t step)
   bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
 }
 
-static void TempoEncoder_Service(void)
+static void TempoEncoder_SampleInterrupt(void)
 {
-  static const int8_t transition_delta[16] = {
-     0, -1,  1,  0,
-     1,  0,  0, -1,
-    -1,  0,  0,  1,
-     0,  1, -1,  0
-  };
-  uint8_t clk_state = (HAL_GPIO_ReadPin(ENC3_CLK_GPIO_Port, ENC3_CLK_Pin) == GPIO_PIN_SET) ? 1U : 0U;
-  uint8_t dt_state = (HAL_GPIO_ReadPin(ENC3_DT_GPIO_Port, ENC3_DT_Pin) == GPIO_PIN_SET) ? 1U : 0U;
-  uint8_t current_state = (uint8_t)((clk_state << 1U) | dt_state);
+  uint8_t current_state = Encoder_ReadState(ENC3_CLK_GPIO_Port, ENC3_CLK_Pin,
+                                            ENC3_DT_GPIO_Port, ENC3_DT_Pin);
 
   if (current_state == tempo_encoder_last_state)
     return;
 
-  uint8_t transition_index = (uint8_t)((tempo_encoder_last_state << 2U) | current_state);
+  tempo_encoder_activity_pending = 1U;
+  tempo_encoder_transition_accum += Encoder_TransitionDelta(tempo_encoder_last_state, current_state);
   tempo_encoder_last_state = current_state;
-  tempo_encoder_transition_accum += transition_delta[transition_index];
 
   if (tempo_encoder_transition_accum >= TEMPO_ENCODER_TRANSITIONS_PER_STEP)
   {
     uint32_t now = HAL_GetTick();
     uint32_t step_interval_ms = (tempo_encoder_last_step_tick == 0U) ? UINT32_MAX : (now - tempo_encoder_last_step_tick);
     int8_t step_size = (int8_t)TEMPO_ENCODER_DIRECTION_SIGN;
+    int16_t pending_delta;
 
     if (step_interval_ms <= TEMPO_ENCODER_ACCEL_VFAST_MS)
       step_size = (int8_t)(TEMPO_ENCODER_DIRECTION_SIGN * TEMPO_ENCODER_STEP_VFAST);
@@ -767,13 +1013,17 @@ static void TempoEncoder_Service(void)
 
     tempo_encoder_transition_accum = 0;
     tempo_encoder_last_step_tick = now;
-    TempoEncoder_ApplyBpmStep(step_size);
+    pending_delta = (int16_t)tempo_encoder_pending_delta + (int16_t)step_size;
+    if (pending_delta > INT8_MAX)
+      pending_delta = INT8_MAX;
+    tempo_encoder_pending_delta = (int8_t)pending_delta;
   }
   else if (tempo_encoder_transition_accum <= -TEMPO_ENCODER_TRANSITIONS_PER_STEP)
   {
     uint32_t now = HAL_GetTick();
     uint32_t step_interval_ms = (tempo_encoder_last_step_tick == 0U) ? UINT32_MAX : (now - tempo_encoder_last_step_tick);
     int8_t step_size = (int8_t)(-TEMPO_ENCODER_DIRECTION_SIGN);
+    int16_t pending_delta;
 
     if (step_interval_ms <= TEMPO_ENCODER_ACCEL_VFAST_MS)
       step_size = (int8_t)(-TEMPO_ENCODER_DIRECTION_SIGN * TEMPO_ENCODER_STEP_VFAST);
@@ -784,8 +1034,56 @@ static void TempoEncoder_Service(void)
 
     tempo_encoder_transition_accum = 0;
     tempo_encoder_last_step_tick = now;
-    TempoEncoder_ApplyBpmStep(step_size);
+    pending_delta = (int16_t)tempo_encoder_pending_delta + (int16_t)step_size;
+    if (pending_delta < INT8_MIN)
+      pending_delta = INT8_MIN;
+    tempo_encoder_pending_delta = (int8_t)pending_delta;
   }
+}
+
+static void TempoEncoder_ProcessPending(void)
+{
+  uint32_t primask;
+  uint8_t activity_pending;
+  int8_t pending_delta;
+
+  primask = __get_PRIMASK();
+  __disable_irq();
+  activity_pending = tempo_encoder_activity_pending;
+  pending_delta = tempo_encoder_pending_delta;
+  tempo_encoder_activity_pending = 0U;
+  tempo_encoder_pending_delta = 0;
+  if (primask == 0U)
+    __enable_irq();
+
+  if (pending_delta != 0)
+    EncoderCheck_LogTurn(3U, pending_delta);
+
+  if (!activity_pending && (pending_delta == 0))
+    return;
+
+  if (Display_ScreensaverIsActive())
+  {
+    Rotary1_RecordActivity();
+    return;
+  }
+
+  Display_ScreensaverActivity();
+
+  if (pending_delta != 0)
+    TempoEncoder_ApplyBpmStep(pending_delta);
+}
+
+extern "C" void App_EncoderSampleIRQHandler(void)
+{
+  if ((TIM7->SR & TIM_SR_UIF) == 0U)
+    return;
+
+  TIM7->SR = ~TIM_SR_UIF;
+  EncoderCheck_SampleSwitches();
+  Rotary1_SampleInterrupt();
+  Encoder2_SampleInterrupt();
+  TempoEncoder_SampleInterrupt();
 }
 
 static void ExternalClockHoldoverMirror_Service(void)
@@ -839,17 +1137,21 @@ static void ExternalClockHoldoverMirror_Service(void)
  */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-  if (GPIO_Pin == ENC1_CLK_Pin || GPIO_Pin == ENC1_DT_Pin || GPIO_Pin == ENC1_SW_Pin)
+  if (GPIO_Pin == ENC1_SW_Pin)
   {
-    Rotary1_HandleInterrupt(GPIO_Pin);
+    rotary1_activity_pending = 1U;
     return;
   }
 
-  uint8_t screensaver_was_active = Display_ScreensaverIsActive();
-
-  if (GPIO_Pin == ENC1_CLK_Pin || GPIO_Pin == ENC1_DT_Pin || GPIO_Pin == ENC1_SW_Pin)
+  if (GPIO_Pin == ENC2_SW_Pin)
   {
-    Rotary1_RecordActivity();
+    encoder2_activity_pending = 1U;
+    return;
+  }
+
+  if (GPIO_Pin == ENC3_SW_Pin)
+  {
+    tempo_encoder_activity_pending = 1U;
     return;
   }
 
@@ -861,6 +1163,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     return;
   }
 
+  uint8_t screensaver_was_active = Display_ScreensaverIsActive();
   uint32_t now = HAL_GetTick();
 
     Display_ScreensaverDismiss();

@@ -631,7 +631,7 @@ void Midi_LoadPreset(const Preset_t *preset)
     {
         const PresetCCSlot_t *cc = &preset->cc[i];
 
-        if (cc->channel == 0U || cc->cc_number == MIDI_UNUSED_SLOT)
+        if (cc->channel == PRESET_CC_CHANNEL_UNUSED || cc->cc_number == PRESET_CC_NUMBER_UNUSED || cc->value == PRESET_CC_VALUE_UNUSED)
             continue;
 
         MIDI_SendCC(cc->channel, cc->cc_number, cc->value);

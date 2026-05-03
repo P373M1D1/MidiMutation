@@ -71,6 +71,7 @@ void HAL_IncTick(void)
 /* External variables --------------------------------------------------------*/
 
 /* USER CODE BEGIN EV */
+extern DMA_HandleTypeDef hdma_spi1_tx;
 extern TIM_HandleTypeDef htim6;
 /* USER CODE END EV */
 
@@ -215,6 +216,12 @@ void SysTick_Handler(void)
 
 /* USER CODE BEGIN 1 */
 
+void DMA2_Stream3_IRQHandler(void)
+{
+  /* Forward the manually configured SPI1 TX DMA interrupt to the HAL. */
+  HAL_DMA_IRQHandler(&hdma_spi1_tx);
+}
+
 /* TIM6_DAC_IRQn is shared. Handle TIM6 UIF directly; clear DAC underrun if set. */
 void TIM6_DAC_IRQHandler(void)
 {
@@ -228,11 +235,16 @@ void TIM6_DAC_IRQHandler(void)
     DAC->SR |= (DAC_SR_DMAUDR1 | DAC_SR_DMAUDR2);
 }
 
+void TIM7_IRQHandler(void)
+{
+  App_EncoderSampleIRQHandler();
+}
+
 void EXTI0_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN1_Pin); }
 void EXTI1_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN2_Pin); }
 void EXTI2_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN3_Pin); }
-void EXTI3_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN4_Pin); }
-void EXTI4_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN5_Pin); }
+void EXTI3_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(ENC3_SW_Pin); }
+void EXTI4_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(ENC2_SW_Pin); }
 
 void EXTI9_5_IRQHandler(void)
 {
@@ -245,8 +257,8 @@ void EXTI9_5_IRQHandler(void)
 
 void EXTI15_10_IRQHandler(void)
 {
-  HAL_GPIO_EXTI_IRQHandler(ENC1_CLK_Pin);
-  HAL_GPIO_EXTI_IRQHandler(ENC1_DT_Pin);
+  HAL_GPIO_EXTI_IRQHandler(PRESET_BTN4_Pin);
+  HAL_GPIO_EXTI_IRQHandler(PRESET_BTN5_Pin);
   HAL_GPIO_EXTI_IRQHandler(ENC1_SW_Pin);
   HAL_GPIO_EXTI_IRQHandler(PRESET_BTN11_Pin);
   HAL_GPIO_EXTI_IRQHandler(TAP_Pin);

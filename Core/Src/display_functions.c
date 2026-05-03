@@ -117,9 +117,9 @@ void Display_BL_FadeOut(void)
 #define MAIN_FOOTBAR_TEXT_COLOUR       WHITE                 // text colour for the footer caption
 #define MAIN_FOOTBAR_SECTION_COUNT     3U                    // footer is conceptually split into three unlabeled regions
 #define MAIN_FOOTBAR_SECTION_WIDTH     (ST7796_WIDTH / MAIN_FOOTBAR_SECTION_COUNT) // width of one footer region
-#define MAIN_FOOTBAR_LEFT_TEXT         "SCROLL"              // label for the left footer region under encoder 1
-#define MAIN_FOOTBAR_CENTER_TEXT       "VALUE"               // currently unused middle footer region label
-#define MAIN_FOOTBAR_RIGHT_TEXT        "TEMPO"               // label for the right footer region under the tempo encoder
+#define MAIN_FOOTBAR_LEFT_TEXT         "SCROLL/ EDIT"              // label for the left footer region under encoder 1
+#define MAIN_FOOTBAR_CENTER_TEXT       "VALUE / MENU"               // currently unused middle footer region label
+#define MAIN_FOOTBAR_RIGHT_TEXT        "TEMPO / EXIT"               // label for the right footer region under the tempo encoder
 #define MAIN_INFO_LEFT_X               30U                  // x origin of the left info column (MIDI programs)
 #define MAIN_INFO_RIGHT_X              220U                 // x origin of the right info column (relay / special state)
 #define MAIN_INFO_FONT                 Font_Consolas15x35   // font used for bank text, BPM text, and info rows
@@ -167,8 +167,6 @@ static const uint16_t main_info_row_y[MAIN_INFO_ROW_COUNT] = {184U, 220U, 256U};
 /* Set to 1 whenever the static elements (footer bar) need to be redrawn ???
  * e.g. after the screensaver has painted over them. */
 static uint8_t main_layout_dirty = 1U;
-static uint8_t vita_state_valid = 0U;
-static uint8_t vita_state_active = 0U;
 static uint8_t bpm_display_valid = 0U;
 static uint8_t bpm_display_external = 0U;
 static uint8_t bpm_display_sync_lost = 0U;
@@ -370,10 +368,28 @@ static void Display_ClearBpmArea(void)
     ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X, BPM_TEXT_Y, BPM_DISPLAY_AREA_W, BPM_FONT.height, BPM_BG_COLOUR);
 }
 
-static uint8_t Display_GetMainInfoScrollMax(void)
+static uint8_t Display_GetMainInfoProgramScrollMax(void)
 {
     return (PRESET_DEVICE_SLOTS > MAIN_INFO_ROW_COUNT)
         ? (uint8_t)(PRESET_DEVICE_SLOTS - MAIN_INFO_ROW_COUNT)
+        : 0U;
+}
+
+static uint8_t Display_GetMainInfoScrollMax(void)
+{
+    uint8_t total_rows = (uint8_t)(PRESET_DEVICE_SLOTS + PRESET_CC_SLOT_COUNT);
+
+    return (total_rows > MAIN_INFO_ROW_COUNT)
+        ? (uint8_t)(total_rows - MAIN_INFO_ROW_COUNT)
+        : 0U;
+}
+
+static uint8_t Display_GetMainInfoRightFirstItem(void)
+{
+    uint8_t program_scroll_max = Display_GetMainInfoProgramScrollMax();
+
+    return (main_info_first_slot > program_scroll_max)
+        ? (uint8_t)(main_info_first_slot - program_scroll_max)
         : 0U;
 }
 
@@ -464,101 +480,170 @@ static void Display_WriteCenteredPaddedText32(uint16_t y,
                          DISPLAY_BG_COLOUR);
 }
 
-static void Display_DrawMainInfoRows(const Preset_t *preset)
+static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
+                                           uint8_t slot_index,
+                                           uint16_t row_y)
 {
     char buf[32];
+    const MidiDevice_t *device = MidiDevices_Get(slot_index);
+    uint8_t program = preset->prg[slot_index].program;
+    uint8_t channel = device ? device->channel : MAIN_UNUSED_PROGRAM;
 
-    for (uint8_t index = 0U; index < MAIN_INFO_ROW_COUNT; ++index)
+    if (channel == MAIN_UNUSED_PROGRAM)
     {
-        uint8_t slot_index = (uint8_t)(main_info_first_slot + index);
-        uint16_t row_y = main_info_row_y[index];
-        const MidiDevice_t *device = MidiDevices_Get(slot_index);
-        uint8_t program = preset->prg[slot_index].program;
-        uint8_t channel = device ? device->channel : MAIN_UNUSED_PROGRAM;
-
-        if (channel != MAIN_UNUSED_PROGRAM && program != MAIN_UNUSED_PROGRAM) {
-            snprintf(buf, sizeof(buf), "CH %u: %3u", channel, program);
-
-            if (Presets_DeviceProgramIsShared(slot_index, program)) {
-                char prefix[16];
-                char *program_text = buf + strlen(buf) - MAIN_INFO_PROGRAM_DIGITS;
-                size_t prefix_len = (size_t)(program_text - buf);
-                uint16_t prefix_px;
-
-                memcpy(prefix, buf, prefix_len);
-                prefix[prefix_len] = '\0';
-                prefix_px = MAIN_INFO_FONT.width * (uint16_t)prefix_len;
-
-                ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y, prefix, MAIN_INFO_FONT, MAIN_INFO_TEXT_COLOUR, MAIN_INFO_TEXT_BG_COLOUR);
-                ST7796_WriteString32(MAIN_INFO_LEFT_X + prefix_px,
-                                     row_y,
-                                     program_text,
-                                     MAIN_INFO_FONT,
-                                     MAIN_INFO_SHARED_TEXT_COLOUR,
-                                     MAIN_INFO_SHARED_BG_COLOUR);
-            } else {
-                ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y, buf, MAIN_INFO_FONT, MAIN_INFO_TEXT_COLOUR, MAIN_INFO_TEXT_BG_COLOUR);
-            }
-        } else {
-            ST7796_WriteString32(MAIN_INFO_LEFT_X, row_y, "CH -: ---", MAIN_INFO_FONT, MAIN_INFO_TEXT_COLOUR, MAIN_INFO_TEXT_BG_COLOUR);
-        }
-
-        if (index < PRESET_RELAY_COUNT) {
-            snprintf(buf, sizeof(buf), "Relay_%u: %-6s", index + 1U,
-                     preset->relay[index] ? "closed" : "open");
-            ST7796_WriteString32(MAIN_INFO_RIGHT_X, row_y, buf, MAIN_INFO_FONT, MAIN_INFO_TEXT_COLOUR, MAIN_INFO_TEXT_BG_COLOUR);
-            continue;
-        }
-
-        if (index == PRESET_RELAY_COUNT) {
-            uint8_t state_active = Button_SpecialFunctionsActive();
-            const char *state = state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_TEXT : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_TEXT;
-            uint16_t prefix_px = MAIN_INFO_FONT.width * (uint16_t)strlen(MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX);
-            uint16_t state_x = MAIN_INFO_RIGHT_X + prefix_px;
-            uint16_t state_w = MAIN_INFO_FONT.width * (uint16_t)strlen(state);
-
-            ST7796_WriteString32(MAIN_INFO_RIGHT_X,
-                                 row_y,
-                                 MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX,
-                                 MAIN_INFO_FONT,
-                                 MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_COLOUR,
-                                 MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_BG);
-            if (vita_state_valid && vita_state_active && !state_active) {
-                ST7796_DrawFilledRectangle(state_x + state_w,
-                                           row_y,
-                                           MAIN_INFO_FONT.width * MAIN_INFO_SHARED_PAD_CHARS,
-                                           MAIN_INFO_FONT.height,
-                                           MAIN_INFO_TEXT_BG_COLOUR);
-            }
-            ST7796_WriteString32(state_x,
-                                 row_y,
-                                 state,
-                                 MAIN_INFO_FONT,
-                                 state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_COLOUR : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_COLOUR,
-                                 state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_BG : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_BG);
-            if (state_active) {
-                ST7796_DrawFilledRectangle(state_x,
-                                           row_y,
-                                           state_w,
-                                           MAIN_INFO_HIGHLIGHT_BORDER_H,
-                                           MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR);
-                ST7796_DrawFilledRectangle(state_x,
-                                           row_y + MAIN_INFO_FONT.height - MAIN_INFO_HIGHLIGHT_BORDER_H,
-                                           state_w,
-                                           MAIN_INFO_HIGHLIGHT_BORDER_H,
-                                           MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR);
-            }
-            vita_state_valid = 1U;
-            vita_state_active = state_active;
-            continue;
-        }
-
-        ST7796_WriteString32(MAIN_INFO_RIGHT_X,
+        ST7796_WriteString32(MAIN_INFO_LEFT_X,
                              row_y,
-                             MAIN_EMPTY_RIGHT_INFO_TEXT,
+                             "CH -: ---",
                              MAIN_INFO_FONT,
                              MAIN_INFO_TEXT_COLOUR,
                              MAIN_INFO_TEXT_BG_COLOUR);
+        return;
+    }
+
+    if (program == MAIN_UNUSED_PROGRAM)
+    {
+        snprintf(buf, sizeof(buf), "CH %u: ---", channel);
+        ST7796_WriteString32(MAIN_INFO_LEFT_X,
+                             row_y,
+                             buf,
+                             MAIN_INFO_FONT,
+                             MAIN_INFO_TEXT_COLOUR,
+                             MAIN_INFO_TEXT_BG_COLOUR);
+        return;
+    }
+
+    snprintf(buf, sizeof(buf), "CH %u: %3u", channel, program);
+
+    if (Presets_DeviceProgramIsShared(slot_index, program))
+    {
+        char prefix[16];
+        char *program_text = buf + strlen(buf) - MAIN_INFO_PROGRAM_DIGITS;
+        size_t prefix_len = (size_t)(program_text - buf);
+        uint16_t prefix_px;
+
+        memcpy(prefix, buf, prefix_len);
+        prefix[prefix_len] = '\0';
+        prefix_px = MAIN_INFO_FONT.width * (uint16_t)prefix_len;
+
+        ST7796_WriteString32(MAIN_INFO_LEFT_X,
+                             row_y,
+                             prefix,
+                             MAIN_INFO_FONT,
+                             MAIN_INFO_TEXT_COLOUR,
+                             MAIN_INFO_TEXT_BG_COLOUR);
+        ST7796_WriteString32(MAIN_INFO_LEFT_X + prefix_px,
+                             row_y,
+                             program_text,
+                             MAIN_INFO_FONT,
+                             MAIN_INFO_SHARED_TEXT_COLOUR,
+                             MAIN_INFO_SHARED_BG_COLOUR);
+        return;
+    }
+
+    ST7796_WriteString32(MAIN_INFO_LEFT_X,
+                         row_y,
+                         buf,
+                         MAIN_INFO_FONT,
+                         MAIN_INFO_TEXT_COLOUR,
+                         MAIN_INFO_TEXT_BG_COLOUR);
+}
+
+static void Display_DrawMainInfoCcRow(const Preset_t *preset,
+                                      uint8_t cc_index,
+                                      uint16_t row_y)
+{
+    char buf[48];
+    const PresetCCSlot_t *cc = &preset->cc[cc_index];
+
+    if (cc->channel == PRESET_CC_CHANNEL_UNUSED || cc->cc_number == PRESET_CC_NUMBER_UNUSED || cc->value == PRESET_CC_VALUE_UNUSED)
+        snprintf(buf, sizeof(buf), "CH - CC: --- Value: ---");
+    else
+        snprintf(buf, sizeof(buf), "CH %u CC:%3u Value:%3u", cc->channel, cc->cc_number, cc->value);
+
+    ST7796_WriteString32(MAIN_INFO_LEFT_X,
+                         row_y,
+                         buf,
+                         MAIN_INFO_FONT,
+                         MAIN_INFO_TEXT_COLOUR,
+                         MAIN_INFO_TEXT_BG_COLOUR);
+}
+
+static void Display_DrawMainInfoSpecialState(uint16_t row_y)
+{
+    uint8_t state_active = Button_SpecialFunctionsActive();
+    const char *state = state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_TEXT
+                                     : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_TEXT;
+    uint16_t prefix_px = MAIN_INFO_FONT.width * (uint16_t)strlen(MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX);
+    uint16_t state_x = MAIN_INFO_RIGHT_X + prefix_px;
+    uint16_t state_w = MAIN_INFO_FONT.width * (uint16_t)strlen(state);
+
+    ST7796_WriteString32(MAIN_INFO_RIGHT_X,
+                         row_y,
+                         MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX,
+                         MAIN_INFO_FONT,
+                         MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_COLOUR,
+                         MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_BG);
+    ST7796_WriteString32(state_x,
+                         row_y,
+                         state,
+                         MAIN_INFO_FONT,
+                         state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_COLOUR : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_COLOUR,
+                         state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_BG : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_BG);
+
+    if (!state_active)
+        return;
+
+    ST7796_DrawFilledRectangle(state_x,
+                               row_y,
+                               state_w,
+                               MAIN_INFO_HIGHLIGHT_BORDER_H,
+                               MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR);
+    ST7796_DrawFilledRectangle(state_x,
+                               row_y + MAIN_INFO_FONT.height - MAIN_INFO_HIGHLIGHT_BORDER_H,
+                               state_w,
+                               MAIN_INFO_HIGHLIGHT_BORDER_H,
+                               MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR);
+}
+
+static void Display_DrawMainInfoRightRow(const Preset_t *preset,
+                                         uint8_t right_item_index,
+                                         uint16_t row_y)
+{
+    char buf[32];
+
+    if (right_item_index < PRESET_RELAY_COUNT)
+    {
+        snprintf(buf, sizeof(buf), "Relay_%u: %-6s", right_item_index + 1U,
+                 preset->relay[right_item_index] ? "closed" : "open");
+        ST7796_WriteString32(MAIN_INFO_RIGHT_X,
+                             row_y,
+                             buf,
+                             MAIN_INFO_FONT,
+                             MAIN_INFO_TEXT_COLOUR,
+                             MAIN_INFO_TEXT_BG_COLOUR);
+        return;
+    }
+
+    if (right_item_index == PRESET_RELAY_COUNT)
+        Display_DrawMainInfoSpecialState(row_y);
+}
+
+static void Display_DrawMainInfoRows(const Preset_t *preset)
+{
+    uint8_t right_first_item = Display_GetMainInfoRightFirstItem();
+
+    for (uint8_t index = 0U; index < MAIN_INFO_ROW_COUNT; ++index)
+    {
+        uint8_t info_index = (uint8_t)(main_info_first_slot + index);
+        uint16_t row_y = main_info_row_y[index];
+        ST7796_DrawFilledRectangle(0U, row_y, ST7796_WIDTH, MAIN_INFO_FONT.height, DISPLAY_BG_COLOUR);
+
+        if (info_index < PRESET_DEVICE_SLOTS)
+            Display_DrawMainInfoProgramRow(preset, info_index, row_y);
+        else
+            Display_DrawMainInfoCcRow(preset, (uint8_t)(info_index - PRESET_DEVICE_SLOTS), row_y);
+
+        Display_DrawMainInfoRightRow(preset, (uint8_t)(right_first_item + index), row_y);
     }
 
     Display_DrawMainInfoScrollIndicators();

@@ -1,18 +1,17 @@
 MSettings menu structure: 
 
- "Settings:"
-
-    1 "Preset"  (active Preset)
-    2 "Bank"    (active bank)
-    3 "Global"
+EDIT menu (each increment of ENC 1 will advance one position)
 
     1.1 "Name"                                                          // blink underscore as cursor and use "value" rotary encoder input to scroll through all 20 character positions. pressing the encoder button enters letter scrolling mode for that positoin. Use "value" encoder to cycle through letters, numbers and special characters. Pressing the encoder button again saves the letter and moves the cursor to the next position. If the user scrolls past the last character position, it should loop back to the first position. If the user scrolls back before the first character position, it should loop to the last position.
     1.2 "Chx Programm"                                                  // blink value and let user use the "value" rotary encoder to scroll through all available midi programs for the selected midi device. Pressing the encoder button saves the selected program and exits the menu item. If the user scrolls past the last program, it should loop back to the first program. If the user scrolls back before the first program, it should loop to the last program.
-    1.3 "ChxProgramm"                                                   // same as 1.2 but for the second midi device specified in the struct
-    1.4 "Chx Programm"                                          // same as 1.2 but for the third midi device specified in the struct    
-    1.5 (contunie if more midi devices are specified in the struct)
+    1.3 "Chx Programm"                                                   // same as 1.2 but for the second midi device specified in the struct
+    1.4 "Chx Programm"                                          // same as 1.2 but for the third midi device specified in the struct   
+    1.5 CCx | Value 
+    1.5 (contiune if more midi devices are specified in the struct)
     1.6 "Relay 1"                                                       // blink value and let user use the "value" rotary encoder to scroll through all available relay functions. Pressing the encoder button saves the selected function and exits the menu item. If the user scrolls past the last function, it should loop back to the first function. If the user scrolls back before the first function, it should loop to the last function.
     1.7 "Relay 2"                                                       // same as 1.6 but for the second relay specified in the struct                                          
+
+Main Menu
 
     2.1 "Name"                                                          // blink underscore as cursor and use "value" rotary encoder input to scroll through all 20 character positions. pressing the encoder button enters letter scrolling mode for that positoin. Use "value" encoder to cycle through letters, numbers and special characters. Pressing the encoder button again saves the letter and moves the cursor to the next position. If the user scrolls past the last character position, it should loop back to the first position. If the user scrolls back before the first character position, it should loop to the last position.
     2.2 "Special Functions Button"   

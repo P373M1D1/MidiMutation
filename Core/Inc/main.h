@@ -54,6 +54,8 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
 
+void App_EncoderSampleIRQHandler(void);
+
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
@@ -64,8 +66,8 @@ void Error_Handler(void);
 #define PRESET_BTN1_Pin GPIO_PIN_0 /* preset footswitch 1 GPIO pin number */
 #define PRESET_BTN2_Pin GPIO_PIN_1 /* preset footswitch 2 GPIO pin number */
 #define PRESET_BTN3_Pin GPIO_PIN_2 /* preset footswitch 3 GPIO pin number */
-#define PRESET_BTN4_Pin GPIO_PIN_3 /* preset footswitch 4 GPIO pin number */
-#define PRESET_BTN5_Pin GPIO_PIN_4 /* preset footswitch 5 GPIO pin number */
+#define PRESET_BTN4_Pin GPIO_PIN_11 /* preset footswitch 4 GPIO pin number, moved off EXTI3 */
+#define PRESET_BTN5_Pin GPIO_PIN_12 /* preset footswitch 5 GPIO pin number, moved off EXTI4 */
 #define PRESET_BTN6_Pin GPIO_PIN_5 /* preset footswitch 6 GPIO pin number */
 #define PRESET_BTN7_Pin GPIO_PIN_6 /* preset footswitch 7 GPIO pin number */
 #define PRESET_BTN8_Pin GPIO_PIN_7 /* preset footswitch 8 GPIO pin number */
@@ -124,11 +126,18 @@ void Error_Handler(void);
 #define ENC1_SW_Pin GPIO_PIN_14 /* encoder 1 pushbutton switch input on a free EXTI line */
 #define ENC1_SW_GPIO_Port GPIOG /* GPIO port for encoder 1 pushbutton switch input */
 
-#define ENC3_SW_Pin GPIO_PIN_3 /* encoder 3 pushbutton switch (reserved for later use) */
-#define ENC3_SW_GPIO_Port GPIOD /* GPIO port for encoder 3 pushbutton switch */
-#define ENC3_CLK_Pin GPIO_PIN_12 /* encoder 3 quadrature A/CLK input */
+#define ENC2_CLK_Pin GPIO_PIN_4 /* reserved second-middle-encoder quadrature A/CLK input on TIM3_CH1-capable pin */
+#define ENC2_CLK_GPIO_Port GPIOB /* GPIO port for the reserved second-middle-encoder quadrature A/CLK input */
+#define ENC2_DT_Pin GPIO_PIN_5 /* reserved second-middle-encoder quadrature B/DT input on TIM3_CH2-capable pin */
+#define ENC2_DT_GPIO_Port GPIOB /* GPIO port for the reserved second-middle-encoder quadrature B/DT input */
+#define ENC2_SW_Pin GPIO_PIN_4 /* reserved second-middle-encoder pushbutton switch input */
+#define ENC2_SW_GPIO_Port GPIOD /* GPIO port for the reserved second-middle-encoder pushbutton switch input */
+
+#define ENC3_SW_Pin GPIO_PIN_3 /* encoder 3 pushbutton switch input on the tempo encoder */
+#define ENC3_SW_GPIO_Port GPIOD /* GPIO port for the encoder 3 pushbutton switch */
+#define ENC3_CLK_Pin GPIO_PIN_12 /* encoder 3 quadrature A/CLK input (tempo encoder) */
 #define ENC3_CLK_GPIO_Port GPIOD /* GPIO port for encoder 3 quadrature A/CLK input */
-#define ENC3_DT_Pin GPIO_PIN_13 /* encoder 3 quadrature B/DT input */
+#define ENC3_DT_Pin GPIO_PIN_13 /* encoder 3 quadrature B/DT input (tempo encoder) */
 #define ENC3_DT_GPIO_Port GPIOD /* GPIO port for encoder 3 quadrature B/DT input */
 
 /* USER CODE END Private defines */

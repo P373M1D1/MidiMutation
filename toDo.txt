@@ -1,9 +1,10 @@
 
 
 Change: Flash stogare to RTC and use Vbat to protectr storage from failure / or use SD card
-
+Change: Move PA_4 initialisation back to main.cpp
 
 Bug: Random Preset button needs debouncing. Can be pressed multiple times so flag won't work. (others can't ba activated mutliple times)
+BUG: Change Tap Tempo Led to PF_14 as per pinout
 
 
 
@@ -18,3 +19,6 @@ Add: Find a way to add 8 Channels of program changes and 8 CCs (including indivi
 Add scroll down enrtire Set so CCs can also be displayed while scrolling down. 
 Add another special Functuion button
 Add: display layout RHS: Func1 - Func2 - Relais then scroll
+
+
+Add. Caps to reduce voltage spikes in Midi channel comms

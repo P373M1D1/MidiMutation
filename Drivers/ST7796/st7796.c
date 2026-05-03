@@ -2,6 +2,184 @@
 #include <stdlib.h>   /* abs() */
 #include <string.h>
 
+#define ST7796_DMA_MIN_TRANSFER_BYTES 32U
+#define ST7796_FILL_CHUNK_PIXELS 128U
+#define ST7796_IMAGE_CHUNK_PIXELS 128U
+#define ST7796_GLYPH16_MAX_WIDTH 16U
+#define ST7796_GLYPH16_MAX_HEIGHT 26U
+#define ST7796_GLYPH32_MAX_WIDTH 32U
+#define ST7796_GLYPH32_MAX_HEIGHT 64U
+
+static void ST7796_SetAddressWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
+
+#ifdef ST7796_USE_DMA
+static void ST7796_TransmitBuffer(const uint8_t *buf, uint16_t size)
+{
+    if (size == 0U) {
+        return;
+    }
+
+    if (size < ST7796_DMA_MIN_TRANSFER_BYTES) {
+        HAL_SPI_Transmit(&ST7796_SPI_PORT, (uint8_t *)buf, size, HAL_MAX_DELAY);
+        return;
+    }
+
+    if (HAL_SPI_Transmit_DMA(&ST7796_SPI_PORT, (uint8_t *)buf, size) != HAL_OK) {
+        HAL_SPI_Transmit(&ST7796_SPI_PORT, (uint8_t *)buf, size, HAL_MAX_DELAY);
+        return;
+    }
+
+    while (HAL_SPI_GetState(&ST7796_SPI_PORT) != HAL_SPI_STATE_READY) {
+    }
+}
+#else
+static void ST7796_TransmitBuffer(const uint8_t *buf, uint16_t size)
+{
+    if (size == 0U) {
+        return;
+    }
+
+    HAL_SPI_Transmit(&ST7796_SPI_PORT, (uint8_t *)buf, size, HAL_MAX_DELAY);
+}
+#endif
+
+static void ST7796_TransmitColorBurst(uint16_t color, uint32_t pixel_count)
+{
+    static uint8_t fill_chunk[ST7796_FILL_CHUNK_PIXELS * 2U];
+    const uint8_t hi = (uint8_t)(color >> 8);
+    const uint8_t lo = (uint8_t)(color & 0xFF);
+
+    for (uint32_t idx = 0U; idx < ST7796_FILL_CHUNK_PIXELS; idx++) {
+        fill_chunk[(idx * 2U)] = hi;
+        fill_chunk[(idx * 2U) + 1U] = lo;
+    }
+
+    while (pixel_count > 0U) {
+        const uint32_t chunk_pixels = (pixel_count > ST7796_FILL_CHUNK_PIXELS) ? ST7796_FILL_CHUNK_PIXELS : pixel_count;
+        ST7796_TransmitBuffer(fill_chunk, (uint16_t)(chunk_pixels * 2U));
+        pixel_count -= chunk_pixels;
+    }
+}
+
+static void ST7796_TransmitImagePixels(const uint16_t *data, uint32_t pixel_count)
+{
+    static uint8_t image_chunk[ST7796_IMAGE_CHUNK_PIXELS * 2U];
+
+    while (pixel_count > 0U) {
+        const uint32_t chunk_pixels = (pixel_count > ST7796_IMAGE_CHUNK_PIXELS) ? ST7796_IMAGE_CHUNK_PIXELS : pixel_count;
+
+        for (uint32_t idx = 0U; idx < chunk_pixels; idx++) {
+            const uint16_t pixel = data[idx];
+            image_chunk[(idx * 2U)] = (uint8_t)(pixel >> 8);
+            image_chunk[(idx * 2U) + 1U] = (uint8_t)(pixel & 0xFF);
+        }
+
+        ST7796_TransmitBuffer(image_chunk, (uint16_t)(chunk_pixels * 2U));
+        data += chunk_pixels;
+        pixel_count -= chunk_pixels;
+    }
+}
+
+static void ST7796_TransmitImagePixelsSwapRB(const uint16_t *data, uint32_t pixel_count)
+{
+    static uint8_t image_chunk[ST7796_IMAGE_CHUNK_PIXELS * 2U];
+
+    while (pixel_count > 0U) {
+        const uint32_t chunk_pixels = (pixel_count > ST7796_IMAGE_CHUNK_PIXELS) ? ST7796_IMAGE_CHUNK_PIXELS : pixel_count;
+
+        for (uint32_t idx = 0U; idx < chunk_pixels; idx++) {
+            const uint16_t pixel = data[idx];
+            const uint16_t swapped = (uint16_t)((pixel & 0x07E0U)
+                                              | ((pixel & 0xF800U) >> 11)
+                                              | ((pixel & 0x001FU) << 11));
+            image_chunk[(idx * 2U)] = (uint8_t)(swapped >> 8);
+            image_chunk[(idx * 2U) + 1U] = (uint8_t)(swapped & 0xFF);
+        }
+
+        ST7796_TransmitBuffer(image_chunk, (uint16_t)(chunk_pixels * 2U));
+        data += chunk_pixels;
+        pixel_count -= chunk_pixels;
+    }
+}
+
+static void ST7796_WriteGlyph16Opaque(uint16_t x, uint16_t y,
+                                      const uint16_t *glyph_rows,
+                                      uint8_t width,
+                                      uint8_t height,
+                                      uint16_t color,
+                                      uint16_t bgcolor)
+{
+    static uint8_t pixbuf[ST7796_GLYPH16_MAX_WIDTH * ST7796_GLYPH16_MAX_HEIGHT * 2U];
+    const uint8_t hi_fg = (uint8_t)(color >> 8);
+    const uint8_t lo_fg = (uint8_t)(color & 0xFF);
+    const uint8_t hi_bg = (uint8_t)(bgcolor >> 8);
+    const uint8_t lo_bg = (uint8_t)(bgcolor & 0xFF);
+    uint32_t idx = 0U;
+
+    if ((x + width > ST7796_WIDTH) || (y + height > ST7796_HEIGHT)) {
+        return;
+    }
+
+    for (uint8_t row = 0U; row < height; row++) {
+        const uint16_t bitmap = glyph_rows[row];
+        for (uint8_t col = 0U; col < width; col++) {
+            if (bitmap & (0x8000U >> col)) {
+                pixbuf[idx++] = hi_fg;
+                pixbuf[idx++] = lo_fg;
+            } else {
+                pixbuf[idx++] = hi_bg;
+                pixbuf[idx++] = lo_bg;
+            }
+        }
+    }
+
+    ST7796_SetAddressWindow(x, y, (uint16_t)(x + width - 1U), (uint16_t)(y + height - 1U));
+    ST7796_CS_Clr();
+    ST7796_DC_Set();
+    ST7796_TransmitBuffer(pixbuf, (uint16_t)(width * height * 2U));
+    ST7796_CS_Set();
+}
+
+static void ST7796_WriteGlyph16Transparent(uint16_t x, uint16_t y,
+                                           const uint16_t *glyph_rows,
+                                           uint8_t width,
+                                           uint8_t height,
+                                           uint16_t color)
+{
+    if ((x + width > ST7796_WIDTH) || (y + height > ST7796_HEIGHT)) {
+        return;
+    }
+
+    for (uint8_t row = 0U; row < height; row++) {
+        const uint16_t bitmap = glyph_rows[row];
+        uint8_t col = 0U;
+
+        while (col < width) {
+            while ((col < width) && ((bitmap & (0x8000U >> col)) == 0U)) {
+                col++;
+            }
+
+            if (col >= width) {
+                break;
+            }
+
+            const uint8_t run_start = col;
+            while ((col < width) && (bitmap & (0x8000U >> col))) {
+                col++;
+            }
+
+            ST7796_SetAddressWindow((uint16_t)(x + run_start),
+                                    (uint16_t)(y + row),
+                                    (uint16_t)(x + col - 1U),
+                                    (uint16_t)(y + row));
+            ST7796_CS_Clr();
+            ST7796_DC_Set();
+            ST7796_TransmitColorBurst(color, (uint32_t)(col - run_start));
+            ST7796_CS_Set();
+        }
+    }
+}
+
 /* ?????? Low-level helpers ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 
 static void ST7796_WriteCmd(uint8_t cmd)
@@ -25,7 +203,7 @@ static void ST7796_WriteData16(uint16_t data)
     uint8_t buf[2] = { (uint8_t)(data >> 8), (uint8_t)(data & 0xFF) };
     ST7796_CS_Clr();
     ST7796_DC_Set();
-    HAL_SPI_Transmit(&ST7796_SPI_PORT, buf, 2, 100);
+    ST7796_TransmitBuffer(buf, 2U);
     ST7796_CS_Set();
 }
 
@@ -175,27 +353,10 @@ void ST7796_Fill(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t co
 
     ST7796_SetAddressWindow(x0, y0, x1, y1);
 
-    uint8_t hi = color >> 8;
-    uint8_t lo = color & 0xFF;
-
     ST7796_CS_Clr();
     ST7796_DC_Set();
 
-#ifdef ST7796_USE_DMA
-    /* For DMA the colour bytes must stay valid until transfer completes.
-     * A 2-byte buffer is fine because DMA repeats from a fixed source. */
-    uint8_t buf[2] = { hi, lo };
-    for (uint32_t i = 0; i < count; i++) {
-        HAL_SPI_Transmit_DMA(&ST7796_SPI_PORT, buf, 2);
-        /* Wait for transfer complete before next pixel */
-        while (HAL_SPI_GetState(&ST7796_SPI_PORT) != HAL_SPI_STATE_READY);
-    }
-#else
-    uint8_t buf[2] = { hi, lo };
-    for (uint32_t i = 0; i < count; i++) {
-        HAL_SPI_Transmit(&ST7796_SPI_PORT, buf, 2, 100);
-    }
-#endif
+    ST7796_TransmitColorBurst(color, count);
 
     ST7796_CS_Set();
 }
@@ -288,11 +449,7 @@ void ST7796_DrawImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint
     ST7796_CS_Clr();
     ST7796_DC_Set();
 
-    uint32_t count = (uint32_t)w * h;
-    for (uint32_t i = 0; i < count; i++) {
-        uint8_t buf[2] = { (uint8_t)(data[i] >> 8), (uint8_t)(data[i] & 0xFF) };
-        HAL_SPI_Transmit(&ST7796_SPI_PORT, buf, 2, 100);
-    }
+    ST7796_TransmitImagePixels(data, (uint32_t)w * h);
 
     ST7796_CS_Set();
 }
@@ -306,15 +463,7 @@ void ST7796_DrawImageSwapRB(uint16_t x, uint16_t y, uint16_t w, uint16_t h, cons
     ST7796_CS_Clr();
     ST7796_DC_Set();
 
-    uint32_t count = (uint32_t)w * h;
-    for (uint32_t i = 0; i < count; i++) {
-        uint16_t pixel = data[i];
-        uint16_t swapped = (uint16_t)((pixel & 0x07E0U)
-                                    | ((pixel & 0xF800U) >> 11)
-                                    | ((pixel & 0x001FU) << 11));
-        uint8_t buf[2] = { (uint8_t)(swapped >> 8), (uint8_t)(swapped & 0xFF) };
-        HAL_SPI_Transmit(&ST7796_SPI_PORT, buf, 2, 100);
-    }
+    ST7796_TransmitImagePixelsSwapRB(data, (uint32_t)w * h);
 
     ST7796_CS_Set();
 }
@@ -343,7 +492,7 @@ void ST7796_FadeIn(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
            uint16_t dimmed = ((uint16_t)r << 11) | ((uint16_t)g << 5) | b;
            /* Re-apply byte-swap to match the format DrawImage uses */
            uint8_t buf[2] = { (uint8_t)(dimmed & 0xFF), (uint8_t)(dimmed >> 8) };
-          HAL_SPI_Transmit(&ST7796_SPI_PORT, buf, 2, 100);
+          ST7796_TransmitBuffer(buf, 2U);
       }
 
         ST7796_CS_Set();
@@ -355,19 +504,8 @@ void ST7796_WriteChar(uint16_t x, uint16_t y, char ch, FontDef font, uint16_t co
 {
     if (ch < 32 || ch > 126) ch = '?';
 
-    uint32_t offset = (uint32_t)(ch - 32) * font.height;
-
-    for (uint8_t row = 0; row < font.height; row++) {
-        uint16_t bitmap = font.data[offset + row];
-        for (uint8_t col = 0; col < font.width; col++) {
-            /* Bitmap is MSB-aligned: bit 15 = leftmost pixel */
-            if (bitmap & (0x8000 >> col)) {
-                ST7796_DrawPixel(x + col, y + row, color);
-            } else {
-                ST7796_DrawPixel(x + col, y + row, bgcolor);
-            }
-        }
-    }
+    const uint32_t offset = (uint32_t)(ch - 32) * font.height;
+    ST7796_WriteGlyph16Opaque(x, y, &font.data[offset], font.width, font.height, color, bgcolor);
 }
 
 void ST7796_WriteString(uint16_t x, uint16_t y, const char *str, FontDef font, uint16_t color, uint16_t bgcolor)
@@ -394,18 +532,10 @@ void ST7796_WriteStringTransparent(uint16_t x, uint16_t y, const char *str, Font
             y += font.height;
             if (y + font.height > ST7796_HEIGHT) break;
         }
-        /* Draw only foreground pixels, skip background pixels */
         char ch = *str;
         if (ch < 32 || ch > 126) ch = '?';
-        uint32_t offset = (uint32_t)(ch - 32) * font.height;
-        for (uint8_t row = 0; row < font.height; row++) {
-            uint16_t bitmap = font.data[offset + row];
-            for (uint8_t col = 0; col < font.width; col++) {
-                if (bitmap & (0x8000 >> col)) {
-                    ST7796_DrawPixel(cx + col, y + row, color);
-                }
-            }
-        }
+        const uint32_t offset = (uint32_t)(ch - 32) * font.height;
+        ST7796_WriteGlyph16Transparent(cx, y, &font.data[offset], font.width, font.height, color);
         cx += font.width;
         str++;
     }
@@ -422,7 +552,7 @@ void ST7796_WriteChar32(uint16_t x, uint16_t y, char ch, FontDef32 font, uint16_
     uint8_t hi_bg = (uint8_t)(bgcolor >> 8), lo_bg = (uint8_t)(bgcolor & 0xFF);
 
     /* Build pixel buffer: width ?? height pixels, 2 bytes each */
-    static uint8_t pixbuf[32 * 64 * 2];   /* max cell size (stack-safe static) */
+    static uint8_t pixbuf[ST7796_GLYPH32_MAX_WIDTH * ST7796_GLYPH32_MAX_HEIGHT * 2U];
     uint32_t idx = 0;
     for (uint8_t row = 0; row < font.height; row++) {
         uint32_t bitmap = font.data[offset + row];
@@ -441,7 +571,7 @@ void ST7796_WriteChar32(uint16_t x, uint16_t y, char ch, FontDef32 font, uint16_
     ST7796_SetAddressWindow(x, y, (uint16_t)(x + font.width - 1U), (uint16_t)(y + font.height - 1U));
     ST7796_CS_Clr();
     ST7796_DC_Set();
-    HAL_SPI_Transmit(&ST7796_SPI_PORT, pixbuf, (uint16_t)(font.width * font.height * 2U), HAL_MAX_DELAY);
+    ST7796_TransmitBuffer(pixbuf, (uint16_t)(font.width * font.height * 2U));
     ST7796_CS_Set();
 }
 
