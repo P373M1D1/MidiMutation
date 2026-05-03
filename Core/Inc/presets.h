@@ -16,6 +16,7 @@ extern "C" {
 #define PRESET_BANK_COUNT    4U  /* number of banks compiled into the preset table */
 #define PRESET_COUNT         (PRESETS_PER_BANK * PRESET_BANK_COUNT) /* total flat preset count across all banks */
 #define PRESET_BANK_NAME_MAXLEN  16U /* maximum displayed character width reserved for a bank name */
+#define PRESET_NAME_LENGTH   20U /* editable/displayed character count for preset names, excluding the trailing NUL */
 
 /* Shared sentinel values used by preset data tables and activation logic. */
 #define PRESET_PROGRAM_NONE       0xFFU /* sentinel meaning this device slot sends no Program Change; cannot be NULL because Program Change 0 is valid data */
@@ -86,7 +87,7 @@ typedef struct {
  *              PRESET_RELAY_CLOSED = closed/engaged.
  */
 typedef struct {
-    char           name[21];
+    char           name[PRESET_NAME_LENGTH + 1U];
     PresetDevice_t prg[PRESET_DEVICE_SLOTS];
     PresetCCSlot_t cc[PRESET_CC_SLOT_COUNT];
     uint8_t        relay[PRESET_RELAY_COUNT];

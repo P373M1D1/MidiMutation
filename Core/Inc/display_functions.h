@@ -15,6 +15,7 @@ extern "C" {
 
 typedef enum {
 	DISPLAY_PRESET_EDIT_FIELD_NONE = 0,
+	DISPLAY_PRESET_EDIT_FIELD_NAME,
 	DISPLAY_PRESET_EDIT_FIELD_PROGRAM,
 	DISPLAY_PRESET_EDIT_FIELD_RELAY,
 	DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL,
@@ -36,12 +37,19 @@ void Display_BL_FadeOut(void);
 /* ── Screen content ──────────────────────────────────────────────────────── */
 
 void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm);
+void Display_RefreshPresetEditMode(const Preset_t *p, uint16_t bpm);
 void Display_UpdateBPM(uint16_t bpm);
 void Display_MainInfoScrollReset(void);
 uint8_t Display_MainInfoScrollBy(int8_t delta);
+uint8_t Display_MainInfoScrollAndRefresh(const Preset_t *p, int8_t delta);
 void Display_PresetEditEnter(void);
 void Display_PresetEditExit(void);
 uint8_t Display_PresetEditIsActive(void);
+void Display_PresetNameEditEnter(void);
+void Display_PresetNameEditExit(void);
+uint8_t Display_PresetNameEditIsActive(void);
+uint8_t Display_PresetNameEditMoveCursor(const Preset_t *p, int8_t delta);
+uint8_t Display_PresetNameEditGetCursorIndex(void);
 uint8_t Display_PresetEditMoveCursor(int8_t delta);
 uint8_t Display_PresetEditMoveCursorAndRefresh(const Preset_t *p, int8_t delta);
 DisplayPresetEditField_t Display_PresetEditGetField(void);

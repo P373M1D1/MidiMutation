@@ -121,8 +121,9 @@ volatile uint32_t bpm_save_tick = 0U;  /* HAL_GetTick target to save BPM to Flas
 const Preset_t   *active_preset = NULL; /* current preset, needed by screensaver wake */
 uint8_t active_preset_index = PRESET_DEFAULT;
 static volatile uint8_t encoder_button_press_pending_mask = 0U; /* queued encoder switch press events waiting for serial test output */
-static uint32_t encoder_button_press_tick[3] = {0U, 0U, 0U}; /* last accepted encoder switch press tick for debounce */
-static uint8_t encoder_switch_last_level[3] = {1U, 1U, 1U}; /* last sampled raw level for encoder switches so presses can be detected without relying on EXTI routing */
+static uint8_t encoder_switch_raw_level[3] = {1U, 1U, 1U}; /* last sampled raw GPIO level for each encoder pushbutton */
+static uint8_t encoder_switch_stable_level[3] = {1U, 1U, 1U}; /* current debounced level so one physical press only queues once */
+static uint32_t encoder_switch_last_change_tick[3] = {0U, 0U, 0U}; /* HAL tick when the raw encoder switch level last changed */
 static uint8_t encoder2_last_state = 0U; /* previous sampled CLK/DT state for encoder 2 quadrature decoding */
 static int8_t encoder2_transition_accum = 0; /* transition accumulator to collapse 4 edges into 1 future value step */
 static volatile int8_t encoder2_pending_steps = 0; /* queued encoder 2 steps until a function is assigned */
@@ -133,7 +134,7 @@ static uint32_t tempo_encoder_last_step_tick = 0U; /* ms timestamp of the previo
 static volatile int8_t tempo_encoder_pending_delta = 0; /* queued BPM delta accumulated in the encoder ISR */
 static volatile uint8_t tempo_encoder_activity_pending = 0U; /* set by tempo encoder motion or switch so the main loop can wake the UI */
 static uint8_t rotary1_last_state = 0U; /* previous sampled CLK/DT state for encoder 1 quadrature decoding */
-static uint8_t rotary1_last_clk_level = 1U; /* last sampled CLK level so encoder 1 can scroll from a single stable edge per detent */
+static int8_t rotary1_transition_accum = 0; /* transition accumulator to collapse 4 encoder 1 edges into 1 scroll step */
 static volatile int8_t rotary1_pending_steps = 0; /* queued encoder 1 scroll steps waiting for foreground redraw */
 static volatile uint8_t rotary1_activity_pending = 0U; /* set by encoder 1 IRQ activity so the main loop can wake the UI */
 static uint16_t ext_mirror_candidate_bpm = 0U; /* latest external BPM candidate used by holdover mirroring */
@@ -182,6 +183,8 @@ extern "C" int __io_putchar(int ch)
   return ch;
 }
 
+static const char PresetEdit_NameCharset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ";
+
 static uint8_t PresetEdit_CurrentPresetIsEditable(void)
 {
   const Preset_t *active_real_preset = Presets_Get(active_preset_index);
@@ -217,6 +220,88 @@ static uint8_t PresetEdit_AdjustSentinelValue(uint8_t *value,
   return 1U;
 }
 
+static int16_t PresetEdit_FindNameCharsetIndex(char ch)
+{
+  for (uint8_t index = 0U; index < (sizeof(PresetEdit_NameCharset) - 1U); ++index)
+  {
+    if (PresetEdit_NameCharset[index] == ch)
+      return (int16_t)index;
+  }
+
+  return 0;
+}
+
+/* The on-screen name editor works on a fixed 20-cell buffer so the cursor can
+ * move across trailing spaces that do not exist in the persisted C string yet. */
+static void PresetEdit_LoadNameCells(const Preset_t *preset, char *name_cells)
+{
+  size_t name_length;
+
+  memset(name_cells, ' ', PRESET_NAME_LENGTH);
+  if (!preset)
+    return;
+
+  name_length = strnlen(preset->name, PRESET_NAME_LENGTH);
+  memcpy(name_cells, preset->name, name_length);
+}
+
+/* Copy the editable 20-cell buffer back into the stored preset name while
+ * trimming trailing spaces so the runtime preset stays as a normal C string. */
+static void PresetEdit_StoreNameCells(Preset_t *preset, const char *name_cells)
+{
+  int16_t last_non_space_index;
+
+  if (!preset)
+    return;
+
+  memset(preset->name, 0, sizeof(preset->name));
+
+  for (last_non_space_index = (int16_t)PRESET_NAME_LENGTH - 1; last_non_space_index >= 0; --last_non_space_index)
+  {
+    if (name_cells[last_non_space_index] != ' ')
+      break;
+  }
+
+  if (last_non_space_index < 0)
+    return;
+
+  memcpy(preset->name, name_cells, (size_t)last_non_space_index + 1U);
+  preset->name[last_non_space_index + 1] = '\0';
+}
+
+static uint8_t PresetEdit_AdjustNameCharacter(Preset_t *preset, int8_t delta)
+{
+  char name_cells[PRESET_NAME_LENGTH];
+  uint8_t name_index;
+  int16_t current_charset_index;
+  int16_t next_charset_index;
+  int16_t charset_length = (int16_t)(sizeof(PresetEdit_NameCharset) - 1U);
+
+  if (!preset || delta == 0 || !Display_PresetNameEditIsActive())
+    return 0U;
+
+  name_index = Display_PresetNameEditGetCursorIndex();
+  if (name_index >= PRESET_NAME_LENGTH)
+    return 0U;
+
+  PresetEdit_LoadNameCells(preset, name_cells);
+  current_charset_index = PresetEdit_FindNameCharsetIndex(name_cells[name_index]);
+  next_charset_index = current_charset_index + (int16_t)delta;
+
+  while (next_charset_index < 0)
+    next_charset_index += charset_length;
+
+  while (next_charset_index >= charset_length)
+    next_charset_index -= charset_length;
+
+  if (name_cells[name_index] == PresetEdit_NameCharset[next_charset_index])
+    return 0U;
+
+  name_cells[name_index] = PresetEdit_NameCharset[next_charset_index];
+  PresetEdit_StoreNameCells(preset, name_cells);
+  return 1U;
+}
+
 static uint8_t PresetEdit_AdjustProgramValue(Preset_t *preset, uint8_t slot, int8_t delta)
 {
   const MidiDevice_t *device;
@@ -235,6 +320,9 @@ static uint8_t PresetEdit_AdjustProgramValue(Preset_t *preset, uint8_t slot, int
                                         delta);
 }
 
+/* All edit-mode value changes funnel through here. The per-character name
+ * editor is treated as a nested submode, so the same edit encoder path can
+ * either cycle letters or edit the selected program / CC / relay field. */
 static uint8_t PresetEdit_ApplyDelta(int8_t delta)
 {
   Preset_t *preset;
@@ -253,9 +341,15 @@ static uint8_t PresetEdit_ApplyDelta(int8_t delta)
   if (!preset)
     return 0U;
 
+  if (Display_PresetNameEditIsActive())
+    return PresetEdit_AdjustNameCharacter(preset, delta);
+
   field = Display_PresetEditGetField();
   switch (field.type)
   {
+  case DISPLAY_PRESET_EDIT_FIELD_NAME:
+    return 0U;
+
   case DISPLAY_PRESET_EDIT_FIELD_PROGRAM:
     return PresetEdit_AdjustProgramValue(preset, field.itemIndex, delta);
 
@@ -313,7 +407,7 @@ static uint8_t PresetEdit_Enter(void)
   Display_ScreensaverDismiss();
   Display_ScreensaverActivity();
   Display_PresetEditEnter();
-  Display_DrawMainScreen(active_preset, g_bpm);
+  Display_RefreshPresetEditMode(active_preset, g_bpm);
   return 1U;
 }
 
@@ -324,7 +418,27 @@ static void PresetEdit_Exit(void)
 
   Display_PresetEditExit();
   Display_ScreensaverActivity();
-  Display_DrawMainScreen(active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
+  Display_RefreshPresetEditMode(active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
+}
+
+/* ENC3 press behaves like popping a small edit stack: leave per-character name
+ * edit first, then leave preset edit entirely on the next press. */
+static uint8_t PresetEdit_BackOutOneLevel(void)
+{
+  if (!Display_PresetEditIsActive())
+    return 0U;
+
+  if (Display_PresetNameEditIsActive())
+  {
+    Display_PresetNameEditExit();
+    Display_ScreensaverActivity();
+    if (active_preset)
+      Display_PresetEditRefreshCurrentField(active_preset);
+    return 1U;
+  }
+
+  PresetEdit_Exit();
+  return 1U;
 }
 
 /* USER CODE END 0 */
@@ -440,7 +554,6 @@ int main(void)
 static void MX_SPI1_Init(void)
 {
   /* USER CODE BEGIN SPI1_Init 0 */
-
   /* USER CODE END SPI1_Init 0 */
 
   /* USER CODE BEGIN SPI1_Init 1 */
@@ -843,20 +956,49 @@ static void EncoderCheck_LogTurn(uint8_t encoder_index, int8_t delta)
 static void EncoderCheck_QueueButtonPress(uint8_t encoder_index)
 {
   uint8_t event_index = (uint8_t)(encoder_index - 1U);
+  encoder_button_press_pending_mask |= (uint8_t)(1U << event_index);
+}
+
+/* Accept a button press only after the sampled level has stayed put for the
+ * debounce window. That keeps one noisy mechanical click from unwinding both
+ * name edit and preset edit in back-to-back foreground iterations. */
+static void EncoderCheck_UpdateSwitchState(uint8_t event_index,
+                                           uint8_t raw_level,
+                                           volatile uint8_t *activity_pending_flag)
+{
   uint32_t now = HAL_GetTick();
 
-  if ((now - encoder_button_press_tick[event_index]) < ENCODER_SWITCH_DEBOUNCE_MS)
+  if (raw_level != encoder_switch_raw_level[event_index])
+  {
+    encoder_switch_raw_level[event_index] = raw_level;
+    encoder_switch_last_change_tick[event_index] = now;
+  }
+
+  if (raw_level == encoder_switch_stable_level[event_index])
     return;
 
-  encoder_button_press_tick[event_index] = now;
-  encoder_button_press_pending_mask |= (uint8_t)(1U << event_index);
+  if ((now - encoder_switch_last_change_tick[event_index]) < ENCODER_SWITCH_DEBOUNCE_MS)
+    return;
+
+  encoder_switch_stable_level[event_index] = raw_level;
+  if (raw_level == 0U)
+  {
+    *activity_pending_flag = 1U;
+    EncoderCheck_QueueButtonPress((uint8_t)(event_index + 1U));
+  }
 }
 
 static void EncoderCheck_Init(void)
 {
-  encoder_switch_last_level[0] = Encoder_ReadLevel(ENC1_SW_GPIO_Port, ENC1_SW_Pin);
-  encoder_switch_last_level[1] = Encoder2_ReadSwitchLevel();
-  encoder_switch_last_level[2] = Encoder_ReadLevel(ENC3_SW_GPIO_Port, ENC3_SW_Pin);
+  encoder_switch_raw_level[0] = Encoder_ReadLevel(ENC1_SW_GPIO_Port, ENC1_SW_Pin);
+  encoder_switch_raw_level[1] = Encoder2_ReadSwitchLevel();
+  encoder_switch_raw_level[2] = Encoder_ReadLevel(ENC3_SW_GPIO_Port, ENC3_SW_Pin);
+  encoder_switch_stable_level[0] = encoder_switch_raw_level[0];
+  encoder_switch_stable_level[1] = encoder_switch_raw_level[1];
+  encoder_switch_stable_level[2] = encoder_switch_raw_level[2];
+  encoder_switch_last_change_tick[0] = HAL_GetTick();
+  encoder_switch_last_change_tick[1] = HAL_GetTick();
+  encoder_switch_last_change_tick[2] = HAL_GetTick();
 #if ENCODER_CHECK_SERIAL_ENABLED
   printf("\r\nEncoder check ready on USART3 @ 115200\r\n");
   printf("Turn encoders or press encoder switches to verify wiring.\r\n");
@@ -899,13 +1041,24 @@ static void EncoderCheck_ProcessPending(void)
 
   if ((press_mask & 0x04U) && Display_PresetEditIsActive())
   {
-    PresetEdit_Exit();
+    PresetEdit_BackOutOneLevel();
     return;
   }
 
   if ((press_mask & 0x01U) && !Display_PresetEditIsActive())
   {
     PresetEdit_Enter();
+  }
+  else if ((press_mask & 0x01U) && Display_PresetEditIsActive() && !Display_PresetNameEditIsActive())
+  {
+    DisplayPresetEditField_t field = Display_PresetEditGetField();
+
+    if (field.type == DISPLAY_PRESET_EDIT_FIELD_NAME)
+    {
+      Display_PresetNameEditEnter();
+      if (active_preset)
+        Display_PresetEditRefreshCurrentField(active_preset);
+    }
   }
 }
 
@@ -922,35 +1075,9 @@ static void EncoderCheck_SampleSwitches(void)
   uint8_t encoder2_sw_level = Encoder2_ReadSwitchLevel();
   uint8_t encoder3_sw_level = Encoder_ReadLevel(ENC3_SW_GPIO_Port, ENC3_SW_Pin);
 
-  if (encoder1_sw_level != encoder_switch_last_level[0])
-  {
-    encoder_switch_last_level[0] = encoder1_sw_level;
-    if (encoder1_sw_level == 0U)
-    {
-      rotary1_activity_pending = 1U;
-      EncoderCheck_QueueButtonPress(1U);
-    }
-  }
-
-  if (encoder2_sw_level != encoder_switch_last_level[1])
-  {
-    encoder_switch_last_level[1] = encoder2_sw_level;
-    if (encoder2_sw_level == 0U)
-    {
-      encoder2_activity_pending = 1U;
-      EncoderCheck_QueueButtonPress(2U);
-    }
-  }
-
-  if (encoder3_sw_level != encoder_switch_last_level[2])
-  {
-    encoder_switch_last_level[2] = encoder3_sw_level;
-    if (encoder3_sw_level == 0U)
-    {
-      tempo_encoder_activity_pending = 1U;
-      EncoderCheck_QueueButtonPress(3U);
-    }
-  }
+  EncoderCheck_UpdateSwitchState(0U, encoder1_sw_level, &rotary1_activity_pending);
+  EncoderCheck_UpdateSwitchState(1U, encoder2_sw_level, &encoder2_activity_pending);
+  EncoderCheck_UpdateSwitchState(2U, encoder3_sw_level, &tempo_encoder_activity_pending);
 }
 
 static int8_t Encoder_TransitionDelta(uint8_t previous_state, uint8_t current_state)
@@ -965,11 +1092,25 @@ static int8_t Encoder_TransitionDelta(uint8_t previous_state, uint8_t current_st
   return transition_delta[(previous_state << 2U) | current_state];
 }
 
+static int8_t Encoder_AccumulateTransition(int8_t transition_accum, int8_t transition_delta)
+{
+  if (transition_delta == 0)
+    return transition_accum;
+
+  if (((transition_accum > 0) && (transition_delta < 0))
+      || ((transition_accum < 0) && (transition_delta > 0)))
+  {
+    return transition_delta;
+  }
+
+  return (int8_t)(transition_accum + transition_delta);
+}
+
 static void Rotary1_Init(void)
 {
   rotary1_last_state = Encoder_ReadState(ENC1_CLK_GPIO_Port, ENC1_CLK_Pin,
                                          ENC1_DT_GPIO_Port, ENC1_DT_Pin);
-  rotary1_last_clk_level = (uint8_t)((rotary1_last_state >> 1U) & 0x01U);
+  rotary1_transition_accum = 0;
   rotary1_pending_steps = 0;
   rotary1_activity_pending = 0U;
 }
@@ -978,33 +1119,35 @@ static void Rotary1_SampleInterrupt(void)
 {
   uint8_t current_state = Encoder_ReadState(ENC1_CLK_GPIO_Port, ENC1_CLK_Pin,
                                             ENC1_DT_GPIO_Port, ENC1_DT_Pin);
-  uint8_t current_clk_level = (uint8_t)((current_state >> 1U) & 0x01U);
-  uint8_t current_dt_level = (uint8_t)(current_state & 0x01U);
+  int8_t transition_delta;
   int16_t queued_steps;
 
   if (current_state == rotary1_last_state)
     return;
 
+  rotary1_activity_pending = 1U;
+  transition_delta = Encoder_TransitionDelta(rotary1_last_state, current_state);
+  rotary1_transition_accum = Encoder_AccumulateTransition(rotary1_transition_accum, transition_delta);
   rotary1_last_state = current_state;
 
-  if (current_clk_level == rotary1_last_clk_level)
-    return;
+  if (rotary1_transition_accum >= ROTARY1_SCROLL_TRANSITIONS_PER_STEP)
+  {
+    queued_steps = (int16_t)rotary1_pending_steps - (int16_t)ROTARY1_SCROLL_DIRECTION_SIGN;
 
-  rotary1_last_clk_level = current_clk_level;
-  if (current_clk_level == 0U)
-    return;
+    if (queued_steps > INT8_MAX)
+      queued_steps = INT8_MAX;
+    rotary1_pending_steps = (int8_t)queued_steps;
+    rotary1_transition_accum = 0;
+  }
+  else if (rotary1_transition_accum <= -ROTARY1_SCROLL_TRANSITIONS_PER_STEP)
+  {
+    queued_steps = (int16_t)rotary1_pending_steps + (int16_t)ROTARY1_SCROLL_DIRECTION_SIGN;
 
-  rotary1_activity_pending = 1U;
-  queued_steps = (int16_t)rotary1_pending_steps
-               + ((current_dt_level != 0U) ? (int16_t)ROTARY1_SCROLL_DIRECTION_SIGN
-                                          : (int16_t)-ROTARY1_SCROLL_DIRECTION_SIGN);
-
-  if (queued_steps > INT8_MAX)
-    queued_steps = INT8_MAX;
-  else if (queued_steps < INT8_MIN)
-    queued_steps = INT8_MIN;
-
-  rotary1_pending_steps = (int8_t)queued_steps;
+    if (queued_steps < INT8_MIN)
+      queued_steps = INT8_MIN;
+    rotary1_pending_steps = (int8_t)queued_steps;
+    rotary1_transition_accum = 0;
+  }
 }
 
 static void Rotary1_RecordActivity(void)
@@ -1059,10 +1202,17 @@ static void Rotary1_ProcessPending(void)
         return;
       }
 
-      Display_PresetEditMoveCursorAndRefresh(active_preset, pending_steps);
+      if (Display_PresetNameEditIsActive())
+      {
+        Display_PresetNameEditMoveCursor(active_preset, pending_steps);
+      }
+      else
+      {
+        Display_PresetEditMoveCursorAndRefresh(active_preset, pending_steps);
+      }
     }
-    else if (Display_MainInfoScrollBy(pending_steps))
-      Display_DrawMainScreen(active_preset, g_bpm);
+    else
+      Display_MainInfoScrollAndRefresh(active_preset, pending_steps);
   }
 }
 
@@ -1079,12 +1229,14 @@ static void Encoder2_SampleInterrupt(void)
 {
   uint8_t current_state = Encoder_ReadState(ENC2_CLK_GPIO_Port, ENC2_CLK_Pin,
                                             ENC2_DT_GPIO_Port, ENC2_DT_Pin);
+  int8_t transition_delta;
 
   if (current_state == encoder2_last_state)
     return;
 
   encoder2_activity_pending = 1U;
-  encoder2_transition_accum += Encoder_TransitionDelta(encoder2_last_state, current_state);
+  transition_delta = Encoder_TransitionDelta(encoder2_last_state, current_state);
+  encoder2_transition_accum = Encoder_AccumulateTransition(encoder2_transition_accum, transition_delta);
   encoder2_last_state = current_state;
 
   if (encoder2_transition_accum >= ROTARY1_SCROLL_TRANSITIONS_PER_STEP)
@@ -1107,6 +1259,8 @@ static void Encoder2_SampleInterrupt(void)
   }
 }
 
+/* ENC2 is intentionally idle during preset edit mode. The footbar reserves it
+ * for a future explicit "send current field" action, while ENC3 owns value edits. */
 static void Encoder2_ProcessPending(void)
 {
   uint32_t primask;
@@ -1137,10 +1291,7 @@ static void Encoder2_ProcessPending(void)
   Display_ScreensaverActivity();
 
   if (Display_PresetEditIsActive())
-  {
-    if (PresetEdit_ApplyDelta(pending_steps))
-      Display_PresetEditRefreshCurrentField(active_preset);
-  }
+    return;
 }
 
 static void TempoEncoder_Init(void)
@@ -1176,12 +1327,14 @@ static void TempoEncoder_SampleInterrupt(void)
 {
   uint8_t current_state = Encoder_ReadState(ENC3_CLK_GPIO_Port, ENC3_CLK_Pin,
                                             ENC3_DT_GPIO_Port, ENC3_DT_Pin);
+  int8_t transition_delta;
 
   if (current_state == tempo_encoder_last_state)
     return;
 
   tempo_encoder_activity_pending = 1U;
-  tempo_encoder_transition_accum += Encoder_TransitionDelta(tempo_encoder_last_state, current_state);
+  transition_delta = Encoder_TransitionDelta(tempo_encoder_last_state, current_state);
+  tempo_encoder_transition_accum = Encoder_AccumulateTransition(tempo_encoder_transition_accum, transition_delta);
   tempo_encoder_last_state = current_state;
 
   if (tempo_encoder_transition_accum >= TEMPO_ENCODER_TRANSITIONS_PER_STEP)
@@ -1228,6 +1381,9 @@ static void TempoEncoder_SampleInterrupt(void)
   }
 }
 
+/* ENC3 keeps its live-mode tempo role, but becomes the active value knob in
+ * preset edit mode so the right hand can change a field and exit with the same
+ * encoder while ENC1 continues to own selection. */
 static void TempoEncoder_ProcessPending(void)
 {
   uint32_t primask;
@@ -1260,7 +1416,13 @@ static void TempoEncoder_ProcessPending(void)
   if (Display_PresetEditIsActive())
   {
     if (!PresetEdit_CurrentPresetIsEditable())
+    {
       PresetEdit_Exit();
+      return;
+    }
+
+    if (PresetEdit_ApplyDelta(pending_delta))
+      Display_PresetEditRefreshCurrentField(active_preset);
     return;
   }
 
