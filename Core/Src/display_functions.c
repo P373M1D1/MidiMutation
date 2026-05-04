@@ -137,6 +137,8 @@ void Display_BL_FadeOut(void)
 #define MAIN_INFO_PROGRAM_DIGITS       3U                   // fixed width of the displayed MIDI program number
 #define MAIN_INFO_CC_CHANNEL_DIGITS    2U                   // fixed width of the displayed MIDI CC channel number
 #define MAIN_INFO_CC_VALUE_DIGITS      3U                   // fixed width of the displayed MIDI CC number/value fields
+#define MAIN_INFO_CC_LABEL_DIGITS      ((PRESET_CC_SLOT_COUNT >= 100U) ? 3U : ((PRESET_CC_SLOT_COUNT >= 10U) ? 2U : 1U)) // digit width reserved for labels like "CC 8"
+#define MAIN_INFO_CC_LABEL_CHARS       (2U + MAIN_INFO_CC_LABEL_DIGITS + 2U) // padded width of labels like "CC 8 "
 #define MAIN_INFO_CC_CHANNEL_PREFIX    "CH: "              // label shown ahead of the CC channel value
 #define MAIN_INFO_CC_NUMBER_PREFIX     " CC: "             // label shown ahead of the CC number value
 #define MAIN_INFO_CC_VALUE_PREFIX      " Value: "          // label shown ahead of the CC value
@@ -153,6 +155,7 @@ void Display_BL_FadeOut(void)
 #define MAIN_MODE_HEADER_TEXT_CHARS    4U                   // width reserved for the centered top mode label
 #define MAIN_MODE_HEADER_FONT          MAIN_FOOTBAR_FONT    // font used for the top mode label
 #define MAIN_MODE_HEADER_COLOUR        WHITE                // text colour for the LIVE/EDIT mode label
+#define MAIN_MODE_HEADER_EDIT_COLOUR   YELLOW               // text colour for the EDIT mode label
 #define MAIN_PRESET_TEXT_Y             85U                  // y position of the large preset name line
 #define MAIN_PRESET_TEXT_CHARS         20U                  // fixed character width used when centering preset names
 #define MAIN_PRESET_FONT               Font_Consolas23x49   // large font for the preset name
@@ -602,6 +605,13 @@ static uint8_t Display_GetMainInfoRightFirstItem(void)
     return Display_GetMainInfoRightFirstItemForFirstSlot(main_info_first_slot);
 }
 
+static uint8_t Display_GetMainInfoRightFirstItemRenderState(uint8_t first_item)
+{
+    uint8_t blank_first_item = (uint8_t)(PRESET_RELAY_COUNT + 1U);
+
+    return (first_item > blank_first_item) ? blank_first_item : first_item;
+}
+
 static void Display_DrawMainInfoScrollIndicator(uint16_t x,
                                                 uint16_t y,
                                                 uint8_t point_up,
@@ -735,7 +745,7 @@ static void Display_DrawMainModeHeader(void)
                                       preset_edit_mode_active ? "EDIT" : "LIVE",
                                       MAIN_MODE_HEADER_TEXT_CHARS,
                                       MAIN_MODE_HEADER_FONT,
-                                      MAIN_MODE_HEADER_COLOUR);
+                                      preset_edit_mode_active ? MAIN_MODE_HEADER_EDIT_COLOUR : MAIN_MODE_HEADER_COLOUR);
 }
 
 static void Display_DrawPresetName(const Preset_t *preset)
@@ -886,6 +896,44 @@ static void Display_DrawMainInfoProgramField(const Preset_t *preset,
                          MAIN_INFO_TEXT_BG_COLOUR);
 }
 
+static void Display_FormatMainInfoCcLabel(uint8_t cc_index,
+                                          char *cc_label_text,
+                                          size_t cc_label_text_size)
+{
+    int written;
+    size_t text_len;
+
+    if (!cc_label_text || cc_label_text_size == 0U)
+        return;
+
+    written = snprintf(cc_label_text, cc_label_text_size, "CC %u ", (unsigned)(cc_index + 1U));
+    if (written < 0)
+    {
+        cc_label_text[0] = '\0';
+        return;
+    }
+
+    text_len = strnlen(cc_label_text, cc_label_text_size - 1U);
+    while (text_len < MAIN_INFO_CC_LABEL_CHARS && text_len < (cc_label_text_size - 1U))
+        cc_label_text[text_len++] = ' ';
+
+    cc_label_text[text_len] = '\0';
+}
+
+static void Display_DrawMainInfoCcLabel(uint8_t cc_index,
+                                        uint16_t row_y)
+{
+    char cc_label_text[12];
+
+    Display_FormatMainInfoCcLabel(cc_index, cc_label_text, sizeof(cc_label_text));
+    ST7796_WriteString32(MAIN_INFO_LEFT_X,
+                         row_y,
+                         cc_label_text,
+                         MAIN_INFO_FONT,
+                         MAIN_INFO_TEXT_COLOUR,
+                         MAIN_INFO_TEXT_BG_COLOUR);
+}
+
 static void Display_DrawMainInfoCcField(const Preset_t *preset,
                                         uint8_t cc_index,
                                         DisplayPresetEditFieldType_t field_type,
@@ -902,11 +950,7 @@ static void Display_DrawMainInfoCcField(const Preset_t *preset,
         return;
 
     {
-        char cc_label_text[12];
-        uint16_t field_chars;
-
-        snprintf(cc_label_text, sizeof(cc_label_text), "CC%u  ", (unsigned)(cc_index + 1U));
-        field_chars = (uint16_t)strlen(cc_label_text);
+        uint16_t field_chars = MAIN_INFO_CC_LABEL_CHARS;
 
         switch (field_type)
         {
@@ -973,6 +1017,32 @@ static void Display_DrawMainInfoCcField(const Preset_t *preset,
                          background);
 }
 
+static void Display_DrawMainInfoCcFields(const Preset_t *preset,
+                                         uint8_t cc_index,
+                                         uint16_t row_y)
+{
+    DisplayPresetEditField_t edit_field = Display_PresetEditGetField();
+    uint8_t highlight_channel = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL && edit_field.itemIndex == cc_index) ? 1U : 0U;
+    uint8_t highlight_cc_number = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER && edit_field.itemIndex == cc_index) ? 1U : 0U;
+    uint8_t highlight_value = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_VALUE && edit_field.itemIndex == cc_index) ? 1U : 0U;
+
+    Display_DrawMainInfoCcField(preset,
+                                cc_index,
+                                DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL,
+                                row_y,
+                                highlight_channel);
+    Display_DrawMainInfoCcField(preset,
+                                cc_index,
+                                DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER,
+                                row_y,
+                                highlight_cc_number);
+    Display_DrawMainInfoCcField(preset,
+                                cc_index,
+                                DISPLAY_PRESET_EDIT_FIELD_CC_VALUE,
+                                row_y,
+                                highlight_value);
+}
+
 static void Display_DrawMainInfoRelayField(const Preset_t *preset,
                                            uint8_t relay_index,
                                            uint16_t row_y,
@@ -999,41 +1069,9 @@ static void Display_DrawMainInfoCcRow(const Preset_t *preset,
                                       uint8_t cc_index,
                                       uint16_t row_y)
 {
-    char cc_label_text[12];
-    char channel_text[MAIN_INFO_CC_CHANNEL_DIGITS + 2U];
-    char cc_number_text[MAIN_INFO_CC_VALUE_DIGITS + 1U];
-    char value_text[MAIN_INFO_CC_VALUE_DIGITS + 1U];
     uint16_t draw_x = MAIN_INFO_LEFT_X;
-    const PresetCCSlot_t *cc = &preset->cc[cc_index];
-    DisplayPresetEditField_t edit_field = Display_PresetEditGetField();
-    uint8_t highlight_channel = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL && edit_field.itemIndex == cc_index) ? 1U : 0U;
-    uint8_t highlight_cc_number = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER && edit_field.itemIndex == cc_index) ? 1U : 0U;
-    uint8_t highlight_value = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_VALUE && edit_field.itemIndex == cc_index) ? 1U : 0U;
-
-    if (cc->channel == PRESET_CC_CHANNEL_UNUSED)
-        strcpy(channel_text, "--");
-    else
-        snprintf(channel_text, sizeof(channel_text), "%2u", cc->channel);
-
-    if (cc->cc_number == PRESET_CC_NUMBER_UNUSED)
-        strcpy(cc_number_text, "---");
-    else
-        snprintf(cc_number_text, sizeof(cc_number_text), "%3u", cc->cc_number);
-
-    if (cc->value == PRESET_CC_VALUE_UNUSED)
-        strcpy(value_text, "---");
-    else
-        snprintf(value_text, sizeof(value_text), "%3u", cc->value);
-
-    snprintf(cc_label_text, sizeof(cc_label_text), "CC%u  ", (unsigned)(cc_index + 1U));
-
-    ST7796_WriteString32(draw_x,
-                         row_y,
-                         cc_label_text,
-                         MAIN_INFO_FONT,
-                         MAIN_INFO_TEXT_COLOUR,
-                         MAIN_INFO_TEXT_BG_COLOUR);
-    draw_x = (uint16_t)(draw_x + (strlen(cc_label_text) * MAIN_INFO_FONT.width));
+    Display_DrawMainInfoCcLabel(cc_index, row_y);
+    draw_x = (uint16_t)(draw_x + (MAIN_INFO_CC_LABEL_CHARS * MAIN_INFO_FONT.width));
 
     ST7796_WriteString32(draw_x,
                          row_y,
@@ -1042,13 +1080,7 @@ static void Display_DrawMainInfoCcRow(const Preset_t *preset,
                          MAIN_INFO_TEXT_COLOUR,
                          MAIN_INFO_TEXT_BG_COLOUR);
     draw_x = (uint16_t)(draw_x + (strlen(MAIN_INFO_CC_CHANNEL_PREFIX) * MAIN_INFO_FONT.width));
-
-    Display_DrawMainInfoCcField(preset,
-                                cc_index,
-                                DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL,
-                                row_y,
-                                highlight_channel);
-    draw_x = (uint16_t)(draw_x + (strlen(channel_text) * MAIN_INFO_FONT.width));
+    draw_x = (uint16_t)(draw_x + (MAIN_INFO_CC_CHANNEL_DIGITS * MAIN_INFO_FONT.width));
 
     ST7796_WriteString32(draw_x,
                          row_y,
@@ -1057,13 +1089,7 @@ static void Display_DrawMainInfoCcRow(const Preset_t *preset,
                          MAIN_INFO_TEXT_COLOUR,
                          MAIN_INFO_TEXT_BG_COLOUR);
     draw_x = (uint16_t)(draw_x + (strlen(MAIN_INFO_CC_NUMBER_PREFIX) * MAIN_INFO_FONT.width));
-
-    Display_DrawMainInfoCcField(preset,
-                                cc_index,
-                                DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER,
-                                row_y,
-                                highlight_cc_number);
-    draw_x = (uint16_t)(draw_x + (strlen(cc_number_text) * MAIN_INFO_FONT.width));
+    draw_x = (uint16_t)(draw_x + (MAIN_INFO_CC_VALUE_DIGITS * MAIN_INFO_FONT.width));
 
     ST7796_WriteString32(draw_x,
                          row_y,
@@ -1071,13 +1097,7 @@ static void Display_DrawMainInfoCcRow(const Preset_t *preset,
                          MAIN_INFO_FONT,
                          MAIN_INFO_TEXT_COLOUR,
                          MAIN_INFO_TEXT_BG_COLOUR);
-    draw_x = (uint16_t)(draw_x + (strlen(MAIN_INFO_CC_VALUE_PREFIX) * MAIN_INFO_FONT.width));
-
-    Display_DrawMainInfoCcField(preset,
-                                cc_index,
-                                DISPLAY_PRESET_EDIT_FIELD_CC_VALUE,
-                                row_y,
-                                highlight_value);
+    Display_DrawMainInfoCcFields(preset, cc_index, row_y);
 }
 
 static void Display_DrawMainInfoSpecialState(uint16_t row_y)
@@ -1143,6 +1163,48 @@ static void Display_DrawMainInfoRightRow(const Preset_t *preset,
         Display_DrawMainInfoSpecialState(row_y);
 }
 
+static void Display_DrawMainInfoRightRowsOnly(const Preset_t *preset,
+                                              uint8_t previous_right_first_item)
+{
+    uint16_t right_width = (uint16_t)(ST7796_WIDTH - MAIN_INFO_RIGHT_X);
+    uint8_t right_first_item = Display_GetMainInfoRightFirstItem();
+
+    for (uint8_t index = 0U; index < MAIN_INFO_ROW_COUNT; ++index)
+    {
+        uint8_t info_index = (uint8_t)(main_info_first_slot + index);
+        uint8_t previous_right_item_index = (uint8_t)(previous_right_first_item + index);
+        uint8_t right_item_index = (uint8_t)(right_first_item + index);
+        uint16_t row_y = main_info_row_y[index];
+
+        if (Display_GetMainInfoRightFirstItemRenderState(previous_right_item_index)
+            == Display_GetMainInfoRightFirstItemRenderState(right_item_index))
+        {
+            continue;
+        }
+
+        ST7796_DrawFilledRectangle(MAIN_INFO_RIGHT_X,
+                                   row_y,
+                                   right_width,
+                                   MAIN_INFO_FONT.height,
+                                   DISPLAY_BG_COLOUR);
+
+        if (info_index >= PRESET_DEVICE_SLOTS)
+            Display_DrawMainInfoCcRow(preset, (uint8_t)(info_index - PRESET_DEVICE_SLOTS), row_y);
+
+        Display_DrawMainInfoRightRow(preset, right_item_index, row_y);
+    }
+}
+
+static void Display_DrawMainInfoLeftRow(const Preset_t *preset,
+                                        uint8_t info_index,
+                                        uint16_t row_y)
+{
+    if (info_index < PRESET_DEVICE_SLOTS)
+        Display_DrawMainInfoProgramRow(preset, info_index, row_y);
+    else
+        Display_DrawMainInfoCcRow(preset, (uint8_t)(info_index - PRESET_DEVICE_SLOTS), row_y);
+}
+
 static void Display_DrawMainInfoRows(const Preset_t *preset)
 {
     uint8_t right_first_item = Display_GetMainInfoRightFirstItem();
@@ -1153,10 +1215,7 @@ static void Display_DrawMainInfoRows(const Preset_t *preset)
         uint16_t row_y = main_info_row_y[index];
         ST7796_DrawFilledRectangle(0U, row_y, ST7796_WIDTH, MAIN_INFO_FONT.height, DISPLAY_BG_COLOUR);
 
-        if (info_index < PRESET_DEVICE_SLOTS)
-            Display_DrawMainInfoProgramRow(preset, info_index, row_y);
-        else
-            Display_DrawMainInfoCcRow(preset, (uint8_t)(info_index - PRESET_DEVICE_SLOTS), row_y);
+        Display_DrawMainInfoLeftRow(preset, info_index, row_y);
 
         Display_DrawMainInfoRightRow(preset, (uint8_t)(right_first_item + index), row_y);
     }
@@ -1164,12 +1223,29 @@ static void Display_DrawMainInfoRows(const Preset_t *preset)
     Display_DrawMainInfoScrollIndicators();
 }
 
-static void Display_DrawMainInfoLeftRowsOnly(const Preset_t *preset)
+static void Display_DrawMainInfoLeftRowsOnly(const Preset_t *preset,
+                                             uint8_t previous_first_slot)
 {
     for (uint8_t index = 0U; index < MAIN_INFO_ROW_COUNT; ++index)
     {
+        uint8_t previous_info_index = (uint8_t)(previous_first_slot + index);
         uint8_t info_index = (uint8_t)(main_info_first_slot + index);
         uint16_t row_y = main_info_row_y[index];
+
+        if (previous_info_index < PRESET_DEVICE_SLOTS && info_index < PRESET_DEVICE_SLOTS)
+        {
+            Display_DrawMainInfoProgramRow(preset, info_index, row_y);
+            continue;
+        }
+
+        if (previous_info_index >= PRESET_DEVICE_SLOTS && info_index >= PRESET_DEVICE_SLOTS)
+        {
+            Display_DrawMainInfoCcLabel((uint8_t)(info_index - PRESET_DEVICE_SLOTS), row_y);
+            Display_DrawMainInfoCcFields(preset,
+                                         (uint8_t)(info_index - PRESET_DEVICE_SLOTS),
+                                         row_y);
+            continue;
+        }
 
         ST7796_DrawFilledRectangle(0U,
                                    row_y,
@@ -1177,10 +1253,7 @@ static void Display_DrawMainInfoLeftRowsOnly(const Preset_t *preset)
                                    MAIN_INFO_FONT.height,
                                    DISPLAY_BG_COLOUR);
 
-        if (info_index < PRESET_DEVICE_SLOTS)
-            Display_DrawMainInfoProgramRow(preset, info_index, row_y);
-        else
-            Display_DrawMainInfoCcRow(preset, (uint8_t)(info_index - PRESET_DEVICE_SLOTS), row_y);
+        Display_DrawMainInfoLeftRow(preset, info_index, row_y);
     }
 
     Display_DrawMainInfoScrollIndicators();
@@ -1238,10 +1311,12 @@ uint8_t Display_MainInfoScrollAndRefresh(const Preset_t *preset, int8_t delta)
     previous_right_first_item = Display_GetMainInfoRightFirstItemForFirstSlot(previous_first_slot);
     current_right_first_item = Display_GetMainInfoRightFirstItem();
 
-    if (previous_right_first_item == current_right_first_item)
-        Display_DrawMainInfoLeftRowsOnly(preset);
-    else
-        Display_DrawMainInfoRows(preset);
+    Display_DrawMainInfoLeftRowsOnly(preset, previous_first_slot);
+    if (Display_GetMainInfoRightFirstItemRenderState(previous_right_first_item)
+        != Display_GetMainInfoRightFirstItemRenderState(current_right_first_item))
+    {
+        Display_DrawMainInfoRightRowsOnly(preset, previous_right_first_item);
+    }
 
     return 1U;
 }
@@ -1371,11 +1446,15 @@ uint8_t Display_PresetEditMoveCursorAndRefresh(const Preset_t *preset, int8_t de
         previous_right_first_item = Display_GetMainInfoRightFirstItemForFirstSlot(previous_first_slot);
         current_right_first_item = Display_GetMainInfoRightFirstItem();
 
-        if ((previous_right_first_item == current_right_first_item)
-            && (current_right_first_item == 0U))
-        {
-            Display_DrawMainInfoLeftRowsOnly(preset);
+        Display_DrawMainInfoLeftRowsOnly(preset, previous_first_slot);
 
+        if (Display_GetMainInfoRightFirstItemRenderState(previous_right_first_item)
+            != Display_GetMainInfoRightFirstItemRenderState(current_right_first_item))
+        {
+            Display_DrawMainInfoRightRowsOnly(preset, previous_right_first_item);
+        }
+        else
+        {
             if (previous_field.type == DISPLAY_PRESET_EDIT_FIELD_RELAY
                 && previous_field.itemIndex >= current_right_first_item
                 && previous_field.itemIndex < (uint8_t)(current_right_first_item + MAIN_INFO_ROW_COUNT))
@@ -1395,10 +1474,6 @@ uint8_t Display_PresetEditMoveCursorAndRefresh(const Preset_t *preset, int8_t de
                                                main_info_row_y[next_field.itemIndex - current_right_first_item],
                                                1U);
             }
-        }
-        else
-        {
-            Display_DrawMainInfoRows(preset);
         }
         return 1U;
     }

@@ -10,7 +10,11 @@ BUG: Change Tap Tempo Led to PF_14 as per pinout
 Add: FX Mute function while in EDIT mode to A/B wet / dry sound
 Add: 
 
-
+Add: Use flash storage upon exiting edit mode
+add: "init device" instead of delete device (easy to just set all parameters to 0xFF)
+Add: Popup "saving..." while code is unresponsive (busy writing to flash)
+Add: ENC1. Enter / Send function -  maybe it suffices to add note in documentation
+Add: Use level CC to "bypass" Wet / Dry Bank presets
 Add: Relay functions ( i know the pins are a little short, but testing must be done)
 Add: Menu layout file
 Add: LEDs
