@@ -68,6 +68,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/midi_functions.c
     Core/Src/midi_devices.c
     Core/Src/presets.c
+    User/Src/runtime_config.c
     # ST7796 display driver
     Drivers/ST7796/st7796.c
     Drivers/ST7796/fonts.c
@@ -82,6 +83,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # ST7796 driver headers
     Drivers/ST7796
+    User/Inc
 )
 
 # Add project symbols (macros)

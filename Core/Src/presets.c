@@ -1,6 +1,7 @@
 #include "presets.h"
 #include "button_functions.h"
 #include "display_functions.h"
+#include "led_functions.h"
 #include "midi_devices.h"
 #include "midi_functions.h"
 #include "bpm_functions.h"
@@ -21,15 +22,37 @@
 #define PRESET_PROGRAM_LIST_8(p0, p1, p2, p3, p4, p5, p6, p7) { PRESET_PROGRAM_SLOT(p0), PRESET_PROGRAM_SLOT(p1), PRESET_PROGRAM_SLOT(p2), PRESET_PROGRAM_SLOT(p3), PRESET_PROGRAM_SLOT(p4), PRESET_PROGRAM_SLOT(p5), PRESET_PROGRAM_SLOT(p6), PRESET_PROGRAM_SLOT(p7) } /* eight-slot Program Change initializer matching preset/device slot order */
 #define PRESET_PROGRAM_LIST_EMPTY PRESET_PROGRAM_LIST_8(PRESET_PROGRAM_NONE, PRESET_PROGRAM_NONE, PRESET_PROGRAM_NONE, PRESET_PROGRAM_NONE, PRESET_PROGRAM_NONE, PRESET_PROGRAM_NONE, PRESET_PROGRAM_NONE, PRESET_PROGRAM_NONE) /* initializer for presets with no program changes */
 #define PRESET_ROW(name, programs, cc_slots, relay1, relay2) { name, programs, cc_slots, { relay1, relay2 } } /* compact row helper for the static preset table */
+#define PRESET_ROW_EMPTY(name) PRESET_ROW(name, PRESET_PROGRAM_LIST_EMPTY, PRESET_CC_LIST_EMPTY, PRESET_RELAY_OPEN, PRESET_RELAY_OPEN) /* blank preset row used for placeholder banks */
+#define PRESET_BANK_EMPTY { PRESET_ROW_EMPTY("Preset 1"), PRESET_ROW_EMPTY("Preset 2"), PRESET_ROW_EMPTY("Preset 3"), PRESET_ROW_EMPTY("Preset 4"), PRESET_ROW_EMPTY("Preset 5"), PRESET_ROW_EMPTY("Preset 6"), PRESET_ROW_EMPTY("Preset 7"), PRESET_ROW_EMPTY("Preset 8") } /* eight blank presets so future banks are immediately editable */
+#define PRESET_FLASH_ADDR           0x08100000UL /* flash address where the persisted preset store starts (sector 12) */
+#define PRESET_FLASH_SECTOR         FLASH_SECTOR_12 /* dedicated flash sector reserved for preset persistence */
+#define PRESET_FLASH_SIZE_BYTES     (128UL * 1024UL) /* size of one reserved preset-persistence sector */
+#define PRESET_FLASH_MAGIC_V1       0x50525331UL /* 'PRS1' */
+#define PRESET_FLASH_VERSION        1UL /* version for the persisted preset image layout */
 #define PRESET_RANDOM_LCG_SEED                0x6D2B79F5UL /* initial state for the random-preset pseudo-random generator */
 #define PRESET_RANDOM_LCG_MULTIPLIER          1664525UL /* LCG multiplier used when generating random preset programs */
 #define PRESET_RANDOM_LCG_INCREMENT           1013904223UL /* LCG increment used when generating random preset programs */
+
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t bank_count;
+    uint32_t presets_per_bank;
+    uint32_t preset_count;
+    uint32_t payload_size;
+    uint32_t checksum;
+    uint32_t reserved;
+} PresetFlashHeader_t;
 
 const char * const bank_names[PRESET_BANK_COUNT] = {
     "[Strain I]",
     "[Strain II]",
     "[Strain III]",
-    "[Strain IV]"
+    "[Strain IV]",
+    "[Strain V]",
+    "[Strain VI]",
+    "[Strain VII]",
+    "[Strain VIII]"
 };
 
 const char *Presets_GetBankName(uint8_t bank)
@@ -908,10 +931,129 @@ static const Preset_t preset_table[PRESET_BANK_COUNT][PRESETS_PER_BANK] = {
             PRESET_RELAY_OPEN  /* Relay 2 */
         ),
     },
+    PRESET_BANK_EMPTY,
+    PRESET_BANK_EMPTY,
+    PRESET_BANK_EMPTY,
+    PRESET_BANK_EMPTY,
 };
 
 static Preset_t preset_store[PRESET_COUNT];
 static uint8_t preset_store_initialized = 0U;
+static uint8_t preset_store_dirty = 0U;
+
+static uint32_t Presets_FlashChecksum(const uint8_t *data, size_t size)
+{
+    uint32_t hash = 2166136261UL;
+
+    for (size_t index = 0U; index < size; ++index)
+    {
+        hash ^= data[index];
+        hash *= 16777619UL;
+    }
+
+    return hash;
+}
+
+static uint8_t Presets_FlashHeaderIsValid(const PresetFlashHeader_t *header)
+{
+    if (!header)
+        return 0U;
+
+    return (header->magic == PRESET_FLASH_MAGIC_V1
+         && header->version == PRESET_FLASH_VERSION
+         && header->bank_count == PRESET_BANK_COUNT
+         && header->presets_per_bank == PRESETS_PER_BANK
+         && header->preset_count == PRESET_COUNT
+         && header->payload_size == sizeof(preset_store)) ? 1U : 0U;
+}
+
+static uint8_t Presets_FlashLoadRuntimeStore(void)
+{
+    const PresetFlashHeader_t *header = (const PresetFlashHeader_t *)PRESET_FLASH_ADDR;
+    const uint8_t *payload = (const uint8_t *)(PRESET_FLASH_ADDR + sizeof(PresetFlashHeader_t));
+
+    if (!Presets_FlashHeaderIsValid(header))
+        return 0U;
+
+    if (Presets_FlashChecksum(payload, sizeof(preset_store)) != header->checksum)
+        return 0U;
+
+    memcpy(preset_store, payload, sizeof(preset_store));
+    return 1U;
+}
+
+static uint8_t Presets_FlashProgramBuffer(uint32_t address,
+                                          const uint8_t *data,
+                                          size_t size)
+{
+    for (size_t offset = 0U; offset < size; offset += sizeof(uint32_t))
+    {
+        uint32_t word = 0xFFFFFFFFUL;
+        size_t chunk = size - offset;
+
+        if (chunk > sizeof(uint32_t))
+            chunk = sizeof(uint32_t);
+
+        memcpy(&word, data + offset, chunk);
+        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, address + offset, word) != HAL_OK)
+            return 0U;
+    }
+
+    return 1U;
+}
+
+static uint8_t Presets_FlashSaveRuntimeStore(void)
+{
+    FLASH_EraseInitTypeDef erase = {0};
+    PresetFlashHeader_t header;
+    uint32_t sector_error = 0U;
+    uint8_t saved = 0U;
+
+    if ((sizeof(PresetFlashHeader_t) + sizeof(preset_store)) > PRESET_FLASH_SIZE_BYTES)
+        return 0U;
+
+    header.magic = PRESET_FLASH_MAGIC_V1;
+    header.version = PRESET_FLASH_VERSION;
+    header.bank_count = PRESET_BANK_COUNT;
+    header.presets_per_bank = PRESETS_PER_BANK;
+    header.preset_count = PRESET_COUNT;
+    header.payload_size = sizeof(preset_store);
+    header.checksum = Presets_FlashChecksum((const uint8_t *)preset_store, sizeof(preset_store));
+    header.reserved = 0U;
+
+    if (HAL_FLASH_Unlock() != HAL_OK)
+        return 0U;
+
+#if defined(FLASH_FLAG_RDERR)
+    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR | FLASH_FLAG_RDERR);
+#else
+    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
+#endif
+
+    erase.TypeErase = FLASH_TYPEERASE_SECTORS;
+    erase.VoltageRange = FLASH_VOLTAGE_RANGE_3;
+    erase.Sector = PRESET_FLASH_SECTOR;
+    erase.NbSectors = 1U;
+
+    if (HAL_FLASHEx_Erase(&erase, &sector_error) != HAL_OK)
+        goto done;
+
+    if (!Presets_FlashProgramBuffer(PRESET_FLASH_ADDR,
+                                    (const uint8_t *)&header,
+                                    sizeof(header)))
+        goto done;
+
+    if (!Presets_FlashProgramBuffer(PRESET_FLASH_ADDR + sizeof(PresetFlashHeader_t),
+                                    (const uint8_t *)preset_store,
+                                    sizeof(preset_store)))
+        goto done;
+
+    saved = 1U;
+
+done:
+    HAL_FLASH_Lock();
+    return saved;
+}
 
 static void Presets_EnsureRuntimeStore(void)
 {
@@ -919,7 +1061,9 @@ static void Presets_EnsureRuntimeStore(void)
         return;
 
     memcpy(preset_store, preset_table, sizeof(preset_store));
+    Presets_FlashLoadRuntimeStore();
     preset_store_initialized = 1U;
+    preset_store_dirty = 0U;
 }
 
 /* Fallback returned when index is out of range.
@@ -1053,6 +1197,33 @@ Preset_t *Presets_GetMutable(uint8_t index)
         return NULL;
 
     return &preset_store[index];
+}
+
+void Presets_MarkDirty(void)
+{
+    Presets_EnsureRuntimeStore();
+    preset_store_dirty = 1U;
+}
+
+uint8_t Presets_IsDirty(void)
+{
+    Presets_EnsureRuntimeStore();
+    return preset_store_dirty;
+}
+
+uint8_t Presets_SaveIfDirty(void)
+{
+    Presets_EnsureRuntimeStore();
+
+    if (!preset_store_dirty)
+        return 1U;
+
+    if (!Presets_FlashSaveRuntimeStore())
+        return 0U;
+
+    preset_store_dirty = 0U;
+    LED_FlashPulse();
+    return 1U;
 }
 
 uint8_t Presets_Count(void)

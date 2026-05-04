@@ -13,7 +13,7 @@ extern "C" {
  * preset footswitches. PRESET_COUNT remains the flat total used by the
  * current activation and persistence logic. */
 #define PRESETS_PER_BANK     8U  /* number of numbered preset footswitch slots in each bank */
-#define PRESET_BANK_COUNT    4U  /* number of banks compiled into the preset table */
+#define PRESET_BANK_COUNT    8U  /* number of banks compiled into the preset table */
 #define PRESET_COUNT         (PRESETS_PER_BANK * PRESET_BANK_COUNT) /* total flat preset count across all banks */
 #define PRESET_BANK_NAME_MAXLEN  16U /* maximum displayed character width reserved for a bank name */
 #define PRESET_NAME_LENGTH   20U /* editable/displayed character count for preset names, excluding the trailing NUL */
@@ -104,6 +104,23 @@ const Preset_t *Presets_Get(uint8_t index);
  *         Returns NULL if @p index is out of range.
  */
 Preset_t *Presets_GetMutable(uint8_t index);
+
+/**
+ * @brief  Mark the runtime preset store dirty after an edit.
+ */
+void Presets_MarkDirty(void);
+
+/**
+ * @brief  Report whether the runtime preset store has unsaved edits.
+ * @return 1 when a preset save is pending, 0 otherwise.
+ */
+uint8_t Presets_IsDirty(void);
+
+/**
+ * @brief  Save the runtime preset store to flash when dirty.
+ * @return 1 if the store is now persisted or did not need saving, 0 on write failure.
+ */
+uint8_t Presets_SaveIfDirty(void);
 
 /**
  * @brief  Return the number of presets defined in the table.

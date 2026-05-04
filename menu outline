@@ -1,43 +1,234 @@
-MSettings menu structure: 
+Main Menu specification
 
-EDIT menu (each increment of ENC 1 will advance one position)
+Goal
+- Add a dedicated MENU mode without overloading the existing LIVE / EDIT screens.
+- Keep operation two-handed and visible: ENC1 = navigation / enter, ENC3 = value / back, ENC2 SW = dedicated home / confirm action where needed.
+- Avoid a popup. MENU mode should rewrite the whole content area under the header.
 
-    1.1 "Name"                                                          // blink underscore as cursor and use "value" rotary encoder input to scroll through all 20 character positions. pressing the encoder button enters letter scrolling mode for that positoin. Use "value" encoder to cycle through letters, numbers and special characters. Pressing the encoder button again saves the letter and moves the cursor to the next position. If the user scrolls past the last character position, it should loop back to the first position. If the user scrolls back before the first character position, it should loop to the last position.
-    1.2 "Chx Programm"                                                  // blink value and let user use the "value" rotary encoder to scroll through all available midi programs for the selected midi device. Pressing the encoder button saves the selected program and exits the menu item. If the user scrolls past the last program, it should loop back to the first program. If the user scrolls back before the first program, it should loop to the last program.
-    1.3 "Chx Programm"                                                   // same as 1.2 but for the second midi device specified in the struct
-    1.4 "Chx Programm"                                          // same as 1.2 but for the third midi device specified in the struct   
-    1.5 CCx | Value 
-    1.5 (contiune if more midi devices are specified in the struct)
-    1.6 "Relay 1"                                                       // blink value and let user use the "value" rotary encoder to scroll through all available relay functions. Pressing the encoder button saves the selected function and exits the menu item. If the user scrolls past the last function, it should loop back to the first function. If the user scrolls back before the first function, it should loop to the last function.
-    1.7 "Relay 2"                                                       // same as 1.6 but for the second relay specified in the struct                                          
+Display concept
+- MENU mode removes BPM and transport from the header area.
+- Header uses a yellow badge with black text, same visual language as EDIT.
+- Background stays black unless a later page proves it needs a panel treatment.
+- Footer gets menu-specific labels.
+- Standard menu pages use a simple scrollable list.
+- Dense message editor pages get their own layout and do not try to stay inside the generic list page.
 
-Main Menu
+Header badges
+- MENU
+- BANKS
+- BANK 1 .. BANK 8
+- BANK EDIT
+- FUNCTION BTN
+- ACTIVE MSG
+- INACTIVE MSG
+- DEVICES
+- DEVICE 1 .. DEVICE 8
+- GLOBAL
+- CONFIRM
 
-    2.1 "Name"                                                          // blink underscore as cursor and use "value" rotary encoder input to scroll through all 20 character positions. pressing the encoder button enters letter scrolling mode for that positoin. Use "value" encoder to cycle through letters, numbers and special characters. Pressing the encoder button again saves the letter and moves the cursor to the next position. If the user scrolls past the last character position, it should loop back to the first position. If the user scrolls back before the first character position, it should loop to the last position.
-    2.2 "Special Functions Button"   
-    2.1.1 "Name"                                                        // blink underscore as cursor and use "value" rotary encoder input to scroll through 4 character positions. pressing the encoder button enters letter scrolling mode for that positoin. Use "value" encoder to cycle through letters, numbers and special characters. Pressing the encoder button again saves the letter and moves the cursor to the next position. If the user scrolls past the last character position, it should loop back to the first position. If the user scrolls back before the first character position, it should loop to the last position.
-    2.2.1 "Channel"                                                     // blink value and let user use the "value" rotary encoder to scroll through all available midi channels (1-16). Pressing the encoder button saves the selected channel and exits the menu item. If the user scrolls past channel 16, it should loop back to channel 1. If the user scrolls back before channel 1, it should loop to channel 16.
-    2.2.2 "Active Value"                                                // blink value and let user use the "value" rotary encoder to scroll through all possible values for the selected function. Pressing the encoder button saves the selected value and exits the menu item. If the user scrolls past the maximum value, it should loop back to the minimum value. If the user scrolls back before the minimum value, it should loop to the maximum value.
-    2.2.3 "Inactive Value"                                              // blink value and let user use the "value" rotary encoder to scroll through all possible values for the selected function. Pressing the encoder button saves the selected value and exits the menu item. If the user scrolls past the maximum value, it should loop back to the minimum value. If the user scrolls back before the minimum value, it should loop to the maximum value.
-    
-    3.1 "Devices"                                                       
-    3.2 "Startup Time"                                                  // blink value and let user use the "value" rotary encoder to scroll through a range of possible startup times (e.g. 0-60 seconds). Pressing the encoder button saves the selected time and exits the menu item. If the user scrolls past the maximum time, it should loop back to the minimum time. If the user scrolls back before the minimum time, it should loop to the maximum time.
-    3.3 "Screensaver"                                                   // blink value and let user use the "value" rotary encoder to scroll through available screensaver timeout value in minutes. Pressing the encoder button saves the selected option and exits the menu item. If the user scrolls past the last option, it should loop back to the first option. If the user scrolls back before the first option, it should loop to the last option.
-    3.4 "Brightness"                                                    // blink value and let user use the "value" rotary encoder to scroll through brightness levels (e.g. 1-10). Pressing the encoder button saves the selected level and exits the menu item. If the user scrolls past the maximum level, it should loop back to the minimum level. If the user scrolls back before the minimum level, it should loop to the maximum level. 
+Footer behavior
+- Default menu footer:
+	left  = NAV / ENTER
+	center = HOME
+	right = VALUE / BACK
+- Confirmation footer:
+	left  = blank
+	center = YES
+	right = NO
 
-    3.1.1 "Add Device                                                   // pressing the encoder button adds a new device to the struct and creates a new menu item for it under "Devices". The new device should be initialized with default values (e.g. name: "New", midi channel: 1, preset number: 1, CC active value: 127, CC bypass value: 0, bypass preset: 1, mute preset: 1). If the user scrolls past the maximum number of devices allowed (e.g. 8), it should loop back to the first device. If the user scrolls back before the first device, it should loop to the last device.
-    3.1.2 "Device 1"                                                    // pressing the encoder button enters the next submenu item level for that device, where the user can edit the device's settings such as name, midi channel, preset number, CC active value, CC bypass value, bypass preset and mute preset. If the user scrolls past the last device, it should loop back to the first device. If the user scrolls back before the first device, it should loop to the last device.
-    3.1.3 "Device 2"                                                    // same as 3.1.2 but for the second device specified in the struct
-    3.1.4 "Device 3"                                                    // same as 3.1.2 but for the third device specified in the struct                                                
+Control model
+- ENC2 SW enters MENU from LIVE.
+- ENC1 turn moves the cursor within the current list or page.
+- ENC1 press enters the selected submenu or starts editing the selected field.
+- ENC3 turn changes the selected value when the current row is a leaf field.
+- ENC3 SW backs out one level.
+- ENC2 SW acts as HOME inside MENU pages.
+- ENC2 SW acts as YES on confirmation screens.
 
+Working assumption for HOME
+- HOME returns to the top-level Main Menu, not directly back to LIVE.
+- Exiting MENU entirely can still be done by backing out from Main Menu.
 
-    3.1.x.1 "Name"                                                      // blink underscore as cursor and use "value" rotary encoder input to scroll through 4 character positions. pressing the encoder button enters letter scrolling mode for that positoin. Use "value" encoder to cycle through letters, numbers and special characters. Pressing the encoder button again saves the letter and moves the cursor to the next position. If the user scrolls past the last character position, it should loop back to the first position. If the user scrolls back before the first character position, it should loop to the last position.
-    3.1.x.2 "Midi Channel"                                              // blink value and let user use the "value" rotary encoder to scroll through all available midi channels (1-16). Pressing the encoder button saves the selected channel and exits the menu item. If the user scrolls past channel 16, it should loop back to channel 1. If the user scrolls back before channel 1, it should loop to channel 16.
-    3.1.x.3 "Preset Number"                                             // blink value and let user use the "value" rotary encoder to set the number of available presets (0-127) for the selected midi device. Pressing the encoder button saves the selected preset and exits the menu item. If the user scrolls past the last preset, it should loop back to the first preset. If the user scrolls back before the first preset, it should loop to the last preset.
-    3.1.x.4 "CC active / bypass"                                        // blink value and let user use the "value" rotary encoder to set the CC to toggle "Active" and "Bypass" mode for the selected midi device. Pressing the encoder button saves the selected CC and exits the menu item. If the user scrolls past the maximum CC number (127), it should loop back to CC 0. If the user scrolls back before CC 0, it should loop to CC 127. 
-    3.1.x.5 "Active Value"                                              // blink value and let user use the "value" rotary encoder to set the value for the active state of the selected midi device. Pressing the encoder button saves the selected value and exits the menu item. If the user scrolls past the maximum value, it should loop back to the minimum value. If the user scrolls back before the minimum value, it should loop to the maximum value.  
-    3.1.x.6 "Bypass Value"                                              // blink value and let user use the "value" rotary encoder to set the value for the bypass state of the selected midi device. Pressing the encoder button saves the selected value and exits the menu item. If the user scrolls past the maximum value, it should loop back to the minimum value. If the user scrolls back before the minimum value, it should loop to the maximum value.
-    3.1.x.7 "Bypass Preset"                                             // blink value and let user use the "value" rotary encoder to set the preset number (0-127) that will be activated when the selected midi device is in bypass mode. Pressing the encoder button saves the selected preset and exits the menu item. If the user scrolls past the last preset, it should loop back to the first preset. If the user scrolls back before the first preset, it should loop to the last preset.
-    3.1.x.8 "Mute Preset"                                               // blink value and let user use the "value" rotary encoder to set the preset number (0-127) that will be activated when the selected midi device is muted. Pressing the encoder button saves the selected preset and exits the menu item. If the user scrolls past the last preset, it should loop back to the first preset. If the user scrolls back before the first preset, it should loop to the last preset.
-    3.1.x.9 "Delete Device"                                             // pressing the encoder button deletes the device from the struct and removes its menu item from the "Devices" submenu. If the user scrolls past the last device, it should loop back to the first device. If the user scrolls back before the first device, it should loop to the last device.
-    3.1.x.9.1 "Confirm Delete"                                          // blink value and let user use the "value" rotary encoder to scroll through options "Yes" and "No". Pressing the encoder button on "Yes" confirms the deletion of the device, while pressing it on "No" cancels the deletion and returns to the previous menu item. If the user scrolls past "No", it should loop back to "Yes". If the user scrolls back before "Yes", it should loop to "No".
+Main Menu tree
+- Banks
+- Devices
+- Global
+
+Banks branch
+- BANKS page is a scroll list:
+	- Bank 1
+	- Bank 2
+	- Bank 3
+	- Bank 4
+	- Bank 5
+	- Bank 6
+	- Bank 7
+	- Bank 8
+- Selecting a bank opens that bank's edit space.
+- Working assumption: selecting a bank in MENU chooses the target bank for editing only and does not force LIVE mode to switch to that bank immediately.
+
+Bank Edit page
+- Bank Name
+- Wet / Dry
+- Function Button
+
+Bank Edit fields
+- Bank Name
+	- Smaller-font text editing.
+	- Limit: 12 characters.
+- Wet / Dry
+	- Toggle: Yes / No.
+	- If enabled, LIVE mode shows a small W/D badge after the bank name.
+	- Badge style: charcoal background, black text.
+- Function Button
+	- Opens its own submenu.
+
+Function Button submenu
+- Name
+- Active Label
+- Inactive Label
+- Active Messages
+- Inactive Messages
+
+Function Button fields
+- Name
+	- Smaller-font text editing.
+	- Limit: 6 characters.
+	- Current default example: Vita.
+- Active Label
+	- Smaller-font text editing.
+	- Limit: 6 characters.
+	- Current default example: undead.
+- Inactive Label
+	- Smaller-font text editing.
+	- Limit: 6 characters.
+	- Current default example: dead.
+
+Function Button message pages
+- Active Messages and Inactive Messages each get a dedicated dense page.
+- Each page contains 8 rows total.
+- Rows 1-4: arbitrary Program Change messages
+	- Format: CH: --  PRG: ---
+- Rows 5-8: arbitrary CC messages
+	- Format: CH: --  CC: ---  VAL: ---
+- These messages are not tied to configured devices.
+- Any MIDI channel is valid as long as it is a Program Change or CC message.
+- Keep explicit unused sentinel behavior so rows can be blank.
+
+Devices branch
+- DEVICES page is a scroll list:
+	- Device 1
+	- Device 2
+	- Device 3
+	- Device 4
+	- Device 5
+	- Device 6
+	- Device 7
+	- Device 8
+- Empty devices still stay visible.
+
+Device Edit page
+- Name
+- Max Preset Number
+- Channel
+- Active CC
+- Bypass CC
+- Level CC
+- Tap-SW CC
+- Init Device
+
+Device Edit fields
+- Name
+	- Smaller-font text editing.
+	- Limit: 4 characters.
+	- Intended to replace CH n prefixes in LIVE mode when non-empty.
+	- Example display target: ECHO: or VERB: instead of CH 1:.
+- Max Preset Number
+	- Range: 1-127.
+- Channel
+	- Range: 1-16.
+	- If Name is empty, LIVE mode falls back to CH n: formatting.
+	- Channel must update the actual runtime device definition.
+- Active CC
+	- Format: CC: ---  VAL: ---
+- Bypass CC
+	- Format: CC: ---  VAL: ---
+- Level CC
+	- Format: CC: ---  VAL: ---
+- Tap-SW CC
+	- Format: CC: ---  VAL: ---
+- Init Device
+	- Resets the device config to unused defaults.
+	- Requires confirmation.
+
+Init Device confirmation page
+- Header badge: CONFIRM
+- Body text example: INIT DEVICE 3?
+- ENC2 SW = YES
+- ENC3 SW = NO
+- This avoids accidental confirmation from normal back-button mashing.
+
+Global branch
+- Startup Delay
+- Screen Saver
+- Sync Style
+- Brightness
+
+Global fields
+- Startup Delay
+	- Range: 0-60 sec.
+	- Purpose: wait for slower pedals to boot before normal behavior is expected.
+- Screen Saver
+	- Range: 1-60 min.
+- Sync Style
+	- Options:
+		- MIDI clock
+		- Tap Tempo CC
+	- MIDI clock:
+		- Tap switch calculates tempo.
+		- Firmware sends MIDI clock to pedals.
+	- Tap Tempo CC:
+		- Firmware does not send MIDI clock.
+		- Firmware sends each device's configured Tap-SW CC instead.
+		- Intended as fallback for pedals that react badly to MIDI clock jitter.
+- Brightness
+	- Range: 0-255.
+
+Apply / save model
+- Global settings apply immediately.
+- Device edits save on leaving the device submenu.
+- Bank edits save on leaving the bank submenu.
+- Function Button edits save on leaving that submenu.
+- Dense message pages save on leaving that page or its parent submenu.
+
+Implementation constraints and notes
+- This work changes data ownership in multiple places:
+	- fixed bank names -> editable bank config
+	- fixed device definitions -> editable runtime device config
+	- fixed function-button labels/messages -> editable config
+	- fixed global constants -> editable runtime settings
+- The safe path is incremental, not one large merge.
+
+Staged rollout plan
+- Phase 1: configuration model only
+	- Add runtime config structs for banks, devices, function button, and globals.
+	- Seed them from current fixed defaults.
+- Phase 2: live lookups
+	- Route LIVE rendering and runtime behavior through config accessors.
+	- Preserve current visible behavior.
+- Phase 3: persistence
+	- Persist the new config data with versioned flash storage.
+	- Verify migration from defaults works cleanly.
+- Phase 4: menu shell
+	- Add MENU mode, header badge, footer labels, list-page drawing, and navigation only.
+- Phase 5: simple editors
+	- Bank name, Wet / Dry, device name, channel, max preset, globals.
+- Phase 6: dense editors and confirmations
+	- Function Button Active / Inactive Messages.
+	- Init Device confirmation flow.
+
+Open items to revisit during implementation
+- Exact number of visible rows on standard menu pages.
+- Exact font choice for dense message pages.
+- Whether HOME from Main Menu returns to LIVE immediately or requires one more back step.
+

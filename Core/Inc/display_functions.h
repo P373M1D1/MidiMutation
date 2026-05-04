@@ -54,6 +54,8 @@ uint8_t Display_PresetEditMoveCursor(int8_t delta);
 uint8_t Display_PresetEditMoveCursorAndRefresh(const Preset_t *p, int8_t delta);
 DisplayPresetEditField_t Display_PresetEditGetField(void);
 void Display_PresetEditRefreshCurrentField(const Preset_t *p);
+void Display_ShowSavingPopup(void);
+void Display_HideSavingPopup(const Preset_t *p);
 
 /* ── Screensaver (backlight idle mode) ───────────────────────────────────── */
 

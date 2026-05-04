@@ -413,12 +413,21 @@ static uint8_t PresetEdit_Enter(void)
 
 static void PresetEdit_Exit(void)
 {
+  const Preset_t *current_preset = active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK);
+
   if (!Display_PresetEditIsActive())
     return;
 
   Display_PresetEditExit();
   Display_ScreensaverActivity();
-  Display_RefreshPresetEditMode(active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
+  Display_RefreshPresetEditMode(current_preset, g_bpm);
+
+  if (Presets_IsDirty())
+  {
+    Display_ShowSavingPopup();
+    Presets_SaveIfDirty();
+    Display_HideSavingPopup(current_preset);
+  }
 }
 
 /* ENC3 press behaves like popping a small edit stack: leave per-character name
@@ -1422,7 +1431,10 @@ static void TempoEncoder_ProcessPending(void)
     }
 
     if (PresetEdit_ApplyDelta(pending_delta))
+    {
+      Presets_MarkDirty();
       Display_PresetEditRefreshCurrentField(active_preset);
+    }
     return;
   }
 

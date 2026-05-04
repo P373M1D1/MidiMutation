@@ -142,20 +142,26 @@ void Display_BL_FadeOut(void)
 #define MAIN_INFO_CC_CHANNEL_PREFIX    "CH: "              // label shown ahead of the CC channel value
 #define MAIN_INFO_CC_NUMBER_PREFIX     " CC: "             // label shown ahead of the CC number value
 #define MAIN_INFO_CC_VALUE_PREFIX      " Value: "          // label shown ahead of the CC value
-#define MAIN_INFO_EDIT_INITIAL_PROGRAM_COUNT 3U             // the first three program slots stay on the first page before relay editing
 #define MAIN_INFO_EDIT_FIELD_COUNT     (1U + PRESET_DEVICE_SLOTS + PRESET_RELAY_COUNT + (PRESET_CC_SLOT_COUNT * 3U)) // number of editable fields in preset edit mode, including the preset name
 #define MAIN_INFO_SHARED_PAD_CHARS     2U                   // extra chars cleared when special-function text shrinks
 #define MAIN_UNUSED_PROGRAM            0xFFU                // sentinel meaning no MIDI program is assigned to that slot
 #define MAIN_EMPTY_RIGHT_INFO_TEXT     "                "   // blank filler used to clear an unused right-side row
+#define MAIN_SAVING_POPUP_TEXT         " SAVING "          // temporary overlay shown while preset edits are being committed to flash
+#define MAIN_SAVING_POPUP_BG_COLOUR    WHITE             // background behind the saving overlay
+#define MAIN_SAVING_POPUP_TEXT_COLOUR  BLACK                // text colour for the saving overlay
+#define MAIN_SAVING_POPUP_ROW_INDEX    1U                   // center the saving overlay on the middle info row
 #define MAIN_SCROLL_INDICATOR_X        8U                   // x position of the device-list scroll indicator triangles
 #define MAIN_SCROLL_INDICATOR_W        9U                   // width of the scroll indicator triangles
 #define MAIN_SCROLL_INDICATOR_H        5U                   // height of the scroll indicator triangles
 #define MAIN_SCROLL_INDICATOR_COLOUR   MAIN_INFO_TEXT_COLOUR // colour of the up/down scroll indicators
 #define MAIN_MODE_HEADER_TEXT_Y        10U                  // y position of the centered LIVE/EDIT mode label at the top of the screen
 #define MAIN_MODE_HEADER_TEXT_CHARS    4U                   // width reserved for the centered top mode label
+#define MAIN_MODE_HEADER_EDIT_TEXT_CHARS 6U                 // wider badge width for EDIT so the yellow background has one padded cell on each side
+#define MAIN_MODE_HEADER_MAX_TEXT_CHARS  MAIN_MODE_HEADER_EDIT_TEXT_CHARS // widest header badge footprint that must be cleared between mode changes
 #define MAIN_MODE_HEADER_FONT          MAIN_FOOTBAR_FONT    // font used for the top mode label
 #define MAIN_MODE_HEADER_COLOUR        WHITE                // text colour for the LIVE/EDIT mode label
-#define MAIN_MODE_HEADER_EDIT_COLOUR   YELLOW               // text colour for the EDIT mode label
+#define MAIN_MODE_HEADER_EDIT_COLOUR   BLACK               // text colour for the EDIT mode label
+#define MAIN_MODE_HEADER_EDIT_BG_COLOUR YELLOW              // background colour behind the EDIT mode label for contrast
 #define MAIN_PRESET_TEXT_Y             85U                  // y position of the large preset name line
 #define MAIN_PRESET_TEXT_CHARS         20U                  // fixed character width used when centering preset names
 #define MAIN_PRESET_FONT               Font_Consolas23x49   // large font for the preset name
@@ -204,6 +210,7 @@ static uint8_t preset_name_edit_cursor_index = 0U;
 static uint8_t preset_name_full_refresh_pending = 0U;
 static uint8_t preset_name_last_render_length = 0U;
 static uint8_t preset_name_last_pad_left = 0U;
+static uint8_t saving_popup_visible = 0U;
 
 #define BPM_DISPLAY_AREA_X              280U                 // left edge of the rectangle reserved for BPM text updates
 #define BPM_DISPLAY_AREA_W              200U                 // width of the rectangle reserved for BPM text updates
@@ -269,14 +276,14 @@ static DisplayPresetEditField_t Display_GetPresetEditFieldForCursor(uint8_t curs
     }
 
     cursor_index = (uint8_t)(cursor_index - 1U);
-    if (cursor_index < MAIN_INFO_EDIT_INITIAL_PROGRAM_COUNT)
+    if (cursor_index < PRESET_DEVICE_SLOTS)
     {
         field.type = DISPLAY_PRESET_EDIT_FIELD_PROGRAM;
         field.itemIndex = cursor_index;
         return field;
     }
 
-    cursor_index = (uint8_t)(cursor_index - MAIN_INFO_EDIT_INITIAL_PROGRAM_COUNT);
+    cursor_index = (uint8_t)(cursor_index - PRESET_DEVICE_SLOTS);
     if (cursor_index < PRESET_RELAY_COUNT)
     {
         field.type = DISPLAY_PRESET_EDIT_FIELD_RELAY;
@@ -285,14 +292,6 @@ static DisplayPresetEditField_t Display_GetPresetEditFieldForCursor(uint8_t curs
     }
 
     cursor_index = (uint8_t)(cursor_index - PRESET_RELAY_COUNT);
-    if (cursor_index < (PRESET_DEVICE_SLOTS - MAIN_INFO_EDIT_INITIAL_PROGRAM_COUNT))
-    {
-        field.type = DISPLAY_PRESET_EDIT_FIELD_PROGRAM;
-        field.itemIndex = (uint8_t)(MAIN_INFO_EDIT_INITIAL_PROGRAM_COUNT + cursor_index);
-        return field;
-    }
-
-    cursor_index = (uint8_t)(cursor_index - (PRESET_DEVICE_SLOTS - MAIN_INFO_EDIT_INITIAL_PROGRAM_COUNT));
     field.itemIndex = (uint8_t)(cursor_index / 3U);
 
     switch (cursor_index % 3U)
@@ -327,7 +326,11 @@ static uint8_t Display_GetPresetEditScrollFirstSlot(uint8_t cursor_index)
     }
 
     if (field.type == DISPLAY_PRESET_EDIT_FIELD_RELAY)
-        return 0U;
+    {
+        return (PRESET_DEVICE_SLOTS > MAIN_INFO_ROW_COUNT)
+            ? (uint8_t)(PRESET_DEVICE_SLOTS - MAIN_INFO_ROW_COUNT)
+            : 0U;
+    }
 
     return (uint8_t)((PRESET_DEVICE_SLOTS - (MAIN_INFO_ROW_COUNT - 1U)) + field.itemIndex);
 }
@@ -716,11 +719,12 @@ static void Display_DrawFootbar(void)
     }
 }
 
-static void Display_WriteCenteredPaddedText32(uint16_t y,
-                                              const char *text,
-                                              uint8_t width_chars,
-                                              FontDef32 font,
-                                              uint16_t colour)
+static void Display_WriteCenteredPaddedText32WithBackground(uint16_t y,
+                                                            const char *text,
+                                                            uint8_t width_chars,
+                                                            FontDef32 font,
+                                                            uint16_t colour,
+                                                            uint16_t background)
 {
     char padded[MAIN_PRESET_TEXT_CHARS + 1U];
     size_t max_chars = (size_t)width_chars;
@@ -736,16 +740,40 @@ static void Display_WriteCenteredPaddedText32(uint16_t y,
                          padded,
                          font,
                          colour,
-                         DISPLAY_BG_COLOUR);
+                         background);
+}
+
+static void Display_WriteCenteredPaddedText32(uint16_t y,
+                                              const char *text,
+                                              uint8_t width_chars,
+                                              FontDef32 font,
+                                              uint16_t colour)
+{
+    Display_WriteCenteredPaddedText32WithBackground(y,
+                                                    text,
+                                                    width_chars,
+                                                    font,
+                                                    colour,
+                                                    DISPLAY_BG_COLOUR);
 }
 
 static void Display_DrawMainModeHeader(void)
 {
-    Display_WriteCenteredPaddedText32(MAIN_MODE_HEADER_TEXT_Y,
-                                      preset_edit_mode_active ? "EDIT" : "LIVE",
-                                      MAIN_MODE_HEADER_TEXT_CHARS,
-                                      MAIN_MODE_HEADER_FONT,
-                                      preset_edit_mode_active ? MAIN_MODE_HEADER_EDIT_COLOUR : MAIN_MODE_HEADER_COLOUR);
+    uint16_t clear_w = (uint16_t)(MAIN_MODE_HEADER_MAX_TEXT_CHARS * MAIN_MODE_HEADER_FONT.width);
+    uint16_t clear_x = (uint16_t)((ST7796_WIDTH - clear_w) / 2U);
+
+    ST7796_DrawFilledRectangle(clear_x,
+                               MAIN_MODE_HEADER_TEXT_Y,
+                               clear_w,
+                               MAIN_MODE_HEADER_FONT.height,
+                               DISPLAY_BG_COLOUR);
+
+    Display_WriteCenteredPaddedText32WithBackground(MAIN_MODE_HEADER_TEXT_Y,
+                                                    preset_edit_mode_active ? "EDIT" : "LIVE",
+                                                    preset_edit_mode_active ? MAIN_MODE_HEADER_EDIT_TEXT_CHARS : MAIN_MODE_HEADER_TEXT_CHARS,
+                                                    MAIN_MODE_HEADER_FONT,
+                                                    preset_edit_mode_active ? MAIN_MODE_HEADER_EDIT_COLOUR : MAIN_MODE_HEADER_COLOUR,
+                                                    preset_edit_mode_active ? MAIN_MODE_HEADER_EDIT_BG_COLOUR : DISPLAY_BG_COLOUR);
 }
 
 static void Display_DrawPresetName(const Preset_t *preset)
@@ -1221,6 +1249,44 @@ static void Display_DrawMainInfoRows(const Preset_t *preset)
     }
 
     Display_DrawMainInfoScrollIndicators();
+}
+
+static void Display_DrawSavingPopup(void)
+{
+    uint16_t popup_w = (uint16_t)(strlen(MAIN_SAVING_POPUP_TEXT) * MAIN_INFO_FONT.width);
+    uint16_t popup_x = (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
+    uint16_t popup_y = main_info_row_y[MAIN_SAVING_POPUP_ROW_INDEX];
+
+    ST7796_DrawFilledRectangle(popup_x,
+                               popup_y,
+                               popup_w,
+                               MAIN_INFO_FONT.height,
+                               MAIN_SAVING_POPUP_BG_COLOUR);
+    ST7796_WriteString32(popup_x,
+                         popup_y,
+                         MAIN_SAVING_POPUP_TEXT,
+                         MAIN_INFO_FONT,
+                         MAIN_SAVING_POPUP_TEXT_COLOUR,
+                         MAIN_SAVING_POPUP_BG_COLOUR);
+}
+
+void Display_ShowSavingPopup(void)
+{
+    saving_popup_visible = 1U;
+    Display_DrawSavingPopup();
+}
+
+void Display_HideSavingPopup(const Preset_t *preset)
+{
+    if (!saving_popup_visible)
+        return;
+
+    saving_popup_visible = 0U;
+
+    if (!preset)
+        return;
+
+    Display_DrawMainInfoRows(preset);
 }
 
 static void Display_DrawMainInfoLeftRowsOnly(const Preset_t *preset,
