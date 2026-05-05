@@ -951,7 +951,7 @@ static uint8_t Presets_FlashHeaderV2IsValid(const PersistentStoreHeaderV2_t *hea
          && header->presets_per_bank == PRESETS_PER_BANK
          && header->preset_count == PRESET_COUNT
          && header->payload_size == sizeof(preset_store)
-         && header->config_size == sizeof(RuntimeConfig_t)
+            && header->config_size > 0U
          && ((sizeof(PersistentStoreHeaderV2_t)
             + header->payload_size
             + header->config_size) <= PERSISTENT_STORE_FLASH_SIZE_BYTES)) ? 1U : 0U;

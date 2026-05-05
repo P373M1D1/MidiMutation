@@ -14,7 +14,10 @@ extern "C" {
 #define RUNTIME_CONFIG_FUNCTION_BUTTON_LABEL_LENGTH   6U
 #define RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT  4U
 #define RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT       4U
-#define RUNTIME_CONFIG_DEVICE_NAME_LENGTH             4U
+#define RUNTIME_CONFIG_DEVICE_NAME_LENGTH             6U
+#define RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_DEFAULT   4U
+#define RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MIN       1U
+#define RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX       64U
 
 typedef enum {
     RUNTIME_CONFIG_SYNC_STYLE_MIDI_CLOCK = 0,
@@ -40,6 +43,7 @@ typedef struct {
     char name[RUNTIME_CONFIG_BANK_NAME_LENGTH + 1U];
     uint8_t wet_dry_enabled;
     RuntimeConfigFunctionButton_t function_button;
+    uint8_t midi_clock_bar_count;
 } RuntimeConfigBank_t;
 
 typedef struct {

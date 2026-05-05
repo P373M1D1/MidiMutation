@@ -1,6 +1,7 @@
 #include "midi_functions.h"
 #include "led_functions.h"
 #include "main.h"
+#include "runtime_config.h"
 
 /* ── midi_functions.c ────────────────────────────────────────────────────────
  *
@@ -51,7 +52,6 @@ static UART_HandleTypeDef midi_input_uart;
 #define MIDI_BPM_X10_ROUNDING_OFFSET       5U           /* convert x10 BPM to integer BPM with round-half-up */
 
 #define MIDI_CLOCK_BPM_WINDOW_PULSES 96U               /* average over four quarter notes at 24 ppqn */
-#define MIDI_BARBEAT_BARS_PER_CYCLE 4U                 /* transport display cycles bars 1..4 */
 #define MIDI_BARBEAT_BEATS_PER_BAR 4U                  /* quarter-note beats per bar */
 #define MIDI_CLOCK_LOST_TIMEOUT_MIN_MS 250U            /* never declare sync lost faster than this */
 #define MIDI_CLOCK_LOST_TIMEOUT_PAD_MS 20U             /* extra slack on top of the computed timeout */
@@ -97,6 +97,19 @@ static void               midi_input_service_thru_tx(void);
 static uint8_t            midi_clock_external_is_active(void);
 static void               midi_output_send_realtime_byte(uint8_t byte);
 static uint8_t            midi_input_is_sync_byte(uint8_t byte);
+static uint8_t            midi_clock_get_bars_per_cycle(void);
+
+static uint8_t midi_clock_get_bars_per_cycle(void)
+{
+    const RuntimeConfigBank_t *bank = RuntimeConfig_GetBank(current_bank);
+    uint8_t bars_per_cycle = bank->midi_clock_bar_count;
+
+    if (bars_per_cycle < RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MIN
+     || bars_per_cycle > RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX)
+        return RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_DEFAULT;
+
+    return bars_per_cycle;
+}
 
 static void midi_uart_apply_standard_config(UART_HandleTypeDef *uart_handle,
                                             USART_TypeDef *instance,
@@ -490,8 +503,10 @@ void MidiReceive(uint8_t byte)
         }
         else
         {
+            uint8_t bars_per_cycle = midi_clock_get_bars_per_cycle();
+
             midi_barbeat_beat = 1U;
-            midi_barbeat_bar = (midi_barbeat_bar < MIDI_BARBEAT_BARS_PER_CYCLE)
+            midi_barbeat_bar = (midi_barbeat_bar < bars_per_cycle)
                 ? (uint8_t)(midi_barbeat_bar + 1U)
                 : 1U;
         }

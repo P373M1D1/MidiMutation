@@ -4,21 +4,16 @@ Change: Flash stogare to RTC and use Vbat to protectr storage from failure / or 
 Change: Move PA_4 initialisation back to main.cpp
 
 Bug: Random Preset button needs debouncing. Can be pressed multiple times so flag won't work. (others can't ba activated mutliple times)
-BUG: Change Tap Tempo Led to PF_14 as per pinout
-
 
 Add: FX Mute function while in EDIT mode to A/B wet / dry sound
-
-DONE Add: Use flash storage upon exiting edit mode
-add: "init device" instead of delete device (easy to just set all parameters to 0xFF)
-DONE Add: Popup "saving..." while code is unresponsive (busy writing to flash)
 Add: ENC1. Enter / Send function -  maybe it suffices to add note in documentation
 Add: Use level CC to "bypass" Wet / Dry Bank presets
-Add: Relay functions ( i know the pins are a little short, but testing must be done)
-Add: Menu layout file
+Add: Relay functions (I know the pins are a little short, but testing must be done)
 Add: LEDs
 Add: Copy Midi out (UART4) to two more UART TX
-DONE Add: FIUnd a way to show usused preset numbers when setting up new presets / showing used presets instead is much more sensible
-DONE Add scroll down enrtire Set so CCs can also be displayed while scrolling down. 
 Add another special Functuion button
 Add. Caps to reduce voltage spikes in Midi channel comms
+Add: 6 letter Device names
+Add: make init device middle centered and give it red highlight colour
+Add: small black outline for "saving" popup so it stands out against white BG
+Add: remove flash storage of current used preset and bpm tempo. I need rerliable midi clock!

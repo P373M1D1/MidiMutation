@@ -23,6 +23,36 @@
 #define RUNTIME_CONFIG_DEVICE_CC_UNUSED \
     { .cc = PRESET_CC_NUMBER_UNUSED, .value = 0U }
 
+#define RUNTIME_CONFIG_DEVICE_NAME_LENGTH_LEGACY_V2   4U
+
+typedef struct {
+    char name[RUNTIME_CONFIG_BANK_NAME_LENGTH + 1U];
+    uint8_t wet_dry_enabled;
+    RuntimeConfigFunctionButton_t function_button;
+} RuntimeConfigBankLegacyV2_t;
+
+typedef struct {
+    char name[RUNTIME_CONFIG_DEVICE_NAME_LENGTH_LEGACY_V2 + 1U];
+    uint8_t channel;
+    MidiCC_t active;
+    MidiCC_t bypass;
+    MidiCC_t level;
+    MidiCC_t tap_tempo;
+    uint8_t max_preset;
+} RuntimeConfigDeviceLegacyV2_t;
+
+typedef struct {
+    RuntimeConfigBankLegacyV2_t banks[PRESET_BANK_COUNT];
+    RuntimeConfigDeviceLegacyV2_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigGlobal_t global;
+} RuntimeConfigLegacyV2_t;
+
+typedef struct {
+    RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
+    RuntimeConfigDeviceLegacyV2_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigGlobal_t global;
+} RuntimeConfigLegacyV3_t;
+
 #define RUNTIME_CONFIG_FUNCTION_BUTTON_DEFAULT \
     { \
         .name = "Vita", \
@@ -39,6 +69,7 @@
         .name = name_literal, \
         .wet_dry_enabled = 0U, \
         .function_button = RUNTIME_CONFIG_FUNCTION_BUTTON_DEFAULT, \
+        .midi_clock_bar_count = RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_DEFAULT, \
     }
 
 #define RUNTIME_CONFIG_DEVICE_ENTRY(name_literal, channel_value, active_cc_value, active_data_value, bypass_cc_value, bypass_data_value, tap_cc_value, tap_data_value, max_preset_value) \
@@ -56,6 +87,7 @@ static const RuntimeConfigBank_t runtime_config_blank_bank = {
     .name = RUNTIME_CONFIG_INVALID_BANK_NAME,
     .wet_dry_enabled = 0U,
     .function_button = RUNTIME_CONFIG_FUNCTION_BUTTON_DEFAULT,
+    .midi_clock_bar_count = RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_DEFAULT,
 };
 
 static const RuntimeConfigDevice_t runtime_config_blank_device = {
@@ -101,6 +133,85 @@ static RuntimeConfig_t runtime_config_store;
 static uint8_t runtime_config_initialized = 0U;
 static uint8_t runtime_config_dirty = 0U;
 
+static void RuntimeConfig_CopyLegacyDevice(RuntimeConfigDevice_t *destination,
+                                           const RuntimeConfigDeviceLegacyV2_t *source)
+{
+    if (!destination || !source)
+        return;
+
+    memset(destination->name, 0, sizeof(destination->name));
+    memcpy(destination->name, source->name, sizeof(source->name));
+    destination->channel = source->channel;
+    destination->active = source->active;
+    destination->bypass = source->bypass;
+    destination->level = source->level;
+    destination->tap_tempo = source->tap_tempo;
+    destination->max_preset = source->max_preset;
+}
+
+static uint8_t RuntimeConfig_FlashHeaderV2HasSupportedConfigSize(uint32_t config_size)
+{
+    return (config_size == sizeof(RuntimeConfig_t)
+         || config_size == sizeof(RuntimeConfigLegacyV3_t)
+         || config_size == sizeof(RuntimeConfigLegacyV2_t)) ? 1U : 0U;
+}
+
+static uint8_t RuntimeConfig_NormalizeMidiClockBarCount(uint8_t bar_count)
+{
+    if (bar_count < RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MIN
+     || bar_count > RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX)
+        return RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_DEFAULT;
+
+    return bar_count;
+}
+
+static void RuntimeConfig_NormalizeLoadedStore(void)
+{
+    for (uint8_t bank_index = 0U; bank_index < PRESET_BANK_COUNT; ++bank_index)
+    {
+        runtime_config_store.banks[bank_index].midi_clock_bar_count = RuntimeConfig_NormalizeMidiClockBarCount(
+            runtime_config_store.banks[bank_index].midi_clock_bar_count);
+    }
+}
+
+static void RuntimeConfig_ApplyLegacyV2Snapshot(const RuntimeConfigLegacyV2_t *legacy_store)
+{
+    if (!legacy_store)
+        return;
+
+    for (uint8_t bank_index = 0U; bank_index < PRESET_BANK_COUNT; ++bank_index)
+    {
+        memcpy(runtime_config_store.banks[bank_index].name,
+               legacy_store->banks[bank_index].name,
+               sizeof(runtime_config_store.banks[bank_index].name));
+        runtime_config_store.banks[bank_index].wet_dry_enabled = legacy_store->banks[bank_index].wet_dry_enabled;
+        runtime_config_store.banks[bank_index].function_button = legacy_store->banks[bank_index].function_button;
+        runtime_config_store.banks[bank_index].midi_clock_bar_count = RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_DEFAULT;
+    }
+
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDevice(&runtime_config_store.devices[device_index],
+                                       &legacy_store->devices[device_index]);
+
+    runtime_config_store.global = legacy_store->global;
+}
+
+static void RuntimeConfig_ApplyLegacyV3Snapshot(const RuntimeConfigLegacyV3_t *legacy_store)
+{
+    if (!legacy_store)
+        return;
+
+    memcpy(runtime_config_store.banks,
+           legacy_store->banks,
+           sizeof(runtime_config_store.banks));
+
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDevice(&runtime_config_store.devices[device_index],
+                                       &legacy_store->devices[device_index]);
+
+    runtime_config_store.global = legacy_store->global;
+}
+
 static uint32_t RuntimeConfig_FlashChecksum(const uint8_t *data, size_t size)
 {
     uint32_t hash = 2166136261UL;
@@ -127,7 +238,7 @@ static uint8_t RuntimeConfig_FlashHeaderV2IsValid(const PersistentStoreHeaderV2_
      || header->presets_per_bank != PRESETS_PER_BANK
      || header->preset_count != PRESET_COUNT
      || header->payload_size != preset_payload_size
-     || header->config_size != sizeof(RuntimeConfig_t))
+      || !RuntimeConfig_FlashHeaderV2HasSupportedConfigSize(header->config_size))
         return 0U;
 
     return ((sizeof(PersistentStoreHeaderV2_t)
@@ -147,10 +258,27 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
                                      + sizeof(PersistentStoreHeaderV2_t)
                                      + header->payload_size);
 
-    if (RuntimeConfig_FlashChecksum(config_payload, sizeof(RuntimeConfig_t)) != header->config_checksum)
+    if (RuntimeConfig_FlashChecksum(config_payload, header->config_size) != header->config_checksum)
         return;
 
-    memcpy(&runtime_config_store, config_payload, sizeof(runtime_config_store));
+    if (header->config_size == sizeof(runtime_config_store))
+        memcpy(&runtime_config_store, config_payload, sizeof(runtime_config_store));
+    else if (header->config_size == sizeof(RuntimeConfigLegacyV3_t))
+    {
+        RuntimeConfigLegacyV3_t legacy_store;
+
+        memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+        RuntimeConfig_ApplyLegacyV3Snapshot(&legacy_store);
+    }
+    else
+    {
+        RuntimeConfigLegacyV2_t legacy_store;
+
+        memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+        RuntimeConfig_ApplyLegacyV2Snapshot(&legacy_store);
+    }
+
+    RuntimeConfig_NormalizeLoadedStore();
 }
 
 static void RuntimeConfig_EnsureInitialized(void)

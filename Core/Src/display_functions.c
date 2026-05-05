@@ -149,7 +149,7 @@ void Display_BL_FadeOut(void)
 #define MAIN_FOOTBAR_CONFIRM_CENTER_TEXT "YES"                    // center footer label while a confirm page is active
 #define MAIN_FOOTBAR_CONFIRM_RIGHT_TEXT "NO"                      // right footer label while a confirm page is active
 #define MAIN_INFO_LEFT_X               30U                  // x origin of the left info column (MIDI programs)
-#define MAIN_INFO_RIGHT_X              220U                 // x origin of the right info column (relay / special state)
+#define MAIN_INFO_RIGHT_X              235U                 // x origin of the right info column (relay / special state), shifted right by one glyph cell
 #define MAIN_INFO_FONT                 Font_Consolas15x35   // font used for bank text, BPM text, and info rows
 #define MAIN_INFO_TEXT_COLOUR          CHARCOAL            // normal text colour for info rows
 #define MAIN_INFO_TEXT_BG_COLOUR       DISPLAY_BG_COLOUR    // background colour behind normal info text
@@ -213,8 +213,11 @@ void Display_BL_FadeOut(void)
 #define MENU_ROOT_ITEM_COUNT            3U                   // number of top-level entries currently shown in the menu shell
 #define MENU_VISIBLE_ROW_COUNT          4U                   // number of menu rows visible at one time in the current shell layout
 #define MENU_GLOBAL_ITEM_COUNT          4U                   // number of editable global-setting rows currently implemented
-#define MENU_BANK_EDIT_ITEM_COUNT       3U                   // number of items on the bank edit page
-#define MENU_FUNCTION_BUTTON_ITEM_COUNT 5U                   // number of items in the function-button submenu
+#define MENU_BANK_EDIT_ITEM_COUNT       4U                   // number of items on the bank edit page
+#define MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT 3U              // number of editable text rows before the compare table starts
+#define MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT // first logical row index of the compare table
+#define MENU_FUNCTION_BUTTON_CC_FIRST_INDEX (MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX + RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT) // first logical row index of the CC compare section
+#define MENU_FUNCTION_BUTTON_ITEM_COUNT (MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT + MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT) // total rows in the combined function-button editor page
 #define MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT (RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT + RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT) // total rows shown on the dense function-button message pages
 #define MENU_DEVICE_EDIT_ITEM_COUNT     8U                   // number of items on the device edit page
 #define MENU_ITEM_X                     24U                  // left edge of the menu row content area
@@ -263,7 +266,7 @@ static uint32_t bpm_display_external_update_tick = 0U;
 static char bpm_display_internal_text[8] = "";
 static char bpm_display_external_text[14] = "";
 static uint16_t bpm_display_internal_head_x = 0U;
-static char transport_barbeat_text[4] = "";
+static char transport_barbeat_text[5] = "";
 static uint8_t main_info_first_slot = 0U;
 static uint8_t preset_edit_mode_active = 0U;
 static uint8_t preset_edit_cursor_index = 0U;
@@ -293,7 +296,7 @@ static DisplayMenuPage_t menu_last_drawn_page = DISPLAY_MENU_PAGE_ROOT;
 static DisplayMenuTextField_t menu_text_edit_field = DISPLAY_MENU_TEXT_FIELD_NONE;
 static uint8_t menu_text_edit_cursor_index = 0U;
 static uint8_t menu_draw_state_valid = 0U;
-static const char menu_text_edit_charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 []()/-.&+";
+static const char menu_text_edit_charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ";
 
 #define BPM_DISPLAY_AREA_X              280U                 // left edge of the rectangle reserved for BPM text updates
 #define BPM_DISPLAY_AREA_W              200U                 // width of the rectangle reserved for BPM text updates
@@ -326,7 +329,7 @@ static const char menu_text_edit_charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh
 
 #define TRANSPORT_BARBEAT_TEXT_X        10U                  // top-left x position for bar.beat transport readout
 #define TRANSPORT_BARBEAT_TEXT_Y        7U                   // top-left y position for bar.beat transport readout
-#define TRANSPORT_BARBEAT_TEXT_CHARS    3U                   // fixed width for values like "1.1" or "-.-"
+#define TRANSPORT_BARBEAT_TEXT_CHARS    4U                   // fixed width for values like "64.4" or "-.-"
 #define TRANSPORT_BARBEAT_TEXT_W        (TRANSPORT_BARBEAT_TEXT_CHARS * MAIN_PRESET_FONT.width) // clear/update width of bar.beat readout
 #define TRANSPORT_BARBEAT_TEXT_COLOUR   MAIN_PRESET_COLOUR   // use preset font colour as requested
 
@@ -600,17 +603,33 @@ static void Display_UpdateTransportBarBeat(void)
     uint8_t beat;
     uint8_t external_signal_present;
     uint8_t sync_lost;
-    char next_text[4];
+    char next_text[5];
 
     external_signal_present = MidiClockIsExternalSignalPresent();
     sync_lost = MidiClockIsSyncLost();
 
     if (MidiClockGetBarBeat(&bar, &beat))
     {
-        next_text[0] = (char)('0' + bar);
-        next_text[1] = '.';
-        next_text[2] = (char)('0' + beat);
-        next_text[3] = '\0';
+        if (bar > RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX)
+            bar = RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX;
+        if (beat > 9U)
+            beat = 9U;
+
+        if (bar >= 10U)
+        {
+            next_text[0] = (char)('0' + (bar / 10U));
+            next_text[1] = (char)('0' + (bar % 10U));
+            next_text[2] = '.';
+            next_text[3] = (char)('0' + beat);
+            next_text[4] = '\0';
+        }
+        else
+        {
+            next_text[0] = (char)('0' + bar);
+            next_text[1] = '.';
+            next_text[2] = (char)('0' + beat);
+            next_text[3] = '\0';
+        }
     }
     else if (external_signal_present || sync_lost)
     {
@@ -942,9 +961,8 @@ static const char *Display_GetMenuHeaderTextForPage(DisplayMenuPage_t page, char
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON:
         return "FUNC BTN";
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES:
-        return "ACT MSG";
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES:
-        return "INACT MSG";
+        return "FUNC BTN";
     case DISPLAY_MENU_PAGE_DEVICES:
         return "DEVICES";
     case DISPLAY_MENU_PAGE_DEVICE_EDIT:
@@ -1083,6 +1101,22 @@ static uint8_t Display_GetMenuFirstVisibleIndex(uint8_t item_count, uint8_t sele
         selected_index = (uint8_t)(item_count - 1U);
 
     return (uint8_t)(selected_index - (MENU_VISIBLE_ROW_COUNT - 1U));
+}
+
+static uint8_t Display_GetVisibleWindowStart(uint8_t item_count,
+                                             uint8_t selected_index,
+                                             uint8_t visible_count)
+{
+    if (visible_count == 0U || item_count <= visible_count)
+        return 0U;
+
+    if (selected_index >= item_count)
+        selected_index = (uint8_t)(item_count - 1U);
+
+    if (selected_index < visible_count)
+        return 0U;
+
+    return (uint8_t)(selected_index - (visible_count - 1U));
 }
 
 static DisplayMenuTextField_t Display_GetMenuTextFieldForSelection(void)
@@ -1274,13 +1308,132 @@ static uint8_t Display_MenuAdjustTextCharacter(int8_t delta)
 
 static uint8_t Display_MenuFunctionButtonMessagePageIsActive(void)
 {
-    return (menu_page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES
-         || menu_page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES) ? 1U : 0U;
+    return (menu_page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON
+         && menu_function_button_selection_index >= MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX) ? 1U : 0U;
 }
 
 static uint8_t Display_GetFunctionButtonMessageFieldCount(uint8_t row_index)
 {
-    return (row_index < RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT) ? 2U : 3U;
+    return (row_index < RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT) ? 4U : 6U;
+}
+
+static uint8_t Display_GetFunctionButtonFocusFieldCount(uint8_t selection_index)
+{
+    if (selection_index < MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX)
+        return 1U;
+
+    return Display_GetFunctionButtonMessageFieldCount((uint8_t)(selection_index - MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX));
+}
+
+static uint16_t Display_GetFunctionButtonFocusCount(void)
+{
+    uint16_t focus_count = 0U;
+
+    for (uint8_t selection_index = 0U; selection_index < MENU_FUNCTION_BUTTON_ITEM_COUNT; ++selection_index)
+        focus_count = (uint16_t)(focus_count + Display_GetFunctionButtonFocusFieldCount(selection_index));
+
+    return focus_count;
+}
+
+static uint16_t Display_GetFunctionButtonFocusIndex(void)
+{
+    uint16_t focus_index = 0U;
+
+    for (uint8_t selection_index = 0U; selection_index < menu_function_button_selection_index; ++selection_index)
+        focus_index = (uint16_t)(focus_index + Display_GetFunctionButtonFocusFieldCount(selection_index));
+
+    if (Display_MenuFunctionButtonMessagePageIsActive())
+    {
+        uint8_t field_count = Display_GetFunctionButtonFocusFieldCount(menu_function_button_selection_index);
+
+        if (menu_function_button_message_field_index >= field_count)
+            menu_function_button_message_field_index = 0U;
+
+        focus_index = (uint16_t)(focus_index + menu_function_button_message_field_index);
+    }
+
+    return focus_index;
+}
+
+static void Display_SetFunctionButtonFocusIndex(uint16_t focus_index)
+{
+    for (uint8_t selection_index = 0U; selection_index < MENU_FUNCTION_BUTTON_ITEM_COUNT; ++selection_index)
+    {
+        uint8_t field_count = Display_GetFunctionButtonFocusFieldCount(selection_index);
+
+        if (focus_index < field_count)
+        {
+            menu_function_button_selection_index = selection_index;
+            menu_function_button_message_field_index = (selection_index < MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX)
+                ? 0U
+                : (uint8_t)focus_index;
+            return;
+        }
+
+        focus_index = (uint16_t)(focus_index - field_count);
+    }
+
+    menu_function_button_selection_index = (uint8_t)(MENU_FUNCTION_BUTTON_ITEM_COUNT - 1U);
+    menu_function_button_message_field_index = (uint8_t)(Display_GetFunctionButtonFocusFieldCount(menu_function_button_selection_index) - 1U);
+}
+
+static uint8_t Display_GetDeviceEditFocusFieldCount(uint8_t selection_index)
+{
+    return (selection_index >= 3U && selection_index <= 6U) ? 2U : 1U;
+}
+
+static uint16_t Display_GetDeviceEditFocusCount(void)
+{
+    uint16_t focus_count = 0U;
+
+    for (uint8_t selection_index = 0U; selection_index < MENU_DEVICE_EDIT_ITEM_COUNT; ++selection_index)
+        focus_count = (uint16_t)(focus_count + Display_GetDeviceEditFocusFieldCount(selection_index));
+
+    return focus_count;
+}
+
+static uint16_t Display_GetDeviceEditFocusIndex(void)
+{
+    uint16_t focus_index = 0U;
+
+    for (uint8_t selection_index = 0U; selection_index < menu_device_edit_selection_index; ++selection_index)
+        focus_index = (uint16_t)(focus_index + Display_GetDeviceEditFocusFieldCount(selection_index));
+
+    if (menu_page == DISPLAY_MENU_PAGE_DEVICE_EDIT
+     && menu_device_edit_selection_index >= 3U
+     && menu_device_edit_selection_index <= 6U)
+    {
+        uint8_t field_count = Display_GetDeviceEditFocusFieldCount(menu_device_edit_selection_index);
+
+        if (menu_device_cc_field_index >= field_count)
+            menu_device_cc_field_index = 0U;
+
+        focus_index = (uint16_t)(focus_index + menu_device_cc_field_index);
+    }
+
+    return focus_index;
+}
+
+static void Display_SetDeviceEditFocusIndex(uint16_t focus_index)
+{
+    for (uint8_t selection_index = 0U; selection_index < MENU_DEVICE_EDIT_ITEM_COUNT; ++selection_index)
+    {
+        uint8_t field_count = Display_GetDeviceEditFocusFieldCount(selection_index);
+
+        if (focus_index < field_count)
+        {
+            menu_device_edit_selection_index = selection_index;
+            menu_device_cc_field_index = (selection_index >= 3U && selection_index <= 6U)
+                ? (uint8_t)focus_index
+                : 0U;
+            return;
+        }
+
+        focus_index = (uint16_t)(focus_index - field_count);
+    }
+
+    menu_device_edit_selection_index = (uint8_t)(MENU_DEVICE_EDIT_ITEM_COUNT - 1U);
+    menu_device_cc_field_index = 0U;
 }
 
 static void Display_FormatMenuOptionalField(char *buffer,
@@ -1339,6 +1492,34 @@ static uint16_t Display_GetMenuRightAlignedValueX(const char *value)
     size_t value_length = value ? strlen(value) : 0U;
 
     return (uint16_t)(ST7796_WIDTH - MENU_ITEM_X - ((uint16_t)value_length * MAIN_INFO_FONT.width));
+}
+
+static void Display_DrawMenuTextSegment32(uint16_t x,
+                                          uint16_t row_y,
+                                          const char *text,
+                                          uint8_t highlighted)
+{
+    size_t text_length = text ? strlen(text) : 0U;
+    uint16_t segment_bg;
+    uint16_t segment_fg;
+
+    if (text_length == 0U)
+        return;
+
+    segment_bg = Display_GetMenuRowBackgroundColour(highlighted);
+    segment_fg = Display_GetMenuRowForegroundColour(highlighted);
+
+    ST7796_DrawFilledRectangle(x,
+                               row_y,
+                               (uint16_t)(text_length * MAIN_INFO_FONT.width),
+                               MAIN_INFO_FONT.height,
+                               segment_bg);
+    ST7796_WriteString32(x,
+                         row_y,
+                         text,
+                         MAIN_INFO_FONT,
+                         segment_fg,
+                         segment_bg);
 }
 
 static uint16_t Display_WriteMenuValueSegment32(uint16_t x,
@@ -1443,9 +1624,9 @@ static void Display_DrawMenuRow(uint16_t row_y,
                                 const char *value,
                                 uint8_t selected)
 {
-    uint16_t row_bg = Display_GetMenuRowBackgroundColour(selected);
-    uint16_t row_fg = Display_GetMenuRowForegroundColour(selected);
     uint16_t value_x = MENU_ITEM_X;
+    uint8_t highlight_value = (selected && value && value[0] != '\0') ? 1U : 0U;
+    uint8_t highlight_label = (selected && !highlight_value) ? 1U : 0U;
 
     ST7796_DrawFilledRectangle(0U,
                                row_y,
@@ -1453,29 +1634,19 @@ static void Display_DrawMenuRow(uint16_t row_y,
                                MAIN_INFO_FONT.height,
                                DISPLAY_BG_COLOUR);
 
-    ST7796_DrawFilledRectangle(MENU_ITEM_X,
-                               row_y,
-                               MENU_ITEM_W,
-                               MAIN_INFO_FONT.height,
-                               row_bg);
-
-    ST7796_WriteString32(MENU_ITEM_X,
-                         row_y,
-                         label,
-                         MAIN_INFO_FONT,
-                         row_fg,
-                         row_bg);
+    Display_DrawMenuTextSegment32(MENU_ITEM_X,
+                                  row_y,
+                                  label,
+                                  highlight_label);
 
     if (!value || value[0] == '\0')
         return;
 
     value_x = Display_GetMenuRightAlignedValueX(value);
-    ST7796_WriteString32(value_x,
-                         row_y,
-                         value,
-                         MAIN_INFO_FONT,
-                         row_fg,
-                         row_bg);
+    Display_DrawMenuTextSegment32(value_x,
+                                  row_y,
+                                  value,
+                                  highlight_value);
 }
 
 static void Display_DrawMenuRowValueOnly(uint16_t row_y,
@@ -1483,8 +1654,6 @@ static void Display_DrawMenuRowValueOnly(uint16_t row_y,
                                          const char *value,
                                          uint8_t selected)
 {
-    uint16_t row_bg = Display_GetMenuRowBackgroundColour(selected);
-    uint16_t row_fg = Display_GetMenuRowForegroundColour(selected);
     uint16_t value_clear_x = MENU_ITEM_X;
     uint16_t value_x;
     size_t label_length = label ? strlen(label) : 0U;
@@ -1501,7 +1670,7 @@ static void Display_DrawMenuRowValueOnly(uint16_t row_y,
                                row_y,
                                (uint16_t)(row_right_x - value_clear_x),
                                MAIN_INFO_FONT.height,
-                               row_bg);
+                               DISPLAY_BG_COLOUR);
 
     if (!value || value[0] == '\0')
         return;
@@ -1510,12 +1679,10 @@ static void Display_DrawMenuRowValueOnly(uint16_t row_y,
     if (value_x < value_clear_x)
         value_x = value_clear_x;
 
-    ST7796_WriteString32(value_x,
-                         row_y,
-                         value,
-                         MAIN_INFO_FONT,
-                         row_fg,
-                         row_bg);
+    Display_DrawMenuTextSegment32(value_x,
+                                  row_y,
+                                  value,
+                                  selected);
 }
 
 static void Display_DrawMainModeHeader(void)
@@ -1568,13 +1735,32 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
     const MidiDevice_t *device = MidiDevices_Get(slot_index);
     const char *device_name = MidiDevices_GetName(slot_index);
     uint8_t channel = device ? device->channel : MAIN_UNUSED_PROGRAM;
-    uint16_t prefix_px;
+    uint16_t prefix_chars = (uint16_t)(((RUNTIME_CONFIG_DEVICE_NAME_LENGTH + 2U) > strlen("CH 16: "))
+        ? (RUNTIME_CONFIG_DEVICE_NAME_LENGTH + 2U)
+        : strlen("CH 16: "));
+    uint16_t value_x;
+
+    value_x = (uint16_t)(MAIN_INFO_LEFT_X
+                       + (prefix_chars * MAIN_INFO_FONT.width));
 
     if (channel == MAIN_UNUSED_PROGRAM)
     {
+        (void)snprintf(prefix, sizeof(prefix), "CH -:");
+        for (size_t prefix_len = strlen(prefix); prefix_len < prefix_chars && prefix_len < (sizeof(prefix) - 1U); ++prefix_len)
+        {
+            prefix[prefix_len] = ' ';
+            prefix[prefix_len + 1U] = '\0';
+        }
+
         ST7796_WriteString32(MAIN_INFO_LEFT_X,
                              row_y,
-                             "CH -: ---",
+                             prefix,
+                             MAIN_INFO_FONT,
+                             MAIN_INFO_TEXT_COLOUR,
+                             MAIN_INFO_TEXT_BG_COLOUR);
+        ST7796_WriteString32(value_x,
+                             row_y,
+                             "---",
                              MAIN_INFO_FONT,
                              MAIN_INFO_TEXT_COLOUR,
                              MAIN_INFO_TEXT_BG_COLOUR);
@@ -1582,11 +1768,15 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
     }
 
     if (device_name && device_name[0] != '\0')
-        snprintf(prefix, sizeof(prefix), "%s: ", device_name);
+        snprintf(prefix, sizeof(prefix), "%s:", device_name);
     else
-        snprintf(prefix, sizeof(prefix), "CH %u: ", channel);
+        snprintf(prefix, sizeof(prefix), "CH %u:", channel);
 
-    prefix_px = MAIN_INFO_FONT.width * (uint16_t)strlen(prefix);
+    for (size_t prefix_len = strlen(prefix); prefix_len < prefix_chars && prefix_len < (sizeof(prefix) - 1U); ++prefix_len)
+    {
+        prefix[prefix_len] = ' ';
+        prefix[prefix_len + 1U] = '\0';
+    }
 
     ST7796_WriteString32(MAIN_INFO_LEFT_X,
                          row_y,
@@ -1609,7 +1799,7 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
 
         if (highlight_program)
         {
-            ST7796_WriteString32(MAIN_INFO_LEFT_X + prefix_px,
+            ST7796_WriteString32(value_x,
                                  row_y,
                                  program_text,
                                  MAIN_INFO_FONT,
@@ -1620,7 +1810,7 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
 
         if (program_is_shared)
         {
-            ST7796_WriteString32(MAIN_INFO_LEFT_X + prefix_px,
+            ST7796_WriteString32(value_x,
                                  row_y,
                                  program_text,
                                  MAIN_INFO_FONT,
@@ -1629,7 +1819,7 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
             return;
         }
 
-        ST7796_WriteString32(MAIN_INFO_LEFT_X + prefix_px,
+        ST7796_WriteString32(value_x,
                              row_y,
                              program_text,
                              MAIN_INFO_FONT,
@@ -1655,7 +1845,10 @@ static void Display_DrawMainInfoProgramField(const Preset_t *preset,
 
     program = preset->prg[slot_index].program;
     program_is_shared = (program != MAIN_UNUSED_PROGRAM && Presets_DeviceProgramIsShared(slot_index, program)) ? 1U : 0U;
-    value_x = (uint16_t)(MAIN_INFO_LEFT_X + (strlen("CH 0: ") * MAIN_INFO_FONT.width));
+    value_x = (uint16_t)(MAIN_INFO_LEFT_X
+                       + ((((uint16_t)(RUNTIME_CONFIG_DEVICE_NAME_LENGTH + 2U) > strlen("CH 16: "))
+                           ? (uint16_t)(RUNTIME_CONFIG_DEVICE_NAME_LENGTH + 2U)
+                           : (uint16_t)strlen("CH 16: ")) * MAIN_INFO_FONT.width));
 
     if (program == MAIN_UNUSED_PROGRAM)
         strcpy(program_text, "---");
@@ -2205,7 +2398,10 @@ static void Display_FormatBankEditValue(uint8_t item_index, char *buffer, size_t
         (void)snprintf(buffer, buffer_size, "%s", bank->wet_dry_enabled ? "Yes" : "No");
         break;
     case 2U:
-        (void)snprintf(buffer, buffer_size, "%s", bank->function_button.name);
+        (void)snprintf(buffer, buffer_size, "Edit");
+        break;
+    case 3U:
+        (void)snprintf(buffer, buffer_size, "%u bars", bank->midi_clock_bar_count);
         break;
     default:
         buffer[0] = '\0';
@@ -2222,7 +2418,8 @@ static void Display_DrawMenuBankEdit(void)
             static const char * const menu_bank_edit_labels[MENU_BANK_EDIT_ITEM_COUNT] = {
                 "Bank Name",
                 "Wet / Dry",
-                "Function Btn",
+                "Function Button",
+                "Counter",
             };
             char value_text[24];
 
@@ -2242,7 +2439,8 @@ static void Display_DrawMenuBankEditItem(uint8_t item_index)
     static const char * const menu_bank_edit_labels[MENU_BANK_EDIT_ITEM_COUNT] = {
         "Bank Name",
         "Wet / Dry",
-        "Function Btn",
+        "Function Button",
+        "Counter",
     };
     const RuntimeConfigBank_t *bank = RuntimeConfig_GetBank(menu_active_bank_index);
     char value_text[24];
@@ -2290,56 +2488,36 @@ static void Display_FormatFunctionButtonValue(uint8_t item_index, char *buffer, 
     case 2U:
         (void)snprintf(buffer, buffer_size, "%s", function_button->inactive_label);
         break;
-    case 3U:
-    case 4U:
-        (void)snprintf(buffer, buffer_size, "Page");
-        break;
     default:
         buffer[0] = '\0';
         break;
     }
 }
 
-static void Display_DrawMenuFunctionButton(void)
+static uint8_t Display_GetFunctionButtonMessageSelectionIndex(void)
 {
-    uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_FUNCTION_BUTTON_ITEM_COUNT,
-                                                                   menu_function_button_selection_index);
+    if (menu_function_button_selection_index < MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX)
+        return 0U;
 
-    for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
-    {
-        uint8_t item_index = (uint8_t)(first_visible_index + row_index);
-        char value_text[20];
-
-        if (item_index >= MENU_FUNCTION_BUTTON_ITEM_COUNT)
-        {
-            Display_ClearStandardMenuRow(row_index);
-            continue;
-        }
-
-        (void)value_text;
-        Display_DrawMenuFunctionButtonItem(item_index);
-    }
+    return (uint8_t)(menu_function_button_selection_index - MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX);
 }
 
-static void Display_DrawMenuFunctionButtonItem(uint8_t item_index)
+static void Display_DrawMenuFunctionButtonTextItemAtRow(uint8_t item_index, uint8_t row_index)
 {
-    static const char * const menu_function_button_labels[MENU_FUNCTION_BUTTON_ITEM_COUNT] = {
+    static const char * const menu_function_button_labels[MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT] = {
         "Name",
         "Active Label",
         "Inactive Label",
-        "Active Msg",
-        "Inactive Msg",
     };
     const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(menu_active_bank_index);
-    uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_FUNCTION_BUTTON_ITEM_COUNT,
-                                                                   menu_function_button_selection_index);
-    uint8_t row_index;
     char value_text[20];
 
-    if (item_index < first_visible_index || item_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
+    if (item_index >= MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT || row_index >= MENU_VISIBLE_ROW_COUNT)
+    {
+        if (row_index < MENU_VISIBLE_ROW_COUNT)
+            Display_ClearStandardMenuRow(row_index);
         return;
-
-    row_index = (uint8_t)(item_index - first_visible_index);
+    }
 
     if ((item_index == 0U && menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_FUNCTION_BUTTON_NAME)
      || (item_index == 1U && menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_FUNCTION_BUTTON_ACTIVE_LABEL)
@@ -2381,241 +2559,441 @@ static void Display_DrawMenuFunctionButtonItem(uint8_t item_index)
                         (item_index == menu_function_button_selection_index) ? 1U : 0U);
 }
 
-static void Display_FormatFunctionButtonMessageValue(uint8_t item_index,
-                                                     uint8_t active_messages,
+static void Display_DrawMenuFunctionButtonCompareHeaderRow(uint16_t row_y)
+{
+    Display_DrawMenuRow(row_y, "   Active        Inactive", "", 0U);
+}
+
+static void Display_DrawMenuFunctionButtonCcHeaderRow(uint16_t row_y)
+{
+    Display_DrawMenuRow(row_y, "  Ch Cc  Val    Ch Cc  Val", "", 0U);
+}
+
+static void Display_FormatFunctionButtonProgramCompareRow(uint8_t program_index,
+                                                          char *buffer,
+                                                          size_t buffer_size)
+{
+    const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(menu_active_bank_index);
+    char active_channel_text[4];
+    char active_program_text[4];
+    char inactive_channel_text[4];
+    char inactive_program_text[4];
+
+    if (!buffer || buffer_size == 0U || !function_button || program_index >= RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
+        return;
+
+    Display_FormatMenuOptionalField(active_channel_text,
+                                    sizeof(active_channel_text),
+                                    function_button->active_programs[program_index].channel,
+                                    PRESET_CC_CHANNEL_UNUSED,
+                                    2U,
+                                    0U);
+    Display_FormatMenuOptionalField(active_program_text,
+                                    sizeof(active_program_text),
+                                    function_button->active_programs[program_index].program,
+                                    PRESET_PROGRAM_NONE,
+                                    3U,
+                                    0U);
+    Display_FormatMenuOptionalField(inactive_channel_text,
+                                    sizeof(inactive_channel_text),
+                                    function_button->inactive_programs[program_index].channel,
+                                    PRESET_CC_CHANNEL_UNUSED,
+                                    2U,
+                                    0U);
+    Display_FormatMenuOptionalField(inactive_program_text,
+                                    sizeof(inactive_program_text),
+                                    function_button->inactive_programs[program_index].program,
+                                    PRESET_PROGRAM_NONE,
+                                    3U,
+                                    0U);
+    (void)snprintf(buffer,
+                   buffer_size,
+                   "CH:%s PRG:%s  CH:%s PRG:%s",
+                   active_channel_text,
+                   active_program_text,
+                   inactive_channel_text,
+                   inactive_program_text);
+}
+
+static void Display_FormatFunctionButtonCcCompareRow(uint8_t cc_index,
                                                      char *buffer,
                                                      size_t buffer_size)
 {
     const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(menu_active_bank_index);
+    char active_channel_text[4];
+    char active_cc_text[4];
+    char active_value_text[4];
+    char inactive_channel_text[4];
+    char inactive_cc_text[4];
+    char inactive_value_text[4];
 
-    if (!buffer || buffer_size == 0U || !function_button || item_index >= MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT)
+    if (!buffer || buffer_size == 0U || !function_button || cc_index >= RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT)
         return;
 
-    if (item_index < RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
-    {
-        const RuntimeConfigProgramMessage_t *program_message = active_messages
-            ? &function_button->active_programs[item_index]
-            : &function_button->inactive_programs[item_index];
-        char channel_text[4];
-        char program_text[4];
-
-        Display_FormatMenuOptionalField(channel_text,
-                                        sizeof(channel_text),
-                                        program_message->channel,
-                                        PRESET_CC_CHANNEL_UNUSED,
-                                        2U,
-                                        0U);
-        Display_FormatMenuOptionalField(program_text,
-                                        sizeof(program_text),
-                                        program_message->program,
-                                        PRESET_PROGRAM_NONE,
-                                        3U,
-                                        0U);
-        (void)snprintf(buffer, buffer_size, "CH%s PRG%s", channel_text, program_text);
-        return;
-    }
-
-    {
-        uint8_t cc_index = (uint8_t)(item_index - RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT);
-        const PresetCCSlot_t *cc_message = active_messages
-            ? &function_button->active_cc[cc_index]
-            : &function_button->inactive_cc[cc_index];
-        char channel_text[4];
-        char cc_number_text[4];
-        char value_text[4];
-
-        Display_FormatMenuOptionalField(channel_text,
-                                        sizeof(channel_text),
-                                        cc_message->channel,
-                                        PRESET_CC_CHANNEL_UNUSED,
-                                        2U,
-                                        0U);
-        Display_FormatMenuOptionalField(cc_number_text,
-                                        sizeof(cc_number_text),
-                                        cc_message->cc_number,
-                                        PRESET_CC_NUMBER_UNUSED,
-                                        3U,
-                                        0U);
-        Display_FormatMenuOptionalField(value_text,
-                                        sizeof(value_text),
-                                        cc_message->value,
-                                        PRESET_CC_VALUE_UNUSED,
-                                        3U,
-                                        0U);
-        (void)snprintf(buffer, buffer_size, "CH%s CC%s V%s", channel_text, cc_number_text, value_text);
-    }
+    Display_FormatMenuOptionalField(active_channel_text,
+                                    sizeof(active_channel_text),
+                                    function_button->active_cc[cc_index].channel,
+                                    PRESET_CC_CHANNEL_UNUSED,
+                                    2U,
+                                    0U);
+    Display_FormatMenuOptionalField(active_cc_text,
+                                    sizeof(active_cc_text),
+                                    function_button->active_cc[cc_index].cc_number,
+                                    PRESET_CC_NUMBER_UNUSED,
+                                    3U,
+                                    0U);
+    Display_FormatMenuOptionalField(active_value_text,
+                                    sizeof(active_value_text),
+                                    function_button->active_cc[cc_index].value,
+                                    PRESET_CC_VALUE_UNUSED,
+                                    3U,
+                                    0U);
+    Display_FormatMenuOptionalField(inactive_channel_text,
+                                    sizeof(inactive_channel_text),
+                                    function_button->inactive_cc[cc_index].channel,
+                                    PRESET_CC_CHANNEL_UNUSED,
+                                    2U,
+                                    0U);
+    Display_FormatMenuOptionalField(inactive_cc_text,
+                                    sizeof(inactive_cc_text),
+                                    function_button->inactive_cc[cc_index].cc_number,
+                                    PRESET_CC_NUMBER_UNUSED,
+                                    3U,
+                                    0U);
+    Display_FormatMenuOptionalField(inactive_value_text,
+                                    sizeof(inactive_value_text),
+                                    function_button->inactive_cc[cc_index].value,
+                                    PRESET_CC_VALUE_UNUSED,
+                                    3U,
+                                    0U);
+    (void)snprintf(buffer,
+                   buffer_size,
+                   "%u %s %s %s    %s %s %s",
+                   (uint8_t)(cc_index + 1U),
+                   active_channel_text,
+                   active_cc_text,
+                   active_value_text,
+                   inactive_channel_text,
+                   inactive_cc_text,
+                   inactive_value_text);
 }
 
-static void Display_DrawMenuFunctionButtonMessageEditFields(uint16_t row_y,
-                                                            uint8_t item_index,
-                                                            uint8_t active_messages)
+static void Display_DrawMenuFunctionButtonProgramCompareEditRow(uint16_t row_y, uint8_t program_index)
 {
     const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(menu_active_bank_index);
-    uint16_t value_x;
+    char active_channel_text[4];
+    char active_program_text[4];
+    char inactive_channel_text[4];
+    char inactive_program_text[4];
+    uint16_t draw_x = MENU_ITEM_X;
 
-    if (!function_button || item_index >= MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT)
+    if (!function_button || program_index >= RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
         return;
 
-    if (item_index < RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
-    {
-        const RuntimeConfigProgramMessage_t *program_message = active_messages
-            ? &function_button->active_programs[item_index]
-            : &function_button->inactive_programs[item_index];
-        char channel_text[4];
-        char program_text[4];
+    Display_FormatMenuOptionalField(active_channel_text,
+                                    sizeof(active_channel_text),
+                                    function_button->active_programs[program_index].channel,
+                                    PRESET_CC_CHANNEL_UNUSED,
+                                    2U,
+                                    0U);
+    Display_FormatMenuOptionalField(active_program_text,
+                                    sizeof(active_program_text),
+                                    function_button->active_programs[program_index].program,
+                                    PRESET_PROGRAM_NONE,
+                                    3U,
+                                    0U);
+    Display_FormatMenuOptionalField(inactive_channel_text,
+                                    sizeof(inactive_channel_text),
+                                    function_button->inactive_programs[program_index].channel,
+                                    PRESET_CC_CHANNEL_UNUSED,
+                                    2U,
+                                    0U);
+    Display_FormatMenuOptionalField(inactive_program_text,
+                                    sizeof(inactive_program_text),
+                                    function_button->inactive_programs[program_index].program,
+                                    PRESET_PROGRAM_NONE,
+                                    3U,
+                                    0U);
 
-        Display_FormatMenuOptionalField(channel_text,
-                                        sizeof(channel_text),
-                                        program_message->channel,
-                                        PRESET_CC_CHANNEL_UNUSED,
-                                        2U,
-                                        0U);
-        Display_FormatMenuOptionalField(program_text,
-                                        sizeof(program_text),
-                                        program_message->program,
-                                        PRESET_PROGRAM_NONE,
-                                        3U,
-                                        0U);
-
-        value_x = Display_GetMenuRightAlignedValueX("CH-- PRG---");
-        value_x = Display_WriteMenuValueSegment32(value_x, row_y, "CH", 0U);
-        value_x = Display_WriteMenuValueSegment32(value_x,
-                                                  row_y,
-                                                  channel_text,
-                                                  (menu_function_button_message_field_index == 0U) ? 1U : 0U);
-        value_x = Display_WriteMenuValueSegment32(value_x, row_y, " PRG", 0U);
-        (void)Display_WriteMenuValueSegment32(value_x,
-                                              row_y,
-                                              program_text,
-                                              (menu_function_button_message_field_index == 1U) ? 1U : 0U);
-        return;
-    }
-
-    {
-        uint8_t cc_index = (uint8_t)(item_index - RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT);
-        const PresetCCSlot_t *cc_message = active_messages
-            ? &function_button->active_cc[cc_index]
-            : &function_button->inactive_cc[cc_index];
-        char channel_text[4];
-        char cc_number_text[4];
-        char value_text[4];
-
-        Display_FormatMenuOptionalField(channel_text,
-                                        sizeof(channel_text),
-                                        cc_message->channel,
-                                        PRESET_CC_CHANNEL_UNUSED,
-                                        2U,
-                                        0U);
-        Display_FormatMenuOptionalField(cc_number_text,
-                                        sizeof(cc_number_text),
-                                        cc_message->cc_number,
-                                        PRESET_CC_NUMBER_UNUSED,
-                                        3U,
-                                        0U);
-        Display_FormatMenuOptionalField(value_text,
-                                        sizeof(value_text),
-                                        cc_message->value,
-                                        PRESET_CC_VALUE_UNUSED,
-                                        3U,
-                                        0U);
-
-        value_x = Display_GetMenuRightAlignedValueX("CH-- CC--- V---");
-        value_x = Display_WriteMenuValueSegment32(value_x, row_y, "CH", 0U);
-        value_x = Display_WriteMenuValueSegment32(value_x,
-                                                  row_y,
-                                                  channel_text,
-                                                  (menu_function_button_message_field_index == 0U) ? 1U : 0U);
-        value_x = Display_WriteMenuValueSegment32(value_x, row_y, " CC", 0U);
-        value_x = Display_WriteMenuValueSegment32(value_x,
-                                                  row_y,
-                                                  cc_number_text,
-                                                  (menu_function_button_message_field_index == 1U) ? 1U : 0U);
-        value_x = Display_WriteMenuValueSegment32(value_x, row_y, " V", 0U);
-        (void)Display_WriteMenuValueSegment32(value_x,
-                                              row_y,
-                                              value_text,
-                                              (menu_function_button_message_field_index == 2U) ? 1U : 0U);
-    }
+    Display_DrawMenuRow(row_y, "", "", 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, "CH:", 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x,
+                                             row_y,
+                                             active_channel_text,
+                                             (menu_function_button_message_field_index == 0U) ? 1U : 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, " PRG:", 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x,
+                                             row_y,
+                                             active_program_text,
+                                             (menu_function_button_message_field_index == 1U) ? 1U : 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, "  CH:", 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x,
+                                             row_y,
+                                             inactive_channel_text,
+                                             (menu_function_button_message_field_index == 2U) ? 1U : 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, " PRG:", 0U);
+    (void)Display_WriteMenuValueSegment32(draw_x,
+                                          row_y,
+                                          inactive_program_text,
+                                          (menu_function_button_message_field_index == 3U) ? 1U : 0U);
 }
 
-static void Display_DrawMenuFunctionButtonMessageRow(uint8_t item_index, uint8_t active_messages)
+static void Display_DrawMenuFunctionButtonCcCompareEditRow(uint16_t row_y, uint8_t cc_index)
 {
-    uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT,
-                                                                   menu_function_button_message_selection_index);
-    uint8_t row_index;
-    uint8_t row_selected;
-    uint8_t field_edit_active;
-    char label_text[4];
-    char value_text[20];
+    const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(menu_active_bank_index);
+    char row_number_text[3];
+    char active_channel_text[4];
+    char active_cc_text[4];
+    char active_value_text[4];
+    char inactive_channel_text[4];
+    char inactive_cc_text[4];
+    char inactive_value_text[4];
+    uint16_t draw_x = MENU_ITEM_X;
 
-    if (item_index < first_visible_index || item_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
+    if (!function_button || cc_index >= RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT)
         return;
 
-    row_index = (uint8_t)(item_index - first_visible_index);
-    row_selected = (item_index == menu_function_button_message_selection_index) ? 1U : 0U;
-    field_edit_active = (row_selected && menu_function_button_message_field_edit_active) ? 1U : 0U;
-    (void)snprintf(label_text, sizeof(label_text), "%u", (uint8_t)(item_index + 1U));
+    (void)snprintf(row_number_text, sizeof(row_number_text), "%u", (uint8_t)(cc_index + 1U));
+    Display_FormatMenuOptionalField(active_channel_text,
+                                    sizeof(active_channel_text),
+                                    function_button->active_cc[cc_index].channel,
+                                    PRESET_CC_CHANNEL_UNUSED,
+                                    2U,
+                                    0U);
+    Display_FormatMenuOptionalField(active_cc_text,
+                                    sizeof(active_cc_text),
+                                    function_button->active_cc[cc_index].cc_number,
+                                    PRESET_CC_NUMBER_UNUSED,
+                                    3U,
+                                    0U);
+    Display_FormatMenuOptionalField(active_value_text,
+                                    sizeof(active_value_text),
+                                    function_button->active_cc[cc_index].value,
+                                    PRESET_CC_VALUE_UNUSED,
+                                    3U,
+                                    0U);
+    Display_FormatMenuOptionalField(inactive_channel_text,
+                                    sizeof(inactive_channel_text),
+                                    function_button->inactive_cc[cc_index].channel,
+                                    PRESET_CC_CHANNEL_UNUSED,
+                                    2U,
+                                    0U);
+    Display_FormatMenuOptionalField(inactive_cc_text,
+                                    sizeof(inactive_cc_text),
+                                    function_button->inactive_cc[cc_index].cc_number,
+                                    PRESET_CC_NUMBER_UNUSED,
+                                    3U,
+                                    0U);
+    Display_FormatMenuOptionalField(inactive_value_text,
+                                    sizeof(inactive_value_text),
+                                    function_button->inactive_cc[cc_index].value,
+                                    PRESET_CC_VALUE_UNUSED,
+                                    3U,
+                                    0U);
 
-    if (field_edit_active)
+    Display_DrawMenuRow(row_y, "", "", 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, row_number_text, 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, " ", 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x,
+                                             row_y,
+                                             active_channel_text,
+                                             (menu_function_button_message_field_index == 0U) ? 1U : 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, " ", 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x,
+                                             row_y,
+                                             active_cc_text,
+                                             (menu_function_button_message_field_index == 1U) ? 1U : 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, " ", 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x,
+                                             row_y,
+                                             active_value_text,
+                                             (menu_function_button_message_field_index == 2U) ? 1U : 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, "    ", 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x,
+                                             row_y,
+                                             inactive_channel_text,
+                                             (menu_function_button_message_field_index == 3U) ? 1U : 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, " ", 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x,
+                                             row_y,
+                                             inactive_cc_text,
+                                             (menu_function_button_message_field_index == 4U) ? 1U : 0U);
+    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, " ", 0U);
+    (void)Display_WriteMenuValueSegment32(draw_x,
+                                          row_y,
+                                          inactive_value_text,
+                                          (menu_function_button_message_field_index == 5U) ? 1U : 0U);
+}
+
+static void Display_DrawMenuFunctionButtonProgramCompareRowAtRow(uint8_t row_index,
+                                                                 uint8_t program_index,
+                                                                 uint8_t selected)
+{
+    char value_text[32];
+
+    if (program_index >= RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
     {
-        Display_DrawMenuRow(menu_row_y[row_index],
-                            label_text,
-                            "",
-                            0U);
-        Display_DrawMenuFunctionButtonMessageEditFields(menu_row_y[row_index], item_index, active_messages);
-
+        Display_ClearStandardMenuRow(row_index);
         return;
     }
 
-    Display_FormatFunctionButtonMessageValue(item_index, active_messages, value_text, sizeof(value_text));
-    Display_DrawMenuRow(menu_row_y[row_index],
-                        label_text,
-                        value_text,
-                        row_selected);
+    if (selected)
+    {
+        Display_DrawMenuFunctionButtonProgramCompareEditRow(menu_row_y[row_index], program_index);
+        return;
+    }
+
+    Display_FormatFunctionButtonProgramCompareRow(program_index, value_text, sizeof(value_text));
+    Display_DrawMenuRow(menu_row_y[row_index], value_text, "", selected);
 }
 
-static void Display_DrawMenuFunctionButtonMessages(uint8_t active_messages)
+static void Display_DrawMenuFunctionButtonCcCompareRowAtRow(uint8_t row_index,
+                                                            uint8_t cc_index,
+                                                            uint8_t selected)
 {
-    uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT,
-                                                                   menu_function_button_message_selection_index);
+    char value_text[32];
 
-    for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
+    if (cc_index >= RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT)
     {
-        uint8_t item_index = (uint8_t)(first_visible_index + row_index);
+        Display_ClearStandardMenuRow(row_index);
+        return;
+    }
 
-        if (item_index >= MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT)
+    if (selected)
+    {
+        Display_DrawMenuFunctionButtonCcCompareEditRow(menu_row_y[row_index], cc_index);
+        return;
+    }
+
+    Display_FormatFunctionButtonCcCompareRow(cc_index, value_text, sizeof(value_text));
+    Display_DrawMenuRow(menu_row_y[row_index], value_text, "", selected);
+}
+
+static void Display_DrawMenuFunctionButton(void)
+{
+    uint8_t message_selection_index;
+
+    if (menu_function_button_selection_index < MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX)
+    {
+        for (uint8_t row_index = 0U; row_index < MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT; ++row_index)
+            Display_DrawMenuFunctionButtonTextItemAtRow(row_index, row_index);
+
+        Display_DrawMenuFunctionButtonCompareHeaderRow(menu_row_y[MENU_VISIBLE_ROW_COUNT - 1U]);
+        return;
+    }
+
+    message_selection_index = Display_GetFunctionButtonMessageSelectionIndex();
+
+    if (message_selection_index < RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
+    {
+        if (message_selection_index == 0U)
         {
-            Display_ClearStandardMenuRow(row_index);
-            continue;
+            Display_DrawMenuFunctionButtonTextItemAtRow(1U, 0U);
+            Display_DrawMenuFunctionButtonTextItemAtRow(2U, 1U);
+            Display_DrawMenuFunctionButtonCompareHeaderRow(menu_row_y[2U]);
+            Display_DrawMenuFunctionButtonProgramCompareRowAtRow(3U, 0U, 1U);
+            return;
         }
 
-        Display_DrawMenuFunctionButtonMessageRow(item_index, active_messages);
+        if (message_selection_index == 1U)
+        {
+            Display_DrawMenuFunctionButtonTextItemAtRow(2U, 0U);
+            Display_DrawMenuFunctionButtonCompareHeaderRow(menu_row_y[1U]);
+            Display_DrawMenuFunctionButtonProgramCompareRowAtRow(2U, 0U, 0U);
+            Display_DrawMenuFunctionButtonProgramCompareRowAtRow(3U, 1U, 1U);
+            return;
+        }
+
+        Display_DrawMenuFunctionButtonCompareHeaderRow(menu_row_y[0]);
+        uint8_t first_program_index = Display_GetVisibleWindowStart(RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT,
+                                                                    message_selection_index,
+                                                                    (uint8_t)(MENU_VISIBLE_ROW_COUNT - 1U));
+
+        for (uint8_t row_offset = 0U; row_offset < (MENU_VISIBLE_ROW_COUNT - 1U); ++row_offset)
+        {
+            uint8_t program_index = (uint8_t)(first_program_index + row_offset);
+
+            Display_DrawMenuFunctionButtonProgramCompareRowAtRow((uint8_t)(row_offset + 1U),
+                                                                 program_index,
+                                                                 (program_index == message_selection_index) ? 1U : 0U);
+        }
+
+        return;
+    }
+
+    Display_DrawMenuFunctionButtonCompareHeaderRow(menu_row_y[0]);
+    Display_DrawMenuFunctionButtonCcHeaderRow(menu_row_y[1]);
+    {
+        uint8_t cc_selection_index = (uint8_t)(message_selection_index - RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT);
+
+        if (cc_selection_index == 0U)
+        {
+            Display_DrawMenuFunctionButtonProgramCompareRowAtRow(1U,
+                                                                 (uint8_t)(RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT - 1U),
+                                                                 0U);
+            Display_DrawMenuFunctionButtonCcHeaderRow(menu_row_y[2U]);
+            Display_DrawMenuFunctionButtonCcCompareRowAtRow(3U, 0U, 1U);
+            return;
+        }
+
+        uint8_t first_cc_index = Display_GetVisibleWindowStart(RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT,
+                                                               cc_selection_index,
+                                                               (uint8_t)(MENU_VISIBLE_ROW_COUNT - 2U));
+
+        for (uint8_t row_offset = 0U; row_offset < (MENU_VISIBLE_ROW_COUNT - 2U); ++row_offset)
+        {
+            uint8_t cc_index = (uint8_t)(first_cc_index + row_offset);
+
+            Display_DrawMenuFunctionButtonCcCompareRowAtRow((uint8_t)(row_offset + 2U),
+                                                            cc_index,
+                                                            (cc_index == cc_selection_index) ? 1U : 0U);
+        }
     }
 }
 
-static uint8_t Display_AdjustFunctionButtonMessageValue(uint8_t active_messages, int8_t delta)
+static void Display_DrawMenuFunctionButtonItem(uint8_t item_index)
+{
+    (void)item_index;
+    Display_DrawMenuFunctionButton();
+}
+
+static uint8_t Display_AdjustFunctionButtonMessageValue(int8_t delta)
 {
     RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetMutableFunctionButton(menu_active_bank_index);
+    uint8_t message_selection_index;
 
-    if (!function_button || delta == 0)
+    if (!function_button || delta == 0 || !Display_MenuFunctionButtonMessagePageIsActive())
         return 0U;
 
-    if (menu_function_button_message_selection_index < RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
+    message_selection_index = Display_GetFunctionButtonMessageSelectionIndex();
+
+    if (message_selection_index < RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
     {
-        RuntimeConfigProgramMessage_t *program_message = active_messages
-            ? &function_button->active_programs[menu_function_button_message_selection_index]
-            : &function_button->inactive_programs[menu_function_button_message_selection_index];
+        RuntimeConfigProgramMessage_t *active_program_message = &function_button->active_programs[message_selection_index];
+        RuntimeConfigProgramMessage_t *inactive_program_message = &function_button->inactive_programs[message_selection_index];
 
         switch (menu_function_button_message_field_index)
         {
         case 0U:
-            return Display_AdjustWrappedOptionalU8(&program_message->channel,
+            return Display_AdjustWrappedOptionalU8(&active_program_message->channel,
                                                    PRESET_CC_CHANNEL_UNUSED,
                                                    1U,
                                                    16U,
                                                    delta);
         case 1U:
-            return Display_AdjustWrappedOptionalU8(&program_message->program,
+            return Display_AdjustWrappedOptionalU8(&active_program_message->program,
+                                                   PRESET_PROGRAM_NONE,
+                                                   0U,
+                                                   127U,
+                                                   delta);
+        case 2U:
+            return Display_AdjustWrappedOptionalU8(&inactive_program_message->channel,
+                                                   PRESET_CC_CHANNEL_UNUSED,
+                                                   1U,
+                                                   16U,
+                                                   delta);
+        case 3U:
+            return Display_AdjustWrappedOptionalU8(&inactive_program_message->program,
                                                    PRESET_PROGRAM_NONE,
                                                    0U,
                                                    127U,
@@ -2626,27 +3004,44 @@ static uint8_t Display_AdjustFunctionButtonMessageValue(uint8_t active_messages,
     }
 
     {
-        uint8_t cc_index = (uint8_t)(menu_function_button_message_selection_index - RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT);
-        PresetCCSlot_t *cc_message = active_messages
-            ? &function_button->active_cc[cc_index]
-            : &function_button->inactive_cc[cc_index];
+        uint8_t cc_index = (uint8_t)(message_selection_index - RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT);
+        PresetCCSlot_t *active_cc_message = &function_button->active_cc[cc_index];
+        PresetCCSlot_t *inactive_cc_message = &function_button->inactive_cc[cc_index];
 
         switch (menu_function_button_message_field_index)
         {
         case 0U:
-            return Display_AdjustWrappedOptionalU8(&cc_message->channel,
+            return Display_AdjustWrappedOptionalU8(&active_cc_message->channel,
                                                    PRESET_CC_CHANNEL_UNUSED,
                                                    1U,
                                                    16U,
                                                    delta);
         case 1U:
-            return Display_AdjustWrappedOptionalU8(&cc_message->cc_number,
+            return Display_AdjustWrappedOptionalU8(&active_cc_message->cc_number,
                                                    PRESET_CC_NUMBER_UNUSED,
                                                    0U,
                                                    127U,
                                                    delta);
         case 2U:
-            return Display_AdjustWrappedOptionalU8(&cc_message->value,
+            return Display_AdjustWrappedOptionalU8(&active_cc_message->value,
+                                                   PRESET_CC_VALUE_UNUSED,
+                                                   0U,
+                                                   127U,
+                                                   delta);
+        case 3U:
+            return Display_AdjustWrappedOptionalU8(&inactive_cc_message->channel,
+                                                   PRESET_CC_CHANNEL_UNUSED,
+                                                   1U,
+                                                   16U,
+                                                   delta);
+        case 4U:
+            return Display_AdjustWrappedOptionalU8(&inactive_cc_message->cc_number,
+                                                   PRESET_CC_NUMBER_UNUSED,
+                                                   0U,
+                                                   127U,
+                                                   delta);
+        case 5U:
+            return Display_AdjustWrappedOptionalU8(&inactive_cc_message->value,
                                                    PRESET_CC_VALUE_UNUSED,
                                                    0U,
                                                    127U,
@@ -2891,7 +3286,7 @@ static void Display_DrawMenuDeviceEditItem(uint8_t item_index)
     row_selected = (item_index == menu_device_edit_selection_index) ? 1U : 0U;
     if (row_selected && item_index == 0U && menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_DEVICE_NAME)
         row_selected = 0U;
-    if (row_selected && menu_device_cc_field_edit_active && item_index >= 3U && item_index <= 6U)
+    if (row_selected && item_index >= 3U && item_index <= 6U)
         row_selected = 0U;
 
     if (item_index == 0U && menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_DEVICE_NAME)
@@ -2906,7 +3301,7 @@ static void Display_DrawMenuDeviceEditItem(uint8_t item_index)
         return;
     }
 
-    if (menu_device_cc_field_edit_active && item_index >= 3U && item_index <= 6U && item_index == menu_device_edit_selection_index)
+    if (item_index >= 3U && item_index <= 6U && item_index == menu_device_edit_selection_index)
     {
         Display_DrawMenuRow(menu_row_y[row_index],
                             menu_device_edit_labels[item_index],
@@ -3024,10 +3419,8 @@ static void Display_DrawCurrentMenuPageBody(void)
         Display_DrawMenuFunctionButton();
         break;
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES:
-        Display_DrawMenuFunctionButtonMessages(1U);
-        break;
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES:
-        Display_DrawMenuFunctionButtonMessages(0U);
+        Display_DrawMenuFunctionButton();
         break;
     case DISPLAY_MENU_PAGE_DEVICES:
         Display_DrawMenuDevices();
@@ -3059,10 +3452,9 @@ static uint8_t Display_GetMenuSelectionIndexForPage(DisplayMenuPage_t page)
     case DISPLAY_MENU_PAGE_BANK_EDIT:
         return menu_bank_edit_selection_index;
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON:
-        return menu_function_button_selection_index;
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES:
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES:
-        return menu_function_button_message_selection_index;
+        return menu_function_button_selection_index;
     case DISPLAY_MENU_PAGE_DEVICES:
         return menu_device_selection_index;
     case DISPLAY_MENU_PAGE_DEVICE_EDIT:
@@ -3108,13 +3500,9 @@ static void Display_DrawMenuPageItem(DisplayMenuPage_t page, uint8_t item_index)
         Display_DrawMenuBankEditItem(item_index);
         break;
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON:
-        Display_DrawMenuFunctionButtonItem(item_index);
-        break;
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES:
-        Display_DrawMenuFunctionButtonMessageRow(item_index, 1U);
-        break;
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES:
-        Display_DrawMenuFunctionButtonMessageRow(item_index, 0U);
+        Display_DrawMenuFunctionButtonItem(item_index);
         break;
     case DISPLAY_MENU_PAGE_DEVICES:
         Display_DrawMenuDeviceItem(item_index);
@@ -3147,6 +3535,12 @@ static void Display_MenuRedrawCurrentPageRows(void)
 
 static void Display_MenuRedrawCurrentItem(void)
 {
+    if (menu_page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON)
+    {
+        Display_MenuRedrawCurrentPageRows();
+        return;
+    }
+
     Display_DrawMenuPageItem(menu_page, Display_GetMenuSelectionIndexForPage(menu_page));
 }
 
@@ -3167,7 +3561,8 @@ static void Display_MenuRedrawCurrentValue(void)
         static const char * const menu_bank_edit_labels[MENU_BANK_EDIT_ITEM_COUNT] = {
             "Bank Name",
             "Wet / Dry",
-            "Function Btn",
+            "Function Button",
+            "Counter",
         };
         uint8_t item_index = menu_bank_edit_selection_index;
         const RuntimeConfigBank_t *bank = RuntimeConfig_GetBank(menu_active_bank_index);
@@ -3196,65 +3591,8 @@ static void Display_MenuRedrawCurrentValue(void)
     }
 
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON:
-    {
-        static const char * const menu_function_button_labels[MENU_FUNCTION_BUTTON_ITEM_COUNT] = {
-            "Name",
-            "Active Label",
-            "Inactive Label",
-            "Active Msg",
-            "Inactive Msg",
-        };
-        const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(menu_active_bank_index);
-        uint8_t item_index = menu_function_button_selection_index;
-        uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_FUNCTION_BUTTON_ITEM_COUNT,
-                                                                       item_index);
-        uint8_t row_index;
-
-        if (item_index < first_visible_index || item_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
-            return;
-
-        row_index = (uint8_t)(item_index - first_visible_index);
-
-        if ((item_index == 0U && menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_FUNCTION_BUTTON_NAME)
-         || (item_index == 1U && menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_FUNCTION_BUTTON_ACTIVE_LABEL)
-         || (item_index == 2U && menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_FUNCTION_BUTTON_INACTIVE_LABEL))
-        {
-            const char *text_value = "";
-            uint8_t cell_count = 0U;
-
-            switch (item_index)
-            {
-            case 0U:
-                text_value = function_button ? function_button->name : "";
-                cell_count = RUNTIME_CONFIG_FUNCTION_BUTTON_NAME_LENGTH;
-                break;
-            case 1U:
-                text_value = function_button ? function_button->active_label : "";
-                cell_count = RUNTIME_CONFIG_FUNCTION_BUTTON_LABEL_LENGTH;
-                break;
-            case 2U:
-                text_value = function_button ? function_button->inactive_label : "";
-                cell_count = RUNTIME_CONFIG_FUNCTION_BUTTON_LABEL_LENGTH;
-                break;
-            default:
-                break;
-            }
-
-            Display_DrawMenuRowValueOnly(menu_row_y[row_index],
-                                         menu_function_button_labels[item_index],
-                                         "",
-                                         0U);
-            Display_DrawMenuTextEditValue(menu_row_y[row_index], text_value, cell_count);
-            return;
-        }
-
-        Display_FormatFunctionButtonValue(item_index, value_text, sizeof(value_text));
-        Display_DrawMenuRowValueOnly(menu_row_y[row_index],
-                                     menu_function_button_labels[item_index],
-                                     value_text,
-                                     1U);
+        Display_MenuRedrawCurrentPageRows();
         return;
-    }
 
     case DISPLAY_MENU_PAGE_DEVICE_EDIT:
     {
@@ -3291,12 +3629,12 @@ static void Display_MenuRedrawCurrentValue(void)
             return;
         }
 
-        if (menu_device_cc_field_edit_active && item_index >= 3U && item_index <= 6U)
+        if (item_index >= 3U && item_index <= 6U)
             row_selected = 0U;
 
         row_index = (uint8_t)(item_index - first_visible_index);
 
-        if (menu_device_cc_field_edit_active && item_index >= 3U && item_index <= 6U)
+        if (item_index >= 3U && item_index <= 6U)
         {
             Display_DrawMenuRowValueOnly(menu_row_y[row_index],
                                          menu_device_edit_labels[item_index],
@@ -3346,6 +3684,12 @@ static void Display_MenuRedrawSelectionChange(DisplayMenuPage_t page, uint8_t pr
     uint8_t current_selection = Display_GetMenuSelectionIndexForPage(page);
     uint8_t previous_first_visible = Display_GetMenuFirstVisibleIndexForPage(page, previous_selection);
     uint8_t current_first_visible = Display_GetMenuFirstVisibleIndexForPage(page, current_selection);
+
+    if (page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON)
+    {
+        Display_MenuRedrawCurrentPageRows();
+        return;
+    }
 
     if (previous_first_visible != current_first_visible)
     {
@@ -3430,9 +3774,7 @@ uint8_t Display_MenuIsActive(void)
 
 uint8_t Display_MenuSubEditorIsActive(void)
 {
-    return (menu_text_edit_field != DISPLAY_MENU_TEXT_FIELD_NONE
-         || menu_function_button_message_field_edit_active
-         || menu_device_cc_field_edit_active) ? 1U : 0U;
+    return (menu_text_edit_field != DISPLAY_MENU_TEXT_FIELD_NONE) ? 1U : 0U;
 }
 
 void Display_MenuTextEditExit(void)
@@ -3536,49 +3878,59 @@ uint8_t Display_MenuMoveSelection(int8_t delta)
 {
     uint8_t *selection = NULL;
     uint8_t item_count = 0U;
-    uint8_t field_count;
     uint8_t previous_selection;
     int16_t next_selection;
 
     if (!menu_mode_active || delta == 0 || menu_text_edit_field != DISPLAY_MENU_TEXT_FIELD_NONE)
         return 0U;
 
-    if (Display_MenuFunctionButtonMessagePageIsActive())
+    if (menu_page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON)
     {
-        if (menu_function_button_message_field_edit_active)
-        {
-            field_count = Display_GetFunctionButtonMessageFieldCount(menu_function_button_message_selection_index);
-            next_selection = (int16_t)menu_function_button_message_field_index + (int16_t)delta;
-            if (next_selection < 0)
-                next_selection = 0;
-            else if (next_selection >= (int16_t)field_count)
-                next_selection = (int16_t)field_count - 1;
+        uint16_t current_focus = Display_GetFunctionButtonFocusIndex();
+        uint16_t focus_count = Display_GetFunctionButtonFocusCount();
+        int32_t next_focus = (int32_t)current_focus + (int32_t)delta;
 
-            if ((uint8_t)next_selection == menu_function_button_message_field_index)
-                return 0U;
+        if (next_focus < 0)
+            next_focus = 0;
+        else if (next_focus >= (int32_t)focus_count)
+            next_focus = (int32_t)focus_count - 1;
 
-            menu_function_button_message_field_index = (uint8_t)next_selection;
-            Display_MenuRedrawCurrentItem();
-            return 1U;
-        }
-
-        selection = &menu_function_button_message_selection_index;
-        item_count = MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT;
-    }
-
-    if (menu_page == DISPLAY_MENU_PAGE_DEVICE_EDIT && menu_device_cc_field_edit_active)
-    {
-        next_selection = (int16_t)menu_device_cc_field_index + (int16_t)delta;
-        if (next_selection < 0)
-            next_selection = 0;
-        else if (next_selection > 1)
-            next_selection = 1;
-
-        if ((uint8_t)next_selection == menu_device_cc_field_index)
+        if ((uint16_t)next_focus == current_focus)
             return 0U;
 
-        menu_device_cc_field_index = (uint8_t)next_selection;
-            Display_MenuRedrawCurrentValue();
+        previous_selection = menu_function_button_selection_index;
+        Display_SetFunctionButtonFocusIndex((uint16_t)next_focus);
+
+        if (menu_function_button_selection_index == previous_selection)
+            Display_MenuRedrawCurrentItem();
+        else
+            Display_MenuRedrawSelectionChange(menu_page, previous_selection);
+
+        return 1U;
+    }
+
+    if (menu_page == DISPLAY_MENU_PAGE_DEVICE_EDIT)
+    {
+        uint16_t current_focus = Display_GetDeviceEditFocusIndex();
+        uint16_t focus_count = Display_GetDeviceEditFocusCount();
+        int32_t next_focus = (int32_t)current_focus + (int32_t)delta;
+
+        if (next_focus < 0)
+            next_focus = 0;
+        else if (next_focus >= (int32_t)focus_count)
+            next_focus = (int32_t)focus_count - 1;
+
+        if ((uint16_t)next_focus == current_focus)
+            return 0U;
+
+        previous_selection = menu_device_edit_selection_index;
+        Display_SetDeviceEditFocusIndex((uint16_t)next_focus);
+
+        if (menu_device_edit_selection_index == previous_selection)
+            Display_MenuRedrawCurrentItem();
+        else
+            Display_MenuRedrawSelectionChange(menu_page, previous_selection);
+
         return 1U;
     }
 
@@ -3630,12 +3982,6 @@ uint8_t Display_MenuMoveSelection(int8_t delta)
     previous_selection = *selection;
     *selection = (uint8_t)next_selection;
 
-    if (Display_MenuFunctionButtonMessagePageIsActive())
-        menu_function_button_message_field_index = 0U;
-
-    if (menu_page == DISPLAY_MENU_PAGE_DEVICE_EDIT)
-        menu_device_cc_field_index = 0U;
-
     Display_MenuRedrawSelectionChange(menu_page, previous_selection);
     return 1U;
 }
@@ -3650,21 +3996,6 @@ uint8_t Display_MenuActivate(void)
     if (menu_text_edit_field != DISPLAY_MENU_TEXT_FIELD_NONE)
     {
         Display_MenuTextEditExit();
-        return 1U;
-    }
-
-    if (Display_MenuFunctionButtonMessagePageIsActive())
-    {
-        if (menu_function_button_message_field_edit_active)
-            menu_function_button_message_field_edit_active = 0U;
-        else
-        {
-            menu_function_button_message_field_edit_active = 1U;
-            if (menu_function_button_message_field_index >= Display_GetFunctionButtonMessageFieldCount(menu_function_button_message_selection_index))
-                menu_function_button_message_field_index = 0U;
-        }
-
-        Display_MenuRedrawCurrentItem();
         return 1U;
     }
 
@@ -3704,6 +4035,7 @@ uint8_t Display_MenuActivate(void)
 
         if (menu_bank_edit_selection_index == 2U)
         {
+            Display_ResetFunctionButtonMessageEditor();
             menu_function_button_selection_index = 0U;
             menu_page = DISPLAY_MENU_PAGE_FUNCTION_BUTTON;
         }
@@ -3718,39 +4050,12 @@ uint8_t Display_MenuActivate(void)
             return 1U;
         }
 
-        if (menu_function_button_selection_index == 3U)
-        {
-            Display_ResetFunctionButtonMessageEditor();
-            menu_page = DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES;
-        }
-        else if (menu_function_button_selection_index == 4U)
-        {
-            Display_ResetFunctionButtonMessageEditor();
-            menu_page = DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES;
-        }
-        else
-            return 0U;
-        break;
+        return 0U;
     case DISPLAY_MENU_PAGE_DEVICE_EDIT:
-        if (menu_device_cc_field_edit_active)
-        {
-            menu_device_cc_field_edit_active = 0U;
-            Display_MenuRedrawCurrentItem();
-            return 1U;
-        }
-
         text_field = Display_GetMenuTextFieldForSelection();
         if (text_field != DISPLAY_MENU_TEXT_FIELD_NONE)
         {
             Display_MenuTextEditEnter(text_field);
-            return 1U;
-        }
-
-        if (Display_MenuDeviceCcRowIsSelected())
-        {
-            menu_device_cc_field_edit_active = 1U;
-            menu_device_cc_field_index = 0U;
-            Display_MenuRedrawCurrentItem();
             return 1U;
         }
 
@@ -3797,25 +4102,11 @@ uint8_t Display_MenuBack(void)
         return 1U;
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES:
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES:
-        if (menu_function_button_message_field_edit_active)
-        {
-            menu_function_button_message_field_edit_active = 0U;
-            Display_MenuRedrawCurrentItem();
-            return 1U;
-        }
-
         Display_ResetFunctionButtonMessageEditor();
         menu_page = DISPLAY_MENU_PAGE_FUNCTION_BUTTON;
         Display_MenuRefresh();
         return 1U;
     case DISPLAY_MENU_PAGE_DEVICE_EDIT:
-        if (menu_device_cc_field_edit_active)
-        {
-            menu_device_cc_field_edit_active = 0U;
-            Display_MenuRedrawCurrentItem();
-            return 1U;
-        }
-
         menu_device_cc_field_index = 0U;
         menu_page = DISPLAY_MENU_PAGE_DEVICES;
         Display_MenuRefresh();
@@ -3865,11 +4156,7 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
 
     if (Display_MenuFunctionButtonMessagePageIsActive())
     {
-        if (!menu_function_button_message_field_edit_active)
-            return 0U;
-
-        changed = Display_AdjustFunctionButtonMessageValue((menu_page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES) ? 1U : 0U,
-                                                           delta);
+        changed = Display_AdjustFunctionButtonMessageValue(delta);
         if (!changed)
             return 0U;
 
@@ -3888,6 +4175,12 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
         case 1U:
             changed = Display_AdjustWrappedU8(&bank->wet_dry_enabled, 0U, 1U, delta);
             break;
+        case 3U:
+            changed = Display_AdjustWrappedU8(&bank->midi_clock_bar_count,
+                                              RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MIN,
+                                              RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX,
+                                              delta);
+            break;
         default:
             break;
         }
@@ -3899,7 +4192,7 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
         if (!device)
             return 0U;
 
-        if (menu_device_cc_field_edit_active && device_cc)
+        if (Display_MenuDeviceCcRowIsSelected() && device_cc)
         {
             switch (menu_device_cc_field_index)
             {
