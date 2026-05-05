@@ -2,6 +2,7 @@
 #define RUNTIME_CONFIG_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include "presets.h"
 
 #ifdef __cplusplus
@@ -64,6 +65,8 @@ typedef struct {
     RuntimeConfigGlobal_t global;
 } RuntimeConfig_t;
 
+void RuntimeConfig_Init(void);
+
 const RuntimeConfig_t *RuntimeConfig_Get(void);
 RuntimeConfig_t *RuntimeConfig_GetMutable(void);
 
@@ -78,6 +81,12 @@ RuntimeConfigDevice_t *RuntimeConfig_GetMutableDevice(uint8_t device_index);
 
 const RuntimeConfigGlobal_t *RuntimeConfig_GetGlobal(void);
 RuntimeConfigGlobal_t *RuntimeConfig_GetMutableGlobal(void);
+
+void RuntimeConfig_MarkDirty(void);
+uint8_t RuntimeConfig_IsDirty(void);
+void RuntimeConfig_ClearDirty(void);
+uint8_t RuntimeConfig_SaveIfDirty(void);
+void RuntimeConfig_ApplySnapshot(const RuntimeConfig_t *snapshot);
 
 void RuntimeConfig_ResetToDefaults(void);
 

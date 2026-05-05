@@ -1,4 +1,5 @@
 #include "runtime_config.h"
+#include "persistent_store_layout.h"
 
 #include <string.h>
 
@@ -98,6 +99,59 @@ static const RuntimeConfig_t runtime_config_defaults = {
 
 static RuntimeConfig_t runtime_config_store;
 static uint8_t runtime_config_initialized = 0U;
+static uint8_t runtime_config_dirty = 0U;
+
+static uint32_t RuntimeConfig_FlashChecksum(const uint8_t *data, size_t size)
+{
+    uint32_t hash = 2166136261UL;
+
+    for (size_t index = 0U; index < size; ++index)
+    {
+        hash ^= data[index];
+        hash *= 16777619UL;
+    }
+
+    return hash;
+}
+
+static uint8_t RuntimeConfig_FlashHeaderV2IsValid(const PersistentStoreHeaderV2_t *header)
+{
+    size_t preset_payload_size = sizeof(Preset_t) * PRESET_COUNT;
+
+    if (!header)
+        return 0U;
+
+    if (header->magic != PERSISTENT_STORE_MAGIC_V2
+     || header->version != PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG
+     || header->bank_count != PRESET_BANK_COUNT
+     || header->presets_per_bank != PRESETS_PER_BANK
+     || header->preset_count != PRESET_COUNT
+     || header->payload_size != preset_payload_size
+     || header->config_size != sizeof(RuntimeConfig_t))
+        return 0U;
+
+    return ((sizeof(PersistentStoreHeaderV2_t)
+          + header->payload_size
+          + header->config_size) <= PERSISTENT_STORE_FLASH_SIZE_BYTES) ? 1U : 0U;
+}
+
+static void RuntimeConfig_TryLoadPersistentStore(void)
+{
+    const PersistentStoreHeaderV2_t *header = (const PersistentStoreHeaderV2_t *)PERSISTENT_STORE_FLASH_ADDR;
+    const uint8_t *config_payload;
+
+    if (!RuntimeConfig_FlashHeaderV2IsValid(header))
+        return;
+
+    config_payload = (const uint8_t *)(PERSISTENT_STORE_FLASH_ADDR
+                                     + sizeof(PersistentStoreHeaderV2_t)
+                                     + header->payload_size);
+
+    if (RuntimeConfig_FlashChecksum(config_payload, sizeof(RuntimeConfig_t)) != header->config_checksum)
+        return;
+
+    memcpy(&runtime_config_store, config_payload, sizeof(runtime_config_store));
+}
 
 static void RuntimeConfig_EnsureInitialized(void)
 {
@@ -105,7 +159,14 @@ static void RuntimeConfig_EnsureInitialized(void)
         return;
 
     memcpy(&runtime_config_store, &runtime_config_defaults, sizeof(runtime_config_store));
+    RuntimeConfig_TryLoadPersistentStore();
     runtime_config_initialized = 1U;
+    runtime_config_dirty = 0U;
+}
+
+void RuntimeConfig_Init(void)
+{
+    RuntimeConfig_EnsureInitialized();
 }
 
 const RuntimeConfig_t *RuntimeConfig_Get(void)
@@ -187,8 +248,47 @@ RuntimeConfigGlobal_t *RuntimeConfig_GetMutableGlobal(void)
     return &runtime_config_store.global;
 }
 
+void RuntimeConfig_MarkDirty(void)
+{
+    RuntimeConfig_EnsureInitialized();
+    runtime_config_dirty = 1U;
+}
+
+uint8_t RuntimeConfig_IsDirty(void)
+{
+    RuntimeConfig_EnsureInitialized();
+    return runtime_config_dirty;
+}
+
+void RuntimeConfig_ClearDirty(void)
+{
+    RuntimeConfig_EnsureInitialized();
+    runtime_config_dirty = 0U;
+}
+
+uint8_t RuntimeConfig_SaveIfDirty(void)
+{
+    RuntimeConfig_EnsureInitialized();
+
+    if (!runtime_config_dirty)
+        return 1U;
+
+    return Presets_SaveIfDirty();
+}
+
+void RuntimeConfig_ApplySnapshot(const RuntimeConfig_t *snapshot)
+{
+    if (!snapshot)
+        return;
+
+    memcpy(&runtime_config_store, snapshot, sizeof(runtime_config_store));
+    runtime_config_initialized = 1U;
+    runtime_config_dirty = 0U;
+}
+
 void RuntimeConfig_ResetToDefaults(void)
 {
     memcpy(&runtime_config_store, &runtime_config_defaults, sizeof(runtime_config_store));
     runtime_config_initialized = 1U;
+    runtime_config_dirty = 0U;
 }

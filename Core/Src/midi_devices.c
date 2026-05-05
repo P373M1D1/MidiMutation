@@ -1,4 +1,5 @@
 #include "midi_devices.h"
+#include "runtime_config.h"
 
 /* ── Device table ────────────────────────────────────────────────────────────
  *
@@ -14,34 +15,7 @@
  * only routing distinction between devices.
  *
  * ─────────────────────────────────────────────────────────────────────────── */
-static const MidiDevice_t device_table[MIDI_DEVICE_COUNT] = {
-    /* 0 ── Empress Echosystem ── shared MIDI out, channel 1 ──────────────── */
-    {
-        .channel    = 1U,
-        .engage     = { .cc = 60U, .value = 127U },
-        .bypass     = { .cc = 60U, .value = 0U   },
-        .tap_tempo  = { .cc = 35U, .value = 64U  },
-        .max_preset = 35U,
-    },
-    /* 1 ── Empress Reverb ──── shared MIDI out, channel 2 ───────────────── */
-    /*  Engage/Bypass  CC 60 — 127 = engage, 0 = bypass                     */
-    /*  Left Stomp     CC 35 — value 64 = quick tap / select pulse           */
-    /*  Recall Preset  CC 11 — value = preset number (0–35)                  */
-    {
-        .channel    = 2U,
-        .engage     = { .cc = 60U, .value = 127U },
-        .bypass     = { .cc = 60U, .value = 0U   },
-        .tap_tempo  = { .cc = 35U, .value = 64U  },
-        .max_preset = 35U,
-    },
-    /* 2–7 blank slots — reserve unique channels for future devices ──────── INFO: Channel Numbers have only been added to check if the scrolling works*/
-    { .channel = 3U, .engage = {0xFFU,0U}, .bypass = {0xFFU,0U}, .tap_tempo = {0xFFU,0U}, .max_preset = 127U },
-    { .channel = 4U, .engage = {0xFFU,0U}, .bypass = {0xFFU,0U}, .tap_tempo = {0xFFU,0U}, .max_preset = 127U },
-    { .channel = 5U, .engage = {0xFFU,0U}, .bypass = {0xFFU,0U}, .tap_tempo = {0xFFU,0U}, .max_preset = 127U },
-    { .channel = 6U, .engage = {0xFFU,0U}, .bypass = {0xFFU,0U}, .tap_tempo = {0xFFU,0U}, .max_preset = 127U },
-    { .channel = 7U, .engage = {0xFFU,0U}, .bypass = {0xFFU,0U}, .tap_tempo = {0xFFU,0U}, .max_preset = 127U },
-    { .channel = 8U, .engage = {0xFFU,0U}, .bypass = {0xFFU,0U}, .tap_tempo = {0xFFU,0U}, .max_preset = 127U },
-};
+static MidiDevice_t runtime_device_cache[MIDI_DEVICE_COUNT];
 
 /* Fallback returned when index is out of range */
 static const MidiDevice_t blank_device = {
@@ -52,13 +26,31 @@ static const MidiDevice_t blank_device = {
     .max_preset = 0U,
 };
 
+static void MidiDevices_SyncCacheEntry(uint8_t index)
+{
+    const RuntimeConfigDevice_t *config = RuntimeConfig_GetDevice(index);
+
+    runtime_device_cache[index].channel = config->channel;
+    runtime_device_cache[index].engage = config->active;
+    runtime_device_cache[index].bypass = config->bypass;
+    runtime_device_cache[index].tap_tempo = config->tap_tempo;
+    runtime_device_cache[index].max_preset = config->max_preset;
+}
+
 /* -------------------------------------------------------------------------- */
 
 const MidiDevice_t *MidiDevices_Get(uint8_t index)
 {
     if (index >= MIDI_DEVICE_COUNT)
         return &blank_device;
-    return &device_table[index];
+
+    MidiDevices_SyncCacheEntry(index);
+    return &runtime_device_cache[index];
+}
+
+const char *MidiDevices_GetName(uint8_t index)
+{
+    return RuntimeConfig_GetDevice(index)->name;
 }
 
 uint8_t MidiDevices_Count(void)

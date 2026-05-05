@@ -56,6 +56,19 @@ DisplayPresetEditField_t Display_PresetEditGetField(void);
 void Display_PresetEditRefreshCurrentField(const Preset_t *p);
 void Display_ShowSavingPopup(void);
 void Display_HideSavingPopup(const Preset_t *p);
+void Display_MenuEnter(void);
+void Display_MenuExit(void);
+uint8_t Display_MenuIsActive(void);
+void Display_MenuRefresh(void);
+void Display_MenuHome(void);
+uint8_t Display_MenuSubEditorIsActive(void);
+uint8_t Display_MenuMoveSelection(int8_t delta);
+uint8_t Display_MenuActivate(void);
+uint8_t Display_MenuBack(void);
+void Display_MenuTextEditExit(void);
+uint8_t Display_MenuTextEditIsActive(void);
+uint8_t Display_MenuTextEditMoveCursor(int8_t delta);
+uint8_t Display_MenuAdjustValue(int8_t delta);
 
 /* ── Screensaver (backlight idle mode) ───────────────────────────────────── */
 

@@ -27,7 +27,6 @@ extern "C" {
 #define PRESET_RELAY_OPEN         0U    /* relay state value for open/bypass */
 #define PRESET_RELAY_CLOSED       1U    /* relay state value for closed/engaged */
 
-extern const char * const bank_names[PRESET_BANK_COUNT];
 extern volatile uint8_t current_bank;
 
 /**

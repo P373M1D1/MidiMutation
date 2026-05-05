@@ -33,6 +33,7 @@
 #include "midi_functions.h"
 #include "midi_devices.h"
 #include "presets.h"
+#include "runtime_config.h"
 #include <stdio.h>
 #include <string.h>
 /* USER CODE END Includes */
@@ -58,7 +59,7 @@
 #define STARTUP_STATUS_BG_COLOUR        BLACK /* background colour behind the startup splash/status area */
 #define STARTUP_FLASH_OK_TEXT           "flash_OK" /* status string shown when persisted flash state validates */
 #define STARTUP_FLASH_INVALID_TEXT      "flash_notOK" /* status string shown when persisted flash state is blank or invalid */
-#define STARTUP_LOADING_BAR_MS        1000U /* startup loading-bar duration before the main screen appears */
+#define STARTUP_LOADING_BAR_MS_DEFAULT 1000U /* startup loading-bar duration before the main screen appears */
 
 #define MIDI_OUTPUT_UART_INSTANCE      UART4 /* dedicated UART instance used for controller-managed MIDI output */
 #define MIDI_OUTPUT_TX_GPIO_PORT       GPIOD /* GPIO port for the dedicated MIDI output TX pin */
@@ -118,6 +119,16 @@ static volatile uint8_t  tap_head  = 0U;        /* circular write pointer   */
 volatile uint16_t g_bpm     = BPM_DEFAULT; /* live BPM value         */
 volatile uint8_t         bpm_dirty    = 0U;  /* set by ISR, read by main */
 volatile uint32_t bpm_save_tick = 0U;  /* HAL_GetTick target to save BPM to Flash */
+
+static uint32_t App_GetStartupLoadingBarDurationMs(void)
+{
+  const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
+
+  if (!global)
+    return STARTUP_LOADING_BAR_MS_DEFAULT;
+
+  return (uint32_t)global->startup_delay_seconds * 1000UL;
+}
 const Preset_t   *active_preset = NULL; /* current preset, needed by screensaver wake */
 uint8_t active_preset_index = PRESET_DEFAULT;
 static volatile uint8_t encoder_button_press_pending_mask = 0U; /* queued encoder switch press events waiting for serial test output */
@@ -401,7 +412,7 @@ static uint8_t PresetEdit_ApplyDelta(int8_t delta)
 
 static uint8_t PresetEdit_Enter(void)
 {
-  if (Display_PresetEditIsActive() || !PresetEdit_CurrentPresetIsEditable())
+  if (Display_MenuIsActive() || Display_PresetEditIsActive() || !PresetEdit_CurrentPresetIsEditable())
     return 0U;
 
   Display_ScreensaverDismiss();
@@ -450,6 +461,51 @@ static uint8_t PresetEdit_BackOutOneLevel(void)
   return 1U;
 }
 
+static const Preset_t *App_GetCurrentDisplayPreset(void)
+{
+  return active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK);
+}
+
+static void Menu_SaveIfDirty(void)
+{
+  if (!RuntimeConfig_IsDirty())
+    return;
+
+  Display_ShowSavingPopup();
+  RuntimeConfig_SaveIfDirty();
+  Display_HideSavingPopup(App_GetCurrentDisplayPreset());
+}
+
+static uint8_t Menu_BackOutOneLevel(void)
+{
+  uint8_t sub_editor_active;
+
+  if (!Display_MenuIsActive())
+    return 0U;
+
+  sub_editor_active = Display_MenuSubEditorIsActive();
+  Display_MenuBack();
+  Display_ScreensaverActivity();
+  if (!sub_editor_active)
+    Menu_SaveIfDirty();
+
+  if (!Display_MenuIsActive())
+    Display_DrawMainScreen(App_GetCurrentDisplayPreset(), g_bpm);
+
+  return 1U;
+}
+
+static uint8_t Menu_Enter(void)
+{
+  if (Display_MenuIsActive() || Display_PresetEditIsActive())
+    return 0U;
+
+  Display_ScreensaverDismiss();
+  Display_ScreensaverActivity();
+  Display_MenuEnter();
+  return 1U;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -487,6 +543,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   /* Bring peripherals up in an order that avoids display flash and ensures
    * MIDI timing is already running before the UI starts querying it. */
+  RuntimeConfig_Init();
   Display_BL_Init();
   MidiInitInput();
   MX_MIDI_Output_UART_Init();
@@ -501,7 +558,7 @@ int main(void)
       BPM_Flash_IsValid() ? STARTUP_FLASH_OK_TEXT : STARTUP_FLASH_INVALID_TEXT,
       STARTUP_STATUS_FONT, STARTUP_STATUS_FG_COLOUR, STARTUP_STATUS_BG_COLOUR);
   //Display_LoadingBar(7000U);
-    Display_LoadingBar(STARTUP_LOADING_BAR_MS);
+    Display_LoadingBar(App_GetStartupLoadingBarDurationMs());
   Display_LoadingBarClear();
   Display_BL_FadeOut();
     ST7796_FillScreen(STARTUP_STATUS_BG_COLOUR);  /* clear while backlight is off ??? invisible */
@@ -1048,6 +1105,37 @@ static void EncoderCheck_ProcessPending(void)
 
   Display_ScreensaverActivity();
 
+  if ((press_mask & 0x02U) && Display_MenuIsActive())
+  {
+    Display_MenuHome();
+    Menu_SaveIfDirty();
+    return;
+  }
+
+  if ((press_mask & 0x04U) && Display_MenuIsActive())
+  {
+    if (Display_MenuTextEditIsActive())
+    {
+      Display_MenuTextEditExit();
+      return;
+    }
+
+    Menu_BackOutOneLevel();
+    return;
+  }
+
+  if ((press_mask & 0x01U) && Display_MenuIsActive())
+  {
+    Display_MenuActivate();
+    return;
+  }
+
+  if ((press_mask & 0x02U) && !Display_PresetEditIsActive())
+  {
+    Menu_Enter();
+    return;
+  }
+
   if ((press_mask & 0x04U) && Display_PresetEditIsActive())
   {
     PresetEdit_BackOutOneLevel();
@@ -1200,6 +1288,18 @@ static void Rotary1_ProcessPending(void)
   }
 
   Display_ScreensaverActivity();
+
+  if (Display_MenuIsActive())
+  {
+    if (pending_steps != 0)
+    {
+      if (Display_MenuTextEditIsActive())
+        Display_MenuTextEditMoveCursor(pending_steps);
+      else
+        Display_MenuMoveSelection(pending_steps);
+    }
+    return;
+  }
 
   if (pending_steps != 0 && active_preset != NULL)
   {
@@ -1421,6 +1521,13 @@ static void TempoEncoder_ProcessPending(void)
   }
 
   Display_ScreensaverActivity();
+
+  if (Display_MenuIsActive())
+  {
+    if (pending_delta != 0)
+      Display_MenuAdjustValue(pending_delta);
+    return;
+  }
 
   if (Display_PresetEditIsActive())
   {

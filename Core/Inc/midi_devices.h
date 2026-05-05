@@ -45,6 +45,12 @@ typedef struct {
 const MidiDevice_t *MidiDevices_Get(uint8_t index);
 
 /**
+ * @brief  Return the configured display name for the device at @p index.
+ *         Returns an empty string when no custom name is configured.
+ */
+const char *MidiDevices_GetName(uint8_t index);
+
+/**
  * @brief  Return the number of devices defined in the table.
  */
 uint8_t MidiDevices_Count(void);
