@@ -1,4 +1,5 @@
 #include "led_functions.h"
+#include "display_functions.h"
 #include "main.h"          /* LD1_Pin / LD1_GPIO_Port, LD2_Pin / LD2_GPIO_Port */
 #include "stm32f4xx_hal.h"
 
@@ -12,8 +13,20 @@ static volatile uint32_t midi_in_off_tick = 0U; /* PF15      – MIDI in start  
 
 /* -------------------------------------------------------------------------- */
 
+static uint8_t LED_BeatPulseIsAllowed(void)
+{
+    return (Display_MenuIsActive() || Display_PresetEditIsActive()) ? 0U : 1U;
+}
+
 void LED_BeatPulse(void)
 {
+    if (!LED_BeatPulseIsAllowed())
+    {
+        beat_off_tick = 0U;
+        HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+        return;
+    }
+
     HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_SET);
     beat_off_tick = HAL_GetTick() + LED_PULSE_MS;
 }
@@ -40,7 +53,12 @@ void LED_Update(void)
 {
     uint32_t now = HAL_GetTick();
 
-    if (beat_off_tick && now >= beat_off_tick)
+    if (!LED_BeatPulseIsAllowed())
+    {
+        beat_off_tick = 0U;
+        HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+    }
+    else if (beat_off_tick && now >= beat_off_tick)
     {
         beat_off_tick = 0U;
         HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);

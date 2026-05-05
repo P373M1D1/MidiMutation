@@ -165,6 +165,16 @@ static uint8_t RuntimeConfig_NormalizeMidiClockBarCount(uint8_t bar_count)
     return bar_count;
 }
 
+static uint16_t RuntimeConfig_NormalizeBacklightBrightness(uint16_t brightness)
+{
+    if (brightness < RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN)
+        return RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN;
+    if (brightness > RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX)
+        return RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX;
+
+    return brightness;
+}
+
 static void RuntimeConfig_NormalizeLoadedStore(void)
 {
     for (uint8_t bank_index = 0U; bank_index < PRESET_BANK_COUNT; ++bank_index)
@@ -172,6 +182,9 @@ static void RuntimeConfig_NormalizeLoadedStore(void)
         runtime_config_store.banks[bank_index].midi_clock_bar_count = RuntimeConfig_NormalizeMidiClockBarCount(
             runtime_config_store.banks[bank_index].midi_clock_bar_count);
     }
+
+    runtime_config_store.global.backlight_brightness = RuntimeConfig_NormalizeBacklightBrightness(
+        runtime_config_store.global.backlight_brightness);
 }
 
 static void RuntimeConfig_ApplyLegacyV2Snapshot(const RuntimeConfigLegacyV2_t *legacy_store)
