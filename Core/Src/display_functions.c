@@ -1,4 +1,5 @@
 #include "display_functions.h"
+#include "display_compose.h"
 #include "button_functions.h"
 #include "midi_functions.h"
 #include "midi_devices.h"
@@ -153,6 +154,8 @@ void Display_BL_FadeOut(void)
 #define MAIN_INFO_LEFT_X               30U                  // x origin of the left info column (MIDI programs)
 #define MAIN_INFO_RIGHT_X              235U                 // x origin of the right info column (relay / special state), shifted right by one glyph cell
 #define MAIN_INFO_FONT                 Font_Consolas15x35   // font used for bank text, BPM text, and info rows
+#define MAIN_INFO_FONT_CELL_WIDTH      15U                  // compile-time width of MAIN_INFO_FONT glyph cells for row-buffer composition
+#define MAIN_INFO_FONT_CELL_HEIGHT     35U                  // compile-time height of MAIN_INFO_FONT glyph cells for row-buffer composition
 #define MAIN_INFO_TEXT_COLOUR          CHARCOAL            // normal text colour for info rows
 #define MAIN_INFO_TEXT_BG_COLOUR       DISPLAY_BG_COLOUR    // background colour behind normal info text
 #define MAIN_INFO_SHARED_TEXT_COLOUR   DISPLAY_BG_COLOUR    // text colour when a shared program number is inverted
@@ -193,6 +196,9 @@ void Display_BL_FadeOut(void)
 #define MAIN_PRESET_TEXT_Y             85U                  // y position of the large preset name line
 #define MAIN_PRESET_TEXT_CHARS         20U                  // fixed character width used when centering preset names
 #define MAIN_PRESET_FONT               Font_Consolas23x49   // large font for the preset name
+#define MAIN_PRESET_FONT_CELL_WIDTH    23U                  // compile-time width of MAIN_PRESET_FONT glyph cells for row-buffer composition
+#define MAIN_PRESET_FONT_CELL_HEIGHT   49U                  // compile-time height of MAIN_PRESET_FONT glyph cells for row-buffer composition
+#define MAIN_PRESET_ROW_BUFFER_WIDTH   (PRESET_NAME_LENGTH * MAIN_PRESET_FONT_CELL_WIDTH) // total pixel width of the preset-name row buffer
 #define MAIN_PRESET_COLOUR             WHITE               // text colour for the preset name
 #define MAIN_PRESET_BG_COLOUR          DISPLAY_BG_COLOUR    // background colour behind the preset name
 #define MAIN_BANK_TEXT_Y               145U                 // y position of the bank name line
@@ -269,18 +275,12 @@ static uint8_t bpm_display_external = 0U;
 static uint8_t bpm_display_sync_lost = 0U;
 static uint16_t bpm_display_value_x10 = 0U;
 static uint32_t bpm_display_external_update_tick = 0U;
-static char bpm_display_internal_text[8] = "";
-static char bpm_display_external_text[14] = "";
-static uint16_t bpm_display_internal_head_x = 0U;
 static char transport_barbeat_text[5] = "";
 static uint8_t main_info_first_slot = 0U;
 static uint8_t preset_edit_mode_active = 0U;
 static uint8_t preset_edit_cursor_index = 0U;
 static uint8_t preset_name_edit_active = 0U;
 static uint8_t preset_name_edit_cursor_index = 0U;
-static uint8_t preset_name_full_refresh_pending = 0U;
-static uint8_t preset_name_last_render_length = 0U;
-static uint8_t preset_name_last_pad_left = 0U;
 static uint8_t saving_popup_visible = 0U;
 static uint8_t menu_mode_active = 0U;
 static uint8_t menu_root_selection_index = 0U;
@@ -334,7 +334,7 @@ static const char menu_text_edit_charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh
 #define BPM_SYNC_LOST_COLOUR            RED                 // colour used for the EXT SYNC LOST warning
 
 #define TRANSPORT_BARBEAT_TEXT_X        10U                  // top-left x position for bar.beat transport readout
-#define TRANSPORT_BARBEAT_TEXT_Y        7U                   // top-left y position for bar.beat transport readout
+#define TRANSPORT_BARBEAT_TEXT_Y        7U                   // y position for the bar.beat transport readout
 #define TRANSPORT_BARBEAT_TEXT_CHARS    4U                   // fixed width for values like "64.4" or "-.-"
 #define TRANSPORT_BARBEAT_TEXT_W        (TRANSPORT_BARBEAT_TEXT_CHARS * MAIN_PRESET_FONT.width) // clear/update width of bar.beat readout
 #define TRANSPORT_BARBEAT_TEXT_COLOUR   MAIN_PRESET_COLOUR   // use preset font colour as requested
@@ -356,6 +356,204 @@ static const char menu_text_edit_charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh
 #define LOADING_BAR_DONE_TEXT           "mutation complete" // final message shown when startup loading completes
 
 #define SCREENSAVER_TIMEOUT_MIN_DEFAULT 10UL // idle time before the backlight-only screensaver activates
+
+/* Dynamic display updates should compose off-screen and reach the panel
+ * through one blit. These local wrappers keep the existing call sites stable
+ * while the shared scratch-buffer engine lives in display_compose.c. */
+static void Display_ClearStandardMenuRow(uint8_t row_index);
+static void Display_ComposeBlit(uint16_t x,
+                                uint16_t y,
+                                uint16_t width,
+                                uint16_t height);
+
+static void Display_MenuRowComposeClear(uint16_t colour)
+{
+    DisplayCompose_Clear(ST7796_WIDTH,
+                         MAIN_INFO_FONT_CELL_HEIGHT,
+                         colour);
+}
+
+static void Display_ComposeFillRect(uint16_t clip_width,
+                                    uint16_t clip_height,
+                                    uint16_t x,
+                                    uint16_t y,
+                                    uint16_t w,
+                                    uint16_t h,
+                                    uint16_t colour)
+{
+    DisplayCompose_FillRect(clip_width,
+                            clip_height,
+                            x,
+                            y,
+                            w,
+                            h,
+                            colour);
+}
+
+static void Display_MenuRowComposeFillRect(uint16_t x,
+                                           uint16_t y,
+                                           uint16_t w,
+                                           uint16_t h,
+                                           uint16_t colour)
+{
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            x,
+                            y,
+                            w,
+                            h,
+                            colour);
+}
+
+static void Display_ComposeChar32(uint16_t clip_width,
+                                  uint16_t clip_height,
+                                  uint16_t x,
+                                  uint16_t y,
+                                  char ch,
+                                  FontDef32 font,
+                                  uint16_t colour,
+                                  uint16_t background)
+{
+    DisplayCompose_Char32(clip_width,
+                          clip_height,
+                          x,
+                          y,
+                          ch,
+                          font,
+                          colour,
+                          background);
+}
+
+static void Display_MenuRowComposeChar32(uint16_t x,
+                                         uint16_t y,
+                                         char ch,
+                                         FontDef32 font,
+                                         uint16_t colour,
+                                         uint16_t background)
+{
+    Display_ComposeChar32(ST7796_WIDTH,
+                          MAIN_INFO_FONT_CELL_HEIGHT,
+                          x,
+                          y,
+                          ch,
+                          font,
+                          colour,
+                          background);
+}
+
+static void Display_ComposeString32(uint16_t clip_width,
+                                    uint16_t clip_height,
+                                    uint16_t x,
+                                    uint16_t y,
+                                    const char *text,
+                                    FontDef32 font,
+                                    uint16_t colour,
+                                    uint16_t background)
+{
+    DisplayCompose_String32(clip_width,
+                            clip_height,
+                            x,
+                            y,
+                            text,
+                            font,
+                            colour,
+                            background);
+}
+
+static void Display_MenuRowComposeString32(uint16_t x,
+                                           uint16_t y,
+                                           const char *text,
+                                           FontDef32 font,
+                                           uint16_t colour,
+                                           uint16_t background)
+{
+    Display_ComposeString32(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            x,
+                            y,
+                            text,
+                            font,
+                            colour,
+                            background);
+}
+
+static void Display_ComposeString16(uint16_t clip_width,
+                                    uint16_t clip_height,
+                                    uint16_t x,
+                                    uint16_t y,
+                                    const char *text,
+                                    FontDef font,
+                                    uint16_t colour,
+                                    uint16_t background)
+{
+    DisplayCompose_String16(clip_width,
+                            clip_height,
+                            x,
+                            y,
+                            text,
+                            font,
+                            colour,
+                            background);
+}
+
+static void Display_RowComposeString16(uint16_t x,
+                                       uint16_t y,
+                                       const char *text,
+                                       FontDef font,
+                                       uint16_t colour,
+                                       uint16_t background)
+{
+    Display_ComposeString16(ST7796_WIDTH,
+                            MAIN_PRESET_FONT_CELL_HEIGHT,
+                            x,
+                            y,
+                            text,
+                            font,
+                            colour,
+                            background);
+}
+
+static void Display_MenuRowComposeTextSegment32(uint16_t x,
+                                                const char *text,
+                                                uint16_t foreground,
+                                                uint16_t background)
+{
+    size_t text_length = text ? strlen(text) : 0U;
+
+    if (text_length == 0U)
+        return;
+
+    Display_MenuRowComposeFillRect(x,
+                                   0U,
+                                   (uint16_t)(text_length * MAIN_INFO_FONT.width),
+                                   MAIN_INFO_FONT.height,
+                                   background);
+    Display_MenuRowComposeString32(x,
+                                   0U,
+                                   text,
+                                   MAIN_INFO_FONT,
+                                   foreground,
+                                   background);
+}
+
+static void Display_MenuRowComposeBlit(uint16_t row_y)
+{
+    Display_ComposeBlit(0U,
+                        row_y,
+                        ST7796_WIDTH,
+                        MAIN_INFO_FONT_CELL_HEIGHT);
+}
+
+static void Display_ComposeBlit(uint16_t x,
+                                uint16_t y,
+                                uint16_t width,
+                                uint16_t height)
+{
+    DisplayCompose_Blit(x,
+                        y,
+                        width,
+                        height);
+}
 
 static uint32_t Display_GetConfiguredScreensaverTimeoutMs(void)
 {
@@ -509,98 +707,35 @@ static uint16_t Display_GetPresetNameBaseX(void)
     return (uint16_t)((ST7796_WIDTH - (PRESET_NAME_LENGTH * MAIN_PRESET_FONT.width)) / 2U);
 }
 
-static uint8_t Display_GetPresetNameCellIndex(const Preset_t *preset, uint8_t logical_index)
+static void Display_PresetNameComposeFillRect(uint16_t x,
+                                              uint16_t y,
+                                              uint16_t w,
+                                              uint16_t h,
+                                              uint16_t colour)
 {
-    return (uint8_t)(Display_GetPresetNamePadLeft(preset) + logical_index);
+    Display_ComposeFillRect(MAIN_PRESET_ROW_BUFFER_WIDTH,
+                            MAIN_PRESET_FONT_CELL_HEIGHT,
+                            x,
+                            y,
+                            w,
+                            h,
+                            colour);
 }
 
-/* Draw a single preset-name cell so cursor moves and single-character edits can
- * touch only the glyphs whose contents or highlight state actually changed. */
-static void Display_DrawPresetNameCell(const Preset_t *preset, uint8_t cell_index)
+static void Display_PresetNameComposeChar32(uint16_t x,
+                                            uint16_t y,
+                                            char ch,
+                                            uint16_t colour,
+                                            uint16_t background)
 {
-    DisplayPresetEditField_t edit_field;
-    uint8_t name_field_selected;
-    uint8_t name_char_edit_active;
-    uint8_t name_length;
-    uint8_t render_length;
-    uint8_t pad_left;
-    int16_t logical_index;
-    uint16_t char_x;
-    uint16_t foreground = MAIN_PRESET_COLOUR;
-    uint16_t background = MAIN_PRESET_BG_COLOUR;
-    char ch = ' ';
-
-    if (!preset || cell_index >= PRESET_NAME_LENGTH)
-        return;
-
-    edit_field = Display_PresetEditGetField();
-    name_field_selected = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_NAME && preset_edit_mode_active && !preset_name_edit_active) ? 1U : 0U;
-    name_char_edit_active = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_NAME && preset_edit_mode_active && preset_name_edit_active) ? 1U : 0U;
-    name_length = Display_GetPresetNameLength(preset);
-    render_length = Display_GetPresetNameRenderLength(preset);
-    pad_left = Display_GetPresetNamePadLeft(preset);
-    logical_index = (int16_t)cell_index - (int16_t)pad_left;
-    char_x = (uint16_t)(Display_GetPresetNameBaseX() + (cell_index * MAIN_PRESET_FONT.width));
-
-    if (logical_index >= 0 && logical_index < (int16_t)name_length)
-        ch = preset->name[logical_index];
-
-    if (name_field_selected
-        && logical_index >= 0
-        && logical_index < (int16_t)render_length)
-    {
-        foreground = MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR;
-        background = MAIN_INFO_EDIT_CURSOR_BG_COLOUR;
-    }
-
-    if (name_char_edit_active && logical_index == (int16_t)preset_name_edit_cursor_index)
-    {
-        foreground = MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR;
-        background = MAIN_INFO_EDIT_CURSOR_BG_COLOUR;
-    }
-
-    ST7796_DrawFilledRectangle(char_x,
-                               MAIN_PRESET_TEXT_Y,
-                               MAIN_PRESET_FONT.width,
-                               MAIN_PRESET_FONT.height,
-                               background);
-
-    if (ch != ' ')
-    {
-        ST7796_WriteChar32(char_x,
-                           MAIN_PRESET_TEXT_Y,
-                           ch,
-                           MAIN_PRESET_FONT,
-                           foreground,
-                           background);
-    }
-}
-
-static void Display_UpdateBpmTextCells(uint16_t x,
-                                       uint16_t y,
-                                       uint8_t width_chars,
-                                       const char *old_text,
-                                       const char *new_text,
-                                       uint16_t colour)
-{
-    size_t old_len = old_text ? strlen(old_text) : 0U;
-    size_t new_len = new_text ? strlen(new_text) : 0U;
-
-    for (uint8_t index = 0U; index < width_chars; index++)
-    {
-        char old_ch = (index < old_len) ? old_text[index] : ' ';
-        char new_ch = (index < new_len) ? new_text[index] : ' ';
-
-        if (old_ch == new_ch)
-            continue;
-
-        uint16_t char_x = (uint16_t)(x + ((uint16_t)index * BPM_FONT.width));
-        ST7796_DrawFilledRectangle(char_x, y, BPM_FONT.width, BPM_FONT.height, BPM_BG_COLOUR);
-        if (new_ch != ' ')
-        {
-            ST7796_WriteChar32(char_x, y, new_ch, BPM_FONT, colour, BPM_BG_COLOUR);
-        }
-    }
+    Display_ComposeChar32(MAIN_PRESET_ROW_BUFFER_WIDTH,
+                          MAIN_PRESET_FONT_CELL_HEIGHT,
+                          x,
+                          y,
+                          ch,
+                          MAIN_PRESET_FONT,
+                          colour,
+                          background);
 }
 
 static void Display_UpdateTransportBarBeat(void)
@@ -649,42 +784,31 @@ static void Display_UpdateTransportBarBeat(void)
     if (strcmp(next_text, transport_barbeat_text) == 0)
         return;
 
+    Display_PresetNameComposeFillRect(0U,
+                                      0U,
+                                      TRANSPORT_BARBEAT_TEXT_W,
+                                      MAIN_PRESET_FONT.height,
+                                      DISPLAY_BG_COLOUR);
+
+    for (uint8_t index = 0U; index < TRANSPORT_BARBEAT_TEXT_CHARS; ++index)
     {
-        size_t old_len = strlen(transport_barbeat_text);
-        size_t new_len = strlen(next_text);
+        char ch = next_text[index];
 
-        for (uint8_t index = 0U; index < TRANSPORT_BARBEAT_TEXT_CHARS; index++)
-        {
-            char old_ch = (index < old_len) ? transport_barbeat_text[index] : ' ';
-            char new_ch = (index < new_len) ? next_text[index] : ' ';
-            uint16_t char_x;
+        if (ch == '\0' || ch == ' ')
+            continue;
 
-            if (old_ch == new_ch)
-                continue;
-
-            char_x = (uint16_t)(TRANSPORT_BARBEAT_TEXT_X + ((uint16_t)index * MAIN_PRESET_FONT.width));
-            ST7796_DrawFilledRectangle(char_x,
-                                       TRANSPORT_BARBEAT_TEXT_Y,
-                                       MAIN_PRESET_FONT.width,
-                                       MAIN_PRESET_FONT.height,
-                                       DISPLAY_BG_COLOUR);
-            if (new_ch != ' ')
-            {
-                ST7796_WriteChar32(char_x,
-                                   TRANSPORT_BARBEAT_TEXT_Y,
-                                   new_ch,
-                                   MAIN_PRESET_FONT,
-                                   TRANSPORT_BARBEAT_TEXT_COLOUR,
-                                   DISPLAY_BG_COLOUR);
-            }
-        }
+        Display_PresetNameComposeChar32((uint16_t)(index * MAIN_PRESET_FONT.width),
+                                        0U,
+                                        ch,
+                                        TRANSPORT_BARBEAT_TEXT_COLOUR,
+                                        DISPLAY_BG_COLOUR);
     }
 
-    if (next_text[0] != '\0')
-    {
-        /* Characters are rendered above cell-by-cell; keep this branch only
-         * to preserve the previous blank/non-blank intent. */
-    }
+    Display_ComposeBlit(TRANSPORT_BARBEAT_TEXT_X,
+                        TRANSPORT_BARBEAT_TEXT_Y,
+                        TRANSPORT_BARBEAT_TEXT_W,
+                        MAIN_PRESET_FONT_CELL_HEIGHT);
+
     strcpy(transport_barbeat_text, next_text);
 }
 
@@ -724,11 +848,6 @@ static uint16_t Display_GetExternalBpmHysteresisX10(uint16_t reference_bpm_x10)
     return (uint16_t)hysteresis_x10;
 }
 
-static void Display_ClearBpmArea(void)
-{
-    ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X, BPM_TEXT_Y, BPM_DISPLAY_AREA_W, BPM_FONT.height, BPM_BG_COLOUR);
-}
-
 static uint8_t Display_GetMainInfoProgramScrollMax(void)
 {
     return (PRESET_DEVICE_SLOTS > MAIN_INFO_ROW_COUNT)
@@ -759,75 +878,27 @@ static uint8_t Display_GetMainInfoRightFirstItem(void)
     return Display_GetMainInfoRightFirstItemForFirstSlot(main_info_first_slot);
 }
 
-static uint8_t Display_GetMainInfoRightFirstItemRenderState(uint8_t first_item)
+static void Display_ComposeMainInfoScrollIndicator(uint8_t point_up,
+                                                   uint8_t visible)
 {
-    uint8_t blank_first_item = (uint8_t)(PRESET_RELAY_COUNT + 1U);
+    uint16_t indicator_y = (uint16_t)((MAIN_INFO_FONT.height - MAIN_SCROLL_INDICATOR_H) / 2U);
 
-    return (first_item > blank_first_item) ? blank_first_item : first_item;
-}
-
-static void Display_DrawMainInfoScrollIndicator(uint16_t x,
-                                                uint16_t y,
-                                                uint8_t point_up,
-                                                uint8_t visible)
-{
-    ST7796_DrawFilledRectangle(x,
-                               y,
-                               MAIN_SCROLL_INDICATOR_W,
-                               MAIN_SCROLL_INDICATOR_H,
-                               DISPLAY_BG_COLOUR);
     if (!visible)
         return;
 
     for (uint8_t row = 0U; row < MAIN_SCROLL_INDICATOR_H; row++)
     {
         uint16_t line_y = point_up
-            ? (uint16_t)(y + row)
-            : (uint16_t)(y + (MAIN_SCROLL_INDICATOR_H - 1U - row));
-        uint16_t line_x0 = (uint16_t)(x + ((MAIN_SCROLL_INDICATOR_W / 2U) - row));
-        uint16_t line_x1 = (uint16_t)(x + ((MAIN_SCROLL_INDICATOR_W / 2U) + row));
+            ? (uint16_t)(indicator_y + row)
+            : (uint16_t)(indicator_y + (MAIN_SCROLL_INDICATOR_H - 1U - row));
+        uint16_t line_x0 = (uint16_t)(MAIN_SCROLL_INDICATOR_X + ((MAIN_SCROLL_INDICATOR_W / 2U) - row));
 
-        ST7796_DrawLine(line_x0,
-                        line_y,
-                        line_x1,
-                        line_y,
-                        MAIN_SCROLL_INDICATOR_COLOUR);
+        Display_MenuRowComposeFillRect(line_x0,
+                                       line_y,
+                                       (uint16_t)((row * 2U) + 1U),
+                                       1U,
+                                       MAIN_SCROLL_INDICATOR_COLOUR);
     }
-}
-
-static void Display_DrawMainInfoScrollIndicators(void)
-{
-    uint8_t max_scroll = Display_GetMainInfoScrollMax();
-    uint16_t up_y = (uint16_t)(main_info_row_y[0] + ((MAIN_INFO_FONT.height - MAIN_SCROLL_INDICATOR_H) / 2U));
-    uint16_t down_y = (uint16_t)(main_info_row_y[MAIN_INFO_ROW_COUNT - 1U] + ((MAIN_INFO_FONT.height - MAIN_SCROLL_INDICATOR_H) / 2U));
-
-    Display_DrawMainInfoScrollIndicator(MAIN_SCROLL_INDICATOR_X,
-                                        up_y,
-                                        1U,
-                                        (main_info_first_slot > 0U) ? 1U : 0U);
-    Display_DrawMainInfoScrollIndicator(MAIN_SCROLL_INDICATOR_X,
-                                        down_y,
-                                        0U,
-                                        (main_info_first_slot < max_scroll) ? 1U : 0U);
-}
-
-static void Display_DrawFootbarLabel(uint8_t section_index, const char *text)
-{
-    size_t text_len = strlen(text);
-    uint16_t section_x = (uint16_t)(section_index * MAIN_FOOTBAR_SECTION_WIDTH);
-    uint16_t text_w = (uint16_t)text_len * MAIN_FOOTBAR_FONT.width;
-    uint16_t text_x = (uint16_t)(section_x + ((MAIN_FOOTBAR_SECTION_WIDTH - text_w) / 2U));
-    uint16_t text_y = (uint16_t)(MAIN_FOOTBAR_Y + ((MAIN_FOOTBAR_H - MAIN_FOOTBAR_FONT.height) / 2U));
-
-    if (text_len == 0U)
-        return;
-
-    ST7796_WriteString32(text_x,
-                         text_y,
-                         text,
-                         MAIN_FOOTBAR_FONT,
-                         MAIN_FOOTBAR_TEXT_COLOUR,
-                         MAIN_FOOTBAR_COLOR);
 }
 
 static const char *Display_GetFootbarLabel(uint8_t section_index)
@@ -892,12 +963,36 @@ static const char *Display_GetFootbarLabel(uint8_t section_index)
 
 static void Display_DrawFootbar(void)
 {
-    ST7796_DrawFilledRectangle(0U, MAIN_FOOTBAR_Y, ST7796_WIDTH, MAIN_FOOTBAR_H, MAIN_FOOTBAR_COLOR);
+    Display_MenuRowComposeFillRect(0U,
+                                   0U,
+                                   ST7796_WIDTH,
+                                   MAIN_FOOTBAR_H,
+                                   MAIN_FOOTBAR_COLOR);
 
     for (uint8_t section_index = 0U; section_index < MAIN_FOOTBAR_SECTION_COUNT; ++section_index)
     {
-        Display_DrawFootbarLabel(section_index, Display_GetFootbarLabel(section_index));
+        const char *text = Display_GetFootbarLabel(section_index);
+        size_t text_len = strlen(text);
+        uint16_t section_x = (uint16_t)(section_index * MAIN_FOOTBAR_SECTION_WIDTH);
+        uint16_t text_w = (uint16_t)text_len * MAIN_FOOTBAR_FONT.width;
+        uint16_t text_x = (uint16_t)(section_x + ((MAIN_FOOTBAR_SECTION_WIDTH - text_w) / 2U));
+        uint16_t text_y = (uint16_t)((MAIN_FOOTBAR_H - MAIN_FOOTBAR_FONT.height) / 2U);
+
+        if (text_len == 0U)
+            continue;
+
+        Display_MenuRowComposeString32(text_x,
+                                       text_y,
+                                       text,
+                                       MAIN_FOOTBAR_FONT,
+                                       MAIN_FOOTBAR_TEXT_COLOUR,
+                                       MAIN_FOOTBAR_COLOR);
     }
+
+    Display_ComposeBlit(0U,
+                        MAIN_FOOTBAR_Y,
+                        ST7796_WIDTH,
+                        MAIN_FOOTBAR_H);
 }
 
 static void Display_WriteCenteredPaddedText32WithBackground(uint16_t y,
@@ -908,6 +1003,8 @@ static void Display_WriteCenteredPaddedText32WithBackground(uint16_t y,
                                                             uint16_t background)
 {
     char padded[MAIN_PRESET_TEXT_CHARS + 1U];
+    uint16_t draw_w = (uint16_t)width_chars * font.width;
+    uint16_t draw_x = (uint16_t)((ST7796_WIDTH - draw_w) / 2U);
     size_t max_chars = (size_t)width_chars;
     size_t text_len = strnlen(text, max_chars);
     size_t pad_left = (max_chars - text_len) / 2U;
@@ -916,12 +1013,21 @@ static void Display_WriteCenteredPaddedText32WithBackground(uint16_t y,
     memcpy(padded + pad_left, text, text_len);
     padded[max_chars] = '\0';
 
-    ST7796_WriteString32((uint16_t)((ST7796_WIDTH - ((uint16_t)width_chars * font.width)) / 2U),
-                         y,
-                         padded,
-                         font,
-                         colour,
-                         background);
+    Display_MenuRowComposeFillRect(0U,
+                                   0U,
+                                   draw_w,
+                                   font.height,
+                                   background);
+    Display_MenuRowComposeString32(0U,
+                                   0U,
+                                   padded,
+                                   font,
+                                   colour,
+                                   background);
+    Display_ComposeBlit(draw_x,
+                        y,
+                        draw_w,
+                        font.height);
 }
 
 static void Display_WriteCenteredPaddedText32(uint16_t y,
@@ -989,6 +1095,11 @@ static uint8_t Display_MenuPageUsesConfirmFootbar(DisplayMenuPage_t page)
     return (page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM) ? 1U : 0U;
 }
 
+static uint8_t Display_MenuPageUsesFreeformBody(DisplayMenuPage_t page)
+{
+    return (page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM) ? 1U : 0U;
+}
+
 static uint8_t Display_MenuHeaderChanged(DisplayMenuPage_t previous_page, DisplayMenuPage_t current_page)
 {
     char previous_text[12];
@@ -1001,11 +1112,33 @@ static uint8_t Display_MenuHeaderChanged(DisplayMenuPage_t previous_page, Displa
 
 static void Display_ClearMenuBody(void)
 {
-    ST7796_DrawFilledRectangle(0U,
-                               MENU_BODY_Y,
-                               ST7796_WIDTH,
-                               MENU_BODY_H,
-                               DISPLAY_BG_COLOUR);
+    uint16_t clear_y = MENU_BODY_Y;
+
+    for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
+    {
+        uint16_t row_y = menu_row_y[row_index];
+
+        if (row_y > clear_y)
+        {
+            ST7796_DrawFilledRectangle(0U,
+                                       clear_y,
+                                       ST7796_WIDTH,
+                                       (uint16_t)(row_y - clear_y),
+                                       DISPLAY_BG_COLOUR);
+        }
+
+        Display_ClearStandardMenuRow(row_index);
+        clear_y = (uint16_t)(row_y + MAIN_INFO_FONT.height);
+    }
+
+    if (clear_y < MAIN_FOOTBAR_Y)
+    {
+        ST7796_DrawFilledRectangle(0U,
+                                   clear_y,
+                                   ST7796_WIDTH,
+                                   (uint16_t)(MAIN_FOOTBAR_Y - clear_y),
+                                   DISPLAY_BG_COLOUR);
+    }
 }
 
 static const char *Display_GetCurrentHeaderText(void)
@@ -1300,6 +1433,7 @@ static void Display_DrawMenuRow(uint16_t row_y,
                                 const char *value,
                                 uint8_t selected);
 static void Display_MenuRedrawCurrentItem(void);
+static void Display_RedrawMenuCurrentValueItem(DisplayMenuPage_t page, uint8_t item_index);
 static void Display_MenuRedrawCurrentValue(void);
 static void Display_MenuRedrawSelectionChange(DisplayMenuPage_t page, uint8_t previous_selection);
 static void Display_MenuRefreshBodyOnly(void);
@@ -1540,32 +1674,133 @@ static uint16_t Display_GetMenuRightAlignedValueX(const char *value)
     return (uint16_t)(ST7796_WIDTH - MENU_ITEM_X - ((uint16_t)value_length * MAIN_INFO_FONT.width));
 }
 
+static void Display_DrawBpmAreaComposed(uint16_t primary_text_x,
+                                        const char *primary_text,
+                                        uint16_t primary_colour,
+                                        uint16_t secondary_text_x,
+                                        const char *secondary_text,
+                                        uint16_t secondary_colour)
+{
+    Display_MenuRowComposeClear(BPM_BG_COLOUR);
+
+    if (primary_text && primary_text[0] != '\0')
+    {
+        Display_MenuRowComposeString32((uint16_t)(primary_text_x - BPM_DISPLAY_AREA_X),
+                                       0U,
+                                       primary_text,
+                                       BPM_FONT,
+                                       primary_colour,
+                                       BPM_BG_COLOUR);
+    }
+
+    if (secondary_text && secondary_text[0] != '\0')
+    {
+        Display_MenuRowComposeString32((uint16_t)(secondary_text_x - BPM_DISPLAY_AREA_X),
+                                       0U,
+                                       secondary_text,
+                                       BPM_FONT,
+                                       secondary_colour,
+                                       BPM_BG_COLOUR);
+    }
+
+    Display_ComposeBlit(BPM_DISPLAY_AREA_X,
+                        BPM_TEXT_Y,
+                        BPM_DISPLAY_AREA_W,
+                        BPM_FONT.height);
+}
+
+static void Display_DrawMenuRowComposed(uint16_t row_y,
+                                        const char *label,
+                                        const char *value,
+                                        uint8_t selected)
+{
+    uint16_t value_x = MENU_ITEM_X;
+    uint8_t highlight_value = (selected && value && value[0] != '\0') ? 1U : 0U;
+    uint8_t highlight_label = (selected && !highlight_value) ? 1U : 0U;
+
+    Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
+
+    if (label && label[0] != '\0')
+    {
+        Display_MenuRowComposeTextSegment32(MENU_ITEM_X,
+                                            label,
+                                            Display_GetMenuRowForegroundColour(highlight_label),
+                                            Display_GetMenuRowBackgroundColour(highlight_label));
+    }
+
+    if (value && value[0] != '\0')
+    {
+        value_x = Display_GetMenuRightAlignedValueX(value);
+        Display_MenuRowComposeTextSegment32(value_x,
+                                            value,
+                                            Display_GetMenuRowForegroundColour(highlight_value),
+                                            Display_GetMenuRowBackgroundColour(highlight_value));
+    }
+
+    Display_MenuRowComposeBlit(row_y);
+}
+
 static void Display_DrawMenuTextSegment32(uint16_t x,
                                           uint16_t row_y,
                                           const char *text,
                                           uint8_t highlighted)
 {
     size_t text_length = text ? strlen(text) : 0U;
+    uint16_t segment_w;
     uint16_t segment_bg;
     uint16_t segment_fg;
 
     if (text_length == 0U)
         return;
 
+    segment_w = (uint16_t)(text_length * MAIN_INFO_FONT.width);
     segment_bg = Display_GetMenuRowBackgroundColour(highlighted);
     segment_fg = Display_GetMenuRowForegroundColour(highlighted);
 
-    ST7796_DrawFilledRectangle(x,
-                               row_y,
-                               (uint16_t)(text_length * MAIN_INFO_FONT.width),
-                               MAIN_INFO_FONT.height,
-                               segment_bg);
-    ST7796_WriteString32(x,
-                         row_y,
-                         text,
-                         MAIN_INFO_FONT,
-                         segment_fg,
-                         segment_bg);
+    Display_MenuRowComposeFillRect(0U,
+                                   0U,
+                                   segment_w,
+                                   MAIN_INFO_FONT.height,
+                                   segment_bg);
+    Display_MenuRowComposeString32(0U,
+                                   0U,
+                                   text,
+                                   MAIN_INFO_FONT,
+                                   segment_fg,
+                                   segment_bg);
+    Display_ComposeBlit(x,
+                        row_y,
+                        segment_w,
+                        MAIN_INFO_FONT.height);
+}
+
+static void Display_DrawMenuCenteredBadgeRow(uint16_t row_y,
+                                             const char *text,
+                                             uint16_t foreground,
+                                             uint16_t background)
+{
+    char badge_text[32];
+    size_t badge_length;
+    uint16_t text_x;
+
+    if (!text || text[0] == '\0')
+        return;
+
+    Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
+
+    (void)snprintf(badge_text, sizeof(badge_text), " %s ", text);
+    badge_length = strlen(badge_text);
+
+    if ((uint16_t)(badge_length * MAIN_INFO_FONT.width) >= MENU_ITEM_W)
+        text_x = MENU_ITEM_X;
+    else
+        text_x = (uint16_t)(MENU_ITEM_X + ((MENU_ITEM_W - ((uint16_t)badge_length * MAIN_INFO_FONT.width)) / 2U));
+
+    Display_MenuRowComposeTextSegment32(text_x,
+                                        badge_text,
+                                        foreground,
+                                        background);
+    Display_MenuRowComposeBlit(row_y);
 }
 
 static void Display_DrawMenuRowSelectionOnly(uint16_t row_y,
@@ -1573,49 +1808,30 @@ static void Display_DrawMenuRowSelectionOnly(uint16_t row_y,
                                              const char *value,
                                              uint8_t selected)
 {
-    uint16_t value_x = MENU_ITEM_X;
-    uint8_t highlight_value = (selected && value && value[0] != '\0') ? 1U : 0U;
-    uint8_t highlight_label = (selected && !highlight_value) ? 1U : 0U;
-
-    if (label && label[0] != '\0')
-    {
-        Display_DrawMenuTextSegment32(MENU_ITEM_X,
-                                      row_y,
-                                      label,
-                                      highlight_label);
-    }
-
-    if (!value || value[0] == '\0')
-        return;
-
-    value_x = Display_GetMenuRightAlignedValueX(value);
-    Display_DrawMenuTextSegment32(value_x,
-                                  row_y,
-                                  value,
-                                  highlight_value);
+    Display_DrawMenuRowComposed(row_y, label, value, selected);
 }
 
-static uint16_t Display_WriteMenuValueSegment32(uint16_t x,
-                                                uint16_t y,
-                                                const char *text,
-                                                uint8_t highlighted)
+static uint16_t Display_MenuRowComposeValueSegment32(uint16_t x,
+                                                     const char *text,
+                                                     uint8_t highlighted)
 {
-    if (!text)
+    size_t text_length = text ? strlen(text) : 0U;
+
+    if (text_length == 0U)
         return x;
 
-    ST7796_WriteString32(x,
-                         y,
-                         text,
-                         MAIN_INFO_FONT,
-                         highlighted ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR : MAIN_INFO_TEXT_COLOUR,
-                         highlighted ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR : DISPLAY_BG_COLOUR);
+    Display_MenuRowComposeTextSegment32(x,
+                                        text,
+                                        highlighted ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR : MAIN_INFO_TEXT_COLOUR,
+                                        highlighted ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR : DISPLAY_BG_COLOUR);
 
-    return (uint16_t)(x + ((uint16_t)strlen(text) * MAIN_INFO_FONT.width));
+    return (uint16_t)(x + ((uint16_t)text_length * MAIN_INFO_FONT.width));
 }
 
-static void Display_DrawMenuTextEditValue(uint16_t row_y,
-                                          const char *source,
-                                          uint8_t cell_count)
+static void Display_DrawMenuTextEditRow(uint16_t row_y,
+                                        const char *label,
+                                        const char *source,
+                                        uint8_t cell_count)
 {
     char cells[RUNTIME_CONFIG_BANK_NAME_LENGTH];
     uint16_t value_x;
@@ -1626,6 +1842,16 @@ static void Display_DrawMenuTextEditValue(uint16_t row_y,
     Display_LoadMenuTextCells(source, cell_count, cells);
     value_x = (uint16_t)(ST7796_WIDTH - MENU_ITEM_X - ((uint16_t)cell_count * MAIN_INFO_FONT.width));
 
+    Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
+
+    if (label && label[0] != '\0')
+    {
+        Display_MenuRowComposeTextSegment32(MENU_ITEM_X,
+                                            label,
+                                            MAIN_INFO_TEXT_COLOUR,
+                                            DISPLAY_BG_COLOUR);
+    }
+
     for (uint8_t index = 0U; index < cell_count; ++index)
     {
         uint16_t char_x = (uint16_t)(value_x + (index * MAIN_INFO_FONT.width));
@@ -1633,25 +1859,29 @@ static void Display_DrawMenuTextEditValue(uint16_t row_y,
         uint16_t foreground = highlighted ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR : MAIN_INFO_TEXT_COLOUR;
         uint16_t background = highlighted ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR : DISPLAY_BG_COLOUR;
 
-        ST7796_DrawFilledRectangle(char_x,
-                                   row_y,
-                                   MAIN_INFO_FONT.width,
-                                   MAIN_INFO_FONT.height,
-                                   background);
+        Display_MenuRowComposeFillRect(char_x,
+                                       0U,
+                                       MAIN_INFO_FONT.width,
+                                       MAIN_INFO_FONT.height,
+                                       background);
 
         if (cells[index] != ' ')
         {
-            ST7796_WriteChar32(char_x,
-                               row_y,
-                               cells[index],
-                               MAIN_INFO_FONT,
-                               foreground,
-                               background);
+            Display_MenuRowComposeChar32(char_x,
+                                         0U,
+                                         cells[index],
+                                         MAIN_INFO_FONT,
+                                         foreground,
+                                         background);
         }
     }
+
+    Display_MenuRowComposeBlit(row_y);
 }
 
-static void Display_DrawMenuDeviceCcEditFields(uint16_t row_y, const MidiCC_t *cc)
+static void Display_DrawMenuDeviceCcEditRow(uint16_t row_y,
+                                            const char *label,
+                                            const MidiCC_t *cc)
 {
     char cc_number_text[4];
     char value_text[4];
@@ -1659,6 +1889,16 @@ static void Display_DrawMenuDeviceCcEditFields(uint16_t row_y, const MidiCC_t *c
 
     if (!cc)
         return;
+
+    Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
+
+    if (label && label[0] != '\0')
+    {
+        Display_MenuRowComposeTextSegment32(MENU_ITEM_X,
+                                            label,
+                                            MAIN_INFO_TEXT_COLOUR,
+                                            DISPLAY_BG_COLOUR);
+    }
 
     Display_FormatMenuOptionalField(cc_number_text,
                                     sizeof(cc_number_text),
@@ -1673,16 +1913,15 @@ static void Display_DrawMenuDeviceCcEditFields(uint16_t row_y, const MidiCC_t *c
                                    0U);
 
     value_x = Display_GetMenuRightAlignedValueX("CC:--- VAL:---");
-    value_x = Display_WriteMenuValueSegment32(value_x, row_y, "CC:", 0U);
-    value_x = Display_WriteMenuValueSegment32(value_x,
-                                              row_y,
-                                              cc_number_text,
-                                              (menu_device_cc_field_index == 0U) ? 1U : 0U);
-    value_x = Display_WriteMenuValueSegment32(value_x, row_y, " VAL:", 0U);
-    (void)Display_WriteMenuValueSegment32(value_x,
-                                          row_y,
-                                          value_text,
-                                          (menu_device_cc_field_index == 1U) ? 1U : 0U);
+    value_x = Display_MenuRowComposeValueSegment32(value_x, "CC:", 0U);
+    value_x = Display_MenuRowComposeValueSegment32(value_x,
+                                                   cc_number_text,
+                                                   (menu_device_cc_field_index == 0U) ? 1U : 0U);
+    value_x = Display_MenuRowComposeValueSegment32(value_x, " VAL:", 0U);
+    (void)Display_MenuRowComposeValueSegment32(value_x,
+                                               value_text,
+                                               (menu_device_cc_field_index == 1U) ? 1U : 0U);
+    Display_MenuRowComposeBlit(row_y);
 }
 
 static void Display_DrawMenuFunctionButtonProgramCompareEditRowCore(uint16_t row_y,
@@ -1700,10 +1939,15 @@ static void Display_DrawMenuFunctionButtonProgramCompareEditRowCore(uint16_t row
     uint16_t active_program_x = (uint16_t)(MENU_ITEM_X + (11U * MAIN_INFO_FONT.width));
     uint16_t inactive_channel_x = (uint16_t)(MENU_ITEM_X + (19U * MAIN_INFO_FONT.width));
     uint16_t inactive_program_x = (uint16_t)(MENU_ITEM_X + (25U * MAIN_INFO_FONT.width));
-    char row_number_text[2];
+    char row_number_text[4];
+
+    (void)clear_row;
+    (void)redraw_number;
 
     if (!function_button || program_index >= RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
         return;
+
+    Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
 
     Display_FormatMenuOptionalField(active_channel_text,
                                     sizeof(active_channel_text),
@@ -1730,53 +1974,67 @@ static void Display_DrawMenuFunctionButtonProgramCompareEditRowCore(uint16_t row
                                     3U,
                                     0U);
 
-    if (clear_row)
-    {
-        Display_DrawMenuRow(row_y, "", "", 0U);
-        Display_DrawMenuTextSegment32((uint16_t)(MENU_ITEM_X + (1U * MAIN_INFO_FONT.width)), row_y, " Ch:", 0U);
-        Display_DrawMenuTextSegment32((uint16_t)(MENU_ITEM_X + (7U * MAIN_INFO_FONT.width)), row_y, " Pg:", 0U);
-        Display_DrawMenuTextSegment32((uint16_t)(MENU_ITEM_X + (14U * MAIN_INFO_FONT.width)), row_y, "  Ch:", 0U);
-        Display_DrawMenuTextSegment32((uint16_t)(MENU_ITEM_X + (21U * MAIN_INFO_FONT.width)), row_y, " Pg:", 0U);
-        redraw_number = 1U;
-    }
+    (void)snprintf(row_number_text, sizeof(row_number_text), "%u", (uint8_t)(program_index + 1U));
 
-    if (redraw_number)
-    {
-        (void)snprintf(row_number_text, sizeof(row_number_text), "%u", (uint8_t)(program_index + 1U));
-        ST7796_DrawFilledRectangle(MENU_ITEM_X,
-                                   row_y,
-                                   MAIN_INFO_FONT.width,
-                                   MAIN_INFO_FONT.height,
-                                   DISPLAY_BG_COLOUR);
-        Display_DrawMenuTextSegment32(MENU_ITEM_X, row_y, row_number_text, 0U);
-    }
+    Display_MenuRowComposeTextSegment32(MENU_ITEM_X,
+                                        row_number_text,
+                                        MAIN_INFO_TEXT_COLOUR,
+                                        DISPLAY_BG_COLOUR);
+    Display_MenuRowComposeTextSegment32((uint16_t)(MENU_ITEM_X + (1U * MAIN_INFO_FONT.width)),
+                                        " Ch:",
+                                        MAIN_INFO_TEXT_COLOUR,
+                                        DISPLAY_BG_COLOUR);
+    Display_MenuRowComposeTextSegment32((uint16_t)(MENU_ITEM_X + (7U * MAIN_INFO_FONT.width)),
+                                        " Pg:",
+                                        MAIN_INFO_TEXT_COLOUR,
+                                        DISPLAY_BG_COLOUR);
+    Display_MenuRowComposeTextSegment32((uint16_t)(MENU_ITEM_X + (14U * MAIN_INFO_FONT.width)),
+                                        "  Ch:",
+                                        MAIN_INFO_TEXT_COLOUR,
+                                        DISPLAY_BG_COLOUR);
+    Display_MenuRowComposeTextSegment32((uint16_t)(MENU_ITEM_X + (21U * MAIN_INFO_FONT.width)),
+                                        " Pg:",
+                                        MAIN_INFO_TEXT_COLOUR,
+                                        DISPLAY_BG_COLOUR);
 
-    Display_DrawMenuTextSegment32(active_channel_x,
-                                  row_y,
-                                  active_channel_text,
-                                  (selected && menu_function_button_message_field_index == 0U) ? 1U : 0U);
-    Display_DrawMenuTextSegment32(active_program_x,
-                                  row_y,
-                                  active_program_text,
-                                  (selected && menu_function_button_message_field_index == 1U) ? 1U : 0U);
-    Display_DrawMenuTextSegment32(inactive_channel_x,
-                                  row_y,
-                                  inactive_channel_text,
-                                  (selected && menu_function_button_message_field_index == 2U) ? 1U : 0U);
-    Display_DrawMenuTextSegment32(inactive_program_x,
-                                  row_y,
-                                  inactive_program_text,
-                                  (selected && menu_function_button_message_field_index == 3U) ? 1U : 0U);
+    Display_MenuRowComposeTextSegment32(active_channel_x,
+                                        active_channel_text,
+                                        (selected && menu_function_button_message_field_index == 0U)
+                                            ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR
+                                            : MAIN_INFO_TEXT_COLOUR,
+                                        (selected && menu_function_button_message_field_index == 0U)
+                                            ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR
+                                            : DISPLAY_BG_COLOUR);
+    Display_MenuRowComposeTextSegment32(active_program_x,
+                                        active_program_text,
+                                        (selected && menu_function_button_message_field_index == 1U)
+                                            ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR
+                                            : MAIN_INFO_TEXT_COLOUR,
+                                        (selected && menu_function_button_message_field_index == 1U)
+                                            ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR
+                                            : DISPLAY_BG_COLOUR);
+    Display_MenuRowComposeTextSegment32(inactive_channel_x,
+                                        inactive_channel_text,
+                                        (selected && menu_function_button_message_field_index == 2U)
+                                            ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR
+                                            : MAIN_INFO_TEXT_COLOUR,
+                                        (selected && menu_function_button_message_field_index == 2U)
+                                            ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR
+                                            : DISPLAY_BG_COLOUR);
+    Display_MenuRowComposeTextSegment32(inactive_program_x,
+                                        inactive_program_text,
+                                        (selected && menu_function_button_message_field_index == 3U)
+                                            ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR
+                                            : MAIN_INFO_TEXT_COLOUR,
+                                        (selected && menu_function_button_message_field_index == 3U)
+                                            ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR
+                                            : DISPLAY_BG_COLOUR);
+    Display_MenuRowComposeBlit(row_y);
 }
 
 static void Display_DrawMenuFunctionButtonProgramCompareEditRow(uint16_t row_y, uint8_t program_index)
 {
     Display_DrawMenuFunctionButtonProgramCompareEditRowCore(row_y, program_index, 1U, 1U, 0U);
-}
-
-static void Display_DrawMenuFunctionButtonProgramCompareEditRowNoClear(uint16_t row_y, uint8_t program_index)
-{
-    Display_DrawMenuFunctionButtonProgramCompareEditRowCore(row_y, program_index, 1U, 0U, 0U);
 }
 
 static void Display_DrawMenuFunctionButtonProgramCompareEditRowWindowUpdate(uint16_t row_y,
@@ -1799,8 +2057,12 @@ static void Display_DrawMenuFunctionButtonCcCompareEditRowCore(uint16_t row_y,
     char inactive_value_text[4];
     uint16_t draw_x = MENU_ITEM_X;
 
+    (void)clear_row;
+
     if (!function_button || cc_index >= RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT)
         return;
+
+    Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
 
     (void)snprintf(row_number_text, sizeof(row_number_text), "%u", (uint8_t)(cc_index + 1U));
     Display_FormatMenuOptionalField(active_channel_text,
@@ -1840,40 +2102,32 @@ static void Display_DrawMenuFunctionButtonCcCompareEditRowCore(uint16_t row_y,
                                     3U,
                                     0U);
 
-    if (clear_row)
-        Display_DrawMenuRow(row_y, "", "", 0U);
-
-    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, row_number_text, 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, " ", 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x,
-                                             row_y,
-                                             active_channel_text,
-                                             (menu_function_button_message_field_index == 0U) ? 1U : 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, " ", 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x,
-                                             row_y,
-                                             active_cc_text,
-                                             (menu_function_button_message_field_index == 1U) ? 1U : 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, " ", 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x,
-                                             row_y,
-                                             active_value_text,
-                                             (menu_function_button_message_field_index == 2U) ? 1U : 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, "    ", 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x,
-                                             row_y,
-                                             inactive_channel_text,
-                                             (menu_function_button_message_field_index == 3U) ? 1U : 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, " ", 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x,
-                                             row_y,
-                                             inactive_cc_text,
-                                             (menu_function_button_message_field_index == 4U) ? 1U : 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, " ", 0U);
-    (void)Display_WriteMenuValueSegment32(draw_x,
-                                          row_y,
-                                          inactive_value_text,
-                                          (menu_function_button_message_field_index == 5U) ? 1U : 0U);
+    draw_x = Display_MenuRowComposeValueSegment32(draw_x, row_number_text, 0U);
+    draw_x = Display_MenuRowComposeValueSegment32(draw_x, " ", 0U);
+    draw_x = Display_MenuRowComposeValueSegment32(draw_x,
+                                                  active_channel_text,
+                                                  (menu_function_button_message_field_index == 0U) ? 1U : 0U);
+    draw_x = Display_MenuRowComposeValueSegment32(draw_x, " ", 0U);
+    draw_x = Display_MenuRowComposeValueSegment32(draw_x,
+                                                  active_cc_text,
+                                                  (menu_function_button_message_field_index == 1U) ? 1U : 0U);
+    draw_x = Display_MenuRowComposeValueSegment32(draw_x, " ", 0U);
+    draw_x = Display_MenuRowComposeValueSegment32(draw_x,
+                                                  active_value_text,
+                                                  (menu_function_button_message_field_index == 2U) ? 1U : 0U);
+    draw_x = Display_MenuRowComposeValueSegment32(draw_x, "    ", 0U);
+    draw_x = Display_MenuRowComposeValueSegment32(draw_x,
+                                                  inactive_channel_text,
+                                                  (menu_function_button_message_field_index == 3U) ? 1U : 0U);
+    draw_x = Display_MenuRowComposeValueSegment32(draw_x, " ", 0U);
+    draw_x = Display_MenuRowComposeValueSegment32(draw_x,
+                                                  inactive_cc_text,
+                                                  (menu_function_button_message_field_index == 4U) ? 1U : 0U);
+    draw_x = Display_MenuRowComposeValueSegment32(draw_x, " ", 0U);
+    (void)Display_MenuRowComposeValueSegment32(draw_x,
+                                               inactive_value_text,
+                                               (menu_function_button_message_field_index == 5U) ? 1U : 0U);
+    Display_MenuRowComposeBlit(row_y);
 }
 
 static void Display_DrawMenuFunctionButtonCcCompareEditRow(uint16_t row_y, uint8_t cc_index)
@@ -1898,29 +2152,7 @@ static void Display_DrawMenuRow(uint16_t row_y,
                                 const char *value,
                                 uint8_t selected)
 {
-    uint16_t value_x = MENU_ITEM_X;
-    uint8_t highlight_value = (selected && value && value[0] != '\0') ? 1U : 0U;
-    uint8_t highlight_label = (selected && !highlight_value) ? 1U : 0U;
-
-    ST7796_DrawFilledRectangle(0U,
-                               row_y,
-                               ST7796_WIDTH,
-                               MAIN_INFO_FONT.height,
-                               DISPLAY_BG_COLOUR);
-
-    Display_DrawMenuTextSegment32(MENU_ITEM_X,
-                                  row_y,
-                                  label,
-                                  highlight_label);
-
-    if (!value || value[0] == '\0')
-        return;
-
-    value_x = Display_GetMenuRightAlignedValueX(value);
-    Display_DrawMenuTextSegment32(value_x,
-                                  row_y,
-                                  value,
-                                  highlight_value);
+    Display_DrawMenuRowComposed(row_y, label, value, selected);
 }
 
 static void Display_DrawMenuRowValueOnly(uint16_t row_y,
@@ -1928,35 +2160,7 @@ static void Display_DrawMenuRowValueOnly(uint16_t row_y,
                                          const char *value,
                                          uint8_t selected)
 {
-    uint16_t value_clear_x = MENU_ITEM_X;
-    uint16_t value_x;
-    size_t label_length = label ? strlen(label) : 0U;
-    uint16_t row_right_x = (uint16_t)(ST7796_WIDTH - MENU_ITEM_X);
-
-    if (label_length > 0U)
-    {
-        value_clear_x = (uint16_t)(MENU_ITEM_X + ((uint16_t)(label_length + 1U) * MAIN_INFO_FONT.width));
-        if (value_clear_x > row_right_x)
-            value_clear_x = row_right_x;
-    }
-
-    ST7796_DrawFilledRectangle(value_clear_x,
-                               row_y,
-                               (uint16_t)(row_right_x - value_clear_x),
-                               MAIN_INFO_FONT.height,
-                               DISPLAY_BG_COLOUR);
-
-    if (!value || value[0] == '\0')
-        return;
-
-    value_x = Display_GetMenuRightAlignedValueX(value);
-    if (value_x < value_clear_x)
-        value_x = value_clear_x;
-
-    Display_DrawMenuTextSegment32(value_x,
-                                  row_y,
-                                  value,
-                                  selected);
+    Display_DrawMenuRowComposed(row_y, label, value, selected);
 }
 
 static void Display_DrawMainModeHeader(void)
@@ -1965,40 +2169,100 @@ static void Display_DrawMainModeHeader(void)
     uint8_t header_width_chars = Display_GetModeHeaderWidthChars(header_text);
     uint16_t clear_w = (uint16_t)(MAIN_MODE_HEADER_MAX_TEXT_CHARS * MAIN_MODE_HEADER_FONT.width);
     uint16_t clear_x = (uint16_t)((ST7796_WIDTH - clear_w) / 2U);
+    uint16_t text_w = (uint16_t)(header_width_chars * MAIN_MODE_HEADER_FONT.width);
+    uint16_t text_x = (uint16_t)((clear_w - text_w) / 2U);
+    uint16_t foreground = (preset_edit_mode_active || menu_mode_active) ? MAIN_MODE_HEADER_EDIT_COLOUR : MAIN_MODE_HEADER_COLOUR;
+    uint16_t background = (preset_edit_mode_active || menu_mode_active) ? MAIN_MODE_HEADER_EDIT_BG_COLOUR : DISPLAY_BG_COLOUR;
+    char padded[MAIN_MODE_HEADER_MAX_TEXT_CHARS + 1U];
+    size_t text_len = strnlen(header_text, header_width_chars);
+    size_t pad_left = ((size_t)header_width_chars - text_len) / 2U;
 
-    ST7796_DrawFilledRectangle(clear_x,
-                               MAIN_MODE_HEADER_TEXT_Y,
-                               clear_w,
-                               MAIN_MODE_HEADER_FONT.height,
-                               DISPLAY_BG_COLOUR);
+    memset(padded, ' ', header_width_chars);
+    memcpy(padded + pad_left, header_text, text_len);
+    padded[header_width_chars] = '\0';
 
-    Display_WriteCenteredPaddedText32WithBackground(MAIN_MODE_HEADER_TEXT_Y,
-                                                    header_text,
-                                                    header_width_chars,
-                                                    MAIN_MODE_HEADER_FONT,
-                                                    (preset_edit_mode_active || menu_mode_active) ? MAIN_MODE_HEADER_EDIT_COLOUR : MAIN_MODE_HEADER_COLOUR,
-                                                    (preset_edit_mode_active || menu_mode_active) ? MAIN_MODE_HEADER_EDIT_BG_COLOUR : DISPLAY_BG_COLOUR);
+    Display_MenuRowComposeFillRect(0U,
+                                   0U,
+                                   clear_w,
+                                   MAIN_MODE_HEADER_FONT.height,
+                                   DISPLAY_BG_COLOUR);
+    Display_MenuRowComposeString32(text_x,
+                                   0U,
+                                   padded,
+                                   MAIN_MODE_HEADER_FONT,
+                                   foreground,
+                                   background);
+    Display_ComposeBlit(clear_x,
+                        MAIN_MODE_HEADER_TEXT_Y,
+                        clear_w,
+                        MAIN_MODE_HEADER_FONT.height);
 }
 
 static void Display_DrawPresetName(const Preset_t *preset)
 {
+    DisplayPresetEditField_t edit_field;
+    uint8_t name_field_selected;
+    uint8_t name_char_edit_active;
+    uint8_t name_length;
+    uint8_t render_length;
+    uint8_t pad_left;
     uint16_t base_x = Display_GetPresetNameBaseX();
 
     if (!preset)
         return;
 
-    preset_name_full_refresh_pending = 0U;
-    preset_name_last_render_length = Display_GetPresetNameRenderLength(preset);
-    preset_name_last_pad_left = Display_GetPresetNamePadLeft(preset);
-
-    ST7796_DrawFilledRectangle(base_x,
-                               MAIN_PRESET_TEXT_Y,
-                               PRESET_NAME_LENGTH * MAIN_PRESET_FONT.width,
-                               MAIN_PRESET_FONT.height,
-                               MAIN_PRESET_BG_COLOUR);
+    edit_field = Display_PresetEditGetField();
+    name_field_selected = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_NAME && preset_edit_mode_active && !preset_name_edit_active) ? 1U : 0U;
+    name_char_edit_active = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_NAME && preset_edit_mode_active && preset_name_edit_active) ? 1U : 0U;
+    name_length = Display_GetPresetNameLength(preset);
+    render_length = Display_GetPresetNameRenderLength(preset);
+    pad_left = Display_GetPresetNamePadLeft(preset);
 
     for (uint8_t cell_index = 0U; cell_index < PRESET_NAME_LENGTH; ++cell_index)
-        Display_DrawPresetNameCell(preset, cell_index);
+    {
+        int16_t logical_index = (int16_t)cell_index - (int16_t)pad_left;
+        uint16_t char_x = (uint16_t)(cell_index * MAIN_PRESET_FONT.width);
+        uint16_t foreground = MAIN_PRESET_COLOUR;
+        uint16_t background = MAIN_PRESET_BG_COLOUR;
+        char ch = ' ';
+
+        if (logical_index >= 0 && logical_index < (int16_t)name_length)
+            ch = preset->name[logical_index];
+
+        if (name_field_selected
+            && logical_index >= 0
+            && logical_index < (int16_t)render_length)
+        {
+            foreground = MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR;
+            background = MAIN_INFO_EDIT_CURSOR_BG_COLOUR;
+        }
+
+        if (name_char_edit_active && logical_index == (int16_t)preset_name_edit_cursor_index)
+        {
+            foreground = MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR;
+            background = MAIN_INFO_EDIT_CURSOR_BG_COLOUR;
+        }
+
+        Display_PresetNameComposeFillRect(char_x,
+                                          0U,
+                                          MAIN_PRESET_FONT.width,
+                                          MAIN_PRESET_FONT.height,
+                                          background);
+
+        if (ch != ' ')
+        {
+            Display_PresetNameComposeChar32(char_x,
+                                            0U,
+                                            ch,
+                                            foreground,
+                                            background);
+        }
+    }
+
+    Display_ComposeBlit(base_x,
+                        MAIN_PRESET_TEXT_Y,
+                        MAIN_PRESET_ROW_BUFFER_WIDTH,
+                        MAIN_PRESET_FONT_CELL_HEIGHT);
 }
 
 static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
@@ -2014,6 +2278,8 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
         : strlen("CH 16: "));
     uint16_t value_x;
 
+    (void)row_y;
+
     value_x = (uint16_t)(MAIN_INFO_LEFT_X
                        + (prefix_chars * MAIN_INFO_FONT.width));
 
@@ -2026,18 +2292,14 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
             prefix[prefix_len + 1U] = '\0';
         }
 
-        ST7796_WriteString32(MAIN_INFO_LEFT_X,
-                             row_y,
-                             prefix,
-                             MAIN_INFO_FONT,
-                             MAIN_INFO_TEXT_COLOUR,
-                             MAIN_INFO_TEXT_BG_COLOUR);
-        ST7796_WriteString32(value_x,
-                             row_y,
-                             "---",
-                             MAIN_INFO_FONT,
-                             MAIN_INFO_TEXT_COLOUR,
-                             MAIN_INFO_TEXT_BG_COLOUR);
+        Display_MenuRowComposeTextSegment32(MAIN_INFO_LEFT_X,
+                                            prefix,
+                                            MAIN_INFO_TEXT_COLOUR,
+                                            MAIN_INFO_TEXT_BG_COLOUR);
+        Display_MenuRowComposeTextSegment32(value_x,
+                                            "---",
+                                            MAIN_INFO_TEXT_COLOUR,
+                                            MAIN_INFO_TEXT_BG_COLOUR);
         return;
     }
 
@@ -2052,12 +2314,10 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
         prefix[prefix_len + 1U] = '\0';
     }
 
-    ST7796_WriteString32(MAIN_INFO_LEFT_X,
-                         row_y,
-                         prefix,
-                         MAIN_INFO_FONT,
-                         MAIN_INFO_TEXT_COLOUR,
-                         MAIN_INFO_TEXT_BG_COLOUR);
+    Display_MenuRowComposeTextSegment32(MAIN_INFO_LEFT_X,
+                                        prefix,
+                                        MAIN_INFO_TEXT_COLOUR,
+                                        MAIN_INFO_TEXT_BG_COLOUR);
 
     {
         DisplayPresetEditField_t edit_field = Display_PresetEditGetField();
@@ -2073,90 +2333,27 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
 
         if (highlight_program)
         {
-            ST7796_WriteString32(value_x,
-                                 row_y,
-                                 program_text,
-                                 MAIN_INFO_FONT,
-                                 MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR,
-                                 program_is_shared ? MAIN_INFO_EDIT_CURSOR_SHARED_BG_COLOUR : MAIN_INFO_EDIT_CURSOR_BG_COLOUR);
+            Display_MenuRowComposeTextSegment32(value_x,
+                                                program_text,
+                                                MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR,
+                                                program_is_shared ? MAIN_INFO_EDIT_CURSOR_SHARED_BG_COLOUR : MAIN_INFO_EDIT_CURSOR_BG_COLOUR);
             return;
         }
 
         if (program_is_shared)
         {
-            ST7796_WriteString32(value_x,
-                                 row_y,
-                                 program_text,
-                                 MAIN_INFO_FONT,
-                                 MAIN_INFO_SHARED_TEXT_COLOUR,
-                                 MAIN_INFO_SHARED_BG_COLOUR);
+            Display_MenuRowComposeTextSegment32(value_x,
+                                                program_text,
+                                                MAIN_INFO_SHARED_TEXT_COLOUR,
+                                                MAIN_INFO_SHARED_BG_COLOUR);
             return;
         }
 
-        ST7796_WriteString32(value_x,
-                             row_y,
-                             program_text,
-                             MAIN_INFO_FONT,
-                             MAIN_INFO_TEXT_COLOUR,
-                             MAIN_INFO_TEXT_BG_COLOUR);
+        Display_MenuRowComposeTextSegment32(value_x,
+                                            program_text,
+                                            MAIN_INFO_TEXT_COLOUR,
+                                            MAIN_INFO_TEXT_BG_COLOUR);
     }
-}
-
-static void Display_DrawMainInfoProgramField(const Preset_t *preset,
-                                             uint8_t slot_index,
-                                             uint16_t row_y,
-                                             uint8_t highlight_program)
-{
-    char program_text[MAIN_INFO_PROGRAM_DIGITS + 1U];
-    const MidiDevice_t *device = MidiDevices_Get(slot_index);
-    uint8_t program;
-    uint8_t channel = device ? device->channel : MAIN_UNUSED_PROGRAM;
-    uint16_t value_x;
-    uint8_t program_is_shared;
-
-    if (!preset || channel == MAIN_UNUSED_PROGRAM)
-        return;
-
-    program = preset->prg[slot_index].program;
-    program_is_shared = (program != MAIN_UNUSED_PROGRAM && Presets_DeviceProgramIsShared(slot_index, program)) ? 1U : 0U;
-    value_x = (uint16_t)(MAIN_INFO_LEFT_X
-                       + ((((uint16_t)(RUNTIME_CONFIG_DEVICE_NAME_LENGTH + 2U) > strlen("CH 16: "))
-                           ? (uint16_t)(RUNTIME_CONFIG_DEVICE_NAME_LENGTH + 2U)
-                           : (uint16_t)strlen("CH 16: ")) * MAIN_INFO_FONT.width));
-
-    if (program == MAIN_UNUSED_PROGRAM)
-        strcpy(program_text, "---");
-    else
-        snprintf(program_text, sizeof(program_text), "%3u", program);
-
-    if (highlight_program)
-    {
-        ST7796_WriteString32(value_x,
-                             row_y,
-                             program_text,
-                             MAIN_INFO_FONT,
-                             MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR,
-                             program_is_shared ? MAIN_INFO_EDIT_CURSOR_SHARED_BG_COLOUR : MAIN_INFO_EDIT_CURSOR_BG_COLOUR);
-        return;
-    }
-
-    if (program_is_shared)
-    {
-        ST7796_WriteString32(value_x,
-                             row_y,
-                             program_text,
-                             MAIN_INFO_FONT,
-                             MAIN_INFO_SHARED_TEXT_COLOUR,
-                             MAIN_INFO_SHARED_BG_COLOUR);
-        return;
-    }
-
-    ST7796_WriteString32(value_x,
-                         row_y,
-                         program_text,
-                         MAIN_INFO_FONT,
-                         MAIN_INFO_TEXT_COLOUR,
-                         MAIN_INFO_TEXT_BG_COLOUR);
 }
 
 static void Display_FormatMainInfoCcLabel(uint8_t cc_index,
@@ -2188,20 +2385,19 @@ static void Display_DrawMainInfoCcLabel(uint8_t cc_index,
 {
     char cc_label_text[12];
 
+    (void)row_y;
+
     Display_FormatMainInfoCcLabel(cc_index, cc_label_text, sizeof(cc_label_text));
-    ST7796_WriteString32(MAIN_INFO_LEFT_X,
-                         row_y,
-                         cc_label_text,
-                         MAIN_INFO_FONT,
-                         MAIN_INFO_TEXT_COLOUR,
-                         MAIN_INFO_TEXT_BG_COLOUR);
+    Display_MenuRowComposeTextSegment32(MAIN_INFO_LEFT_X,
+                                        cc_label_text,
+                                        MAIN_INFO_TEXT_COLOUR,
+                                        MAIN_INFO_TEXT_BG_COLOUR);
 }
 
-static void Display_DrawMainInfoCcField(const Preset_t *preset,
-                                        uint8_t cc_index,
-                                        DisplayPresetEditFieldType_t field_type,
-                                        uint16_t row_y,
-                                        uint8_t highlight_field)
+static void Display_ComposeMainInfoCcField(const Preset_t *preset,
+                                           uint8_t cc_index,
+                                           DisplayPresetEditFieldType_t field_type,
+                                           uint8_t highlight_field)
 {
     const PresetCCSlot_t *cc;
     char field_text[MAIN_INFO_CC_VALUE_DIGITS + 1U];
@@ -2272,44 +2468,15 @@ static void Display_DrawMainInfoCcField(const Preset_t *preset,
         return;
     }
 
-    ST7796_WriteString32(field_x,
-                         row_y,
-                         field_text,
-                         MAIN_INFO_FONT,
-                         foreground,
-                         background);
+    Display_MenuRowComposeTextSegment32(field_x,
+                                        field_text,
+                                        foreground,
+                                        background);
 }
 
-static void Display_DrawMainInfoCcFields(const Preset_t *preset,
-                                         uint8_t cc_index,
-                                         uint16_t row_y)
-{
-    DisplayPresetEditField_t edit_field = Display_PresetEditGetField();
-    uint8_t highlight_channel = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL && edit_field.itemIndex == cc_index) ? 1U : 0U;
-    uint8_t highlight_cc_number = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER && edit_field.itemIndex == cc_index) ? 1U : 0U;
-    uint8_t highlight_value = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_VALUE && edit_field.itemIndex == cc_index) ? 1U : 0U;
-
-    Display_DrawMainInfoCcField(preset,
-                                cc_index,
-                                DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL,
-                                row_y,
-                                highlight_channel);
-    Display_DrawMainInfoCcField(preset,
-                                cc_index,
-                                DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER,
-                                row_y,
-                                highlight_cc_number);
-    Display_DrawMainInfoCcField(preset,
-                                cc_index,
-                                DISPLAY_PRESET_EDIT_FIELD_CC_VALUE,
-                                row_y,
-                                highlight_value);
-}
-
-static void Display_DrawMainInfoRelayField(const Preset_t *preset,
-                                           uint8_t relay_index,
-                                           uint16_t row_y,
-                                           uint8_t highlight_state)
+static void Display_ComposeMainInfoRelayField(const Preset_t *preset,
+                                              uint8_t relay_index,
+                                              uint8_t highlight_state)
 {
     char state_text[8];
     uint16_t state_x;
@@ -2320,12 +2487,10 @@ static void Display_DrawMainInfoRelayField(const Preset_t *preset,
     snprintf(state_text, sizeof(state_text), "%-6s", preset->relay[relay_index] ? "closed" : "open");
     state_x = (uint16_t)(MAIN_INFO_RIGHT_X + (strlen("Relay_0: ") * MAIN_INFO_FONT.width));
 
-    ST7796_WriteString32(state_x,
-                         row_y,
-                         state_text,
-                         MAIN_INFO_FONT,
-                         highlight_state ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR : MAIN_INFO_TEXT_COLOUR,
-                         highlight_state ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR : MAIN_INFO_TEXT_BG_COLOUR);
+    Display_MenuRowComposeTextSegment32(state_x,
+                                        state_text,
+                                        highlight_state ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR : MAIN_INFO_TEXT_COLOUR,
+                                        highlight_state ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR : MAIN_INFO_TEXT_BG_COLOUR);
 }
 
 static void Display_DrawMainInfoCcRow(const Preset_t *preset,
@@ -2333,34 +2498,50 @@ static void Display_DrawMainInfoCcRow(const Preset_t *preset,
                                       uint16_t row_y)
 {
     uint16_t draw_x = MAIN_INFO_LEFT_X;
+
+    (void)row_y;
+
     Display_DrawMainInfoCcLabel(cc_index, row_y);
     draw_x = (uint16_t)(draw_x + (MAIN_INFO_CC_LABEL_CHARS * MAIN_INFO_FONT.width));
 
-    ST7796_WriteString32(draw_x,
-                         row_y,
-                         MAIN_INFO_CC_CHANNEL_PREFIX,
-                         MAIN_INFO_FONT,
-                         MAIN_INFO_TEXT_COLOUR,
-                         MAIN_INFO_TEXT_BG_COLOUR);
+    Display_MenuRowComposeTextSegment32(draw_x,
+                                        MAIN_INFO_CC_CHANNEL_PREFIX,
+                                        MAIN_INFO_TEXT_COLOUR,
+                                        MAIN_INFO_TEXT_BG_COLOUR);
     draw_x = (uint16_t)(draw_x + (strlen(MAIN_INFO_CC_CHANNEL_PREFIX) * MAIN_INFO_FONT.width));
     draw_x = (uint16_t)(draw_x + (MAIN_INFO_CC_CHANNEL_DIGITS * MAIN_INFO_FONT.width));
 
-    ST7796_WriteString32(draw_x,
-                         row_y,
-                         MAIN_INFO_CC_NUMBER_PREFIX,
-                         MAIN_INFO_FONT,
-                         MAIN_INFO_TEXT_COLOUR,
-                         MAIN_INFO_TEXT_BG_COLOUR);
+    Display_MenuRowComposeTextSegment32(draw_x,
+                                        MAIN_INFO_CC_NUMBER_PREFIX,
+                                        MAIN_INFO_TEXT_COLOUR,
+                                        MAIN_INFO_TEXT_BG_COLOUR);
     draw_x = (uint16_t)(draw_x + (strlen(MAIN_INFO_CC_NUMBER_PREFIX) * MAIN_INFO_FONT.width));
     draw_x = (uint16_t)(draw_x + (MAIN_INFO_CC_VALUE_DIGITS * MAIN_INFO_FONT.width));
 
-    ST7796_WriteString32(draw_x,
-                         row_y,
-                         MAIN_INFO_CC_VALUE_PREFIX,
-                         MAIN_INFO_FONT,
-                         MAIN_INFO_TEXT_COLOUR,
-                         MAIN_INFO_TEXT_BG_COLOUR);
-    Display_DrawMainInfoCcFields(preset, cc_index, row_y);
+    Display_MenuRowComposeTextSegment32(draw_x,
+                                        MAIN_INFO_CC_VALUE_PREFIX,
+                                        MAIN_INFO_TEXT_COLOUR,
+                                        MAIN_INFO_TEXT_BG_COLOUR);
+
+    {
+        DisplayPresetEditField_t edit_field = Display_PresetEditGetField();
+        uint8_t highlight_channel = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL && edit_field.itemIndex == cc_index) ? 1U : 0U;
+        uint8_t highlight_cc_number = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER && edit_field.itemIndex == cc_index) ? 1U : 0U;
+        uint8_t highlight_value = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_CC_VALUE && edit_field.itemIndex == cc_index) ? 1U : 0U;
+
+        Display_ComposeMainInfoCcField(preset,
+                                       cc_index,
+                                       DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL,
+                                       highlight_channel);
+        Display_ComposeMainInfoCcField(preset,
+                                       cc_index,
+                                       DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER,
+                                       highlight_cc_number);
+        Display_ComposeMainInfoCcField(preset,
+                                       cc_index,
+                                       DISPLAY_PRESET_EDIT_FIELD_CC_VALUE,
+                                       highlight_value);
+    }
 }
 
 static void Display_DrawMainInfoSpecialState(uint16_t row_y)
@@ -2375,38 +2556,38 @@ static void Display_DrawMainInfoSpecialState(uint16_t row_y)
     uint16_t state_x = MAIN_INFO_RIGHT_X + prefix_px;
     uint16_t state_w = MAIN_INFO_FONT.width * (uint16_t)strlen(state);
 
-    ST7796_WriteString32(MAIN_INFO_RIGHT_X,
-                         row_y,
-                         prefix,
-                         MAIN_INFO_FONT,
-                         MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_COLOUR,
-                         MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_BG);
-    ST7796_WriteString32(state_x,
-                         row_y,
-                         state,
-                         MAIN_INFO_FONT,
-                         state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_COLOUR : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_COLOUR,
-                         state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_BG : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_BG);
+    (void)row_y;
+
+    Display_MenuRowComposeTextSegment32(MAIN_INFO_RIGHT_X,
+                                        prefix,
+                                        MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_COLOUR,
+                                        MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_BG);
+    Display_MenuRowComposeTextSegment32(state_x,
+                                        state,
+                                        state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_COLOUR : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_COLOUR,
+                                        state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_BG : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_BG);
 
     if (!state_active)
         return;
 
-    ST7796_DrawFilledRectangle(state_x,
-                               row_y,
-                               state_w,
-                               MAIN_INFO_HIGHLIGHT_BORDER_H,
-                               MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR);
-    ST7796_DrawFilledRectangle(state_x,
-                               row_y + MAIN_INFO_FONT.height - MAIN_INFO_HIGHLIGHT_BORDER_H,
-                               state_w,
-                               MAIN_INFO_HIGHLIGHT_BORDER_H,
-                               MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR);
+    Display_MenuRowComposeFillRect(state_x,
+                                   0U,
+                                   state_w,
+                                   MAIN_INFO_HIGHLIGHT_BORDER_H,
+                                   MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR);
+    Display_MenuRowComposeFillRect(state_x,
+                                   (uint16_t)(MAIN_INFO_FONT.height - MAIN_INFO_HIGHLIGHT_BORDER_H),
+                                   state_w,
+                                   MAIN_INFO_HIGHLIGHT_BORDER_H,
+                                   MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR);
 }
 
 static void Display_DrawMainInfoRightRow(const Preset_t *preset,
                                          uint8_t right_item_index,
                                          uint16_t row_y)
 {
+    (void)row_y;
+
     if (right_item_index < PRESET_RELAY_COUNT)
     {
         char prefix[16];
@@ -2415,13 +2596,11 @@ static void Display_DrawMainInfoRightRow(const Preset_t *preset,
 
         snprintf(prefix, sizeof(prefix), "Relay_%u: ", right_item_index + 1U);
 
-        ST7796_WriteString32(MAIN_INFO_RIGHT_X,
-                             row_y,
-                             prefix,
-                             MAIN_INFO_FONT,
-                             MAIN_INFO_TEXT_COLOUR,
-                             MAIN_INFO_TEXT_BG_COLOUR);
-        Display_DrawMainInfoRelayField(preset, right_item_index, row_y, highlight_state);
+        Display_MenuRowComposeTextSegment32(MAIN_INFO_RIGHT_X,
+                                            prefix,
+                                            MAIN_INFO_TEXT_COLOUR,
+                                            MAIN_INFO_TEXT_BG_COLOUR);
+        Display_ComposeMainInfoRelayField(preset, right_item_index, highlight_state);
         return;
     }
 
@@ -2429,64 +2608,51 @@ static void Display_DrawMainInfoRightRow(const Preset_t *preset,
         Display_DrawMainInfoSpecialState(row_y);
 }
 
-static void Display_DrawMainInfoRightRowsOnly(const Preset_t *preset,
-                                              uint8_t previous_right_first_item)
-{
-    uint16_t right_width = (uint16_t)(ST7796_WIDTH - MAIN_INFO_RIGHT_X);
-    uint8_t right_first_item = Display_GetMainInfoRightFirstItem();
-
-    for (uint8_t index = 0U; index < MAIN_INFO_ROW_COUNT; ++index)
-    {
-        uint8_t info_index = (uint8_t)(main_info_first_slot + index);
-        uint8_t previous_right_item_index = (uint8_t)(previous_right_first_item + index);
-        uint8_t right_item_index = (uint8_t)(right_first_item + index);
-        uint16_t row_y = main_info_row_y[index];
-
-        if (Display_GetMainInfoRightFirstItemRenderState(previous_right_item_index)
-            == Display_GetMainInfoRightFirstItemRenderState(right_item_index))
-        {
-            continue;
-        }
-
-        ST7796_DrawFilledRectangle(MAIN_INFO_RIGHT_X,
-                                   row_y,
-                                   right_width,
-                                   MAIN_INFO_FONT.height,
-                                   DISPLAY_BG_COLOUR);
-
-        if (info_index >= PRESET_DEVICE_SLOTS)
-            Display_DrawMainInfoCcRow(preset, (uint8_t)(info_index - PRESET_DEVICE_SLOTS), row_y);
-
-        Display_DrawMainInfoRightRow(preset, right_item_index, row_y);
-    }
-}
-
 static void Display_DrawMainInfoLeftRow(const Preset_t *preset,
                                         uint8_t info_index,
                                         uint16_t row_y)
 {
+    (void)row_y;
+
     if (info_index < PRESET_DEVICE_SLOTS)
         Display_DrawMainInfoProgramRow(preset, info_index, row_y);
     else
         Display_DrawMainInfoCcRow(preset, (uint8_t)(info_index - PRESET_DEVICE_SLOTS), row_y);
 }
 
-static void Display_DrawMainInfoRows(const Preset_t *preset)
+static void Display_DrawMainInfoComposedRow(const Preset_t *preset, uint8_t row_index)
 {
     uint8_t right_first_item = Display_GetMainInfoRightFirstItem();
+    uint8_t info_index;
+    uint8_t max_scroll = Display_GetMainInfoScrollMax();
 
-    for (uint8_t index = 0U; index < MAIN_INFO_ROW_COUNT; ++index)
+    if (!preset || row_index >= MAIN_INFO_ROW_COUNT)
+        return;
+
+    info_index = (uint8_t)(main_info_first_slot + row_index);
+
+    Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
+    Display_DrawMainInfoLeftRow(preset, info_index, 0U);
+    Display_DrawMainInfoRightRow(preset, (uint8_t)(right_first_item + row_index), 0U);
+
+    if (row_index == 0U)
     {
-        uint8_t info_index = (uint8_t)(main_info_first_slot + index);
-        uint16_t row_y = main_info_row_y[index];
-        ST7796_DrawFilledRectangle(0U, row_y, ST7796_WIDTH, MAIN_INFO_FONT.height, DISPLAY_BG_COLOUR);
-
-        Display_DrawMainInfoLeftRow(preset, info_index, row_y);
-
-        Display_DrawMainInfoRightRow(preset, (uint8_t)(right_first_item + index), row_y);
+        Display_ComposeMainInfoScrollIndicator(1U,
+                                               (main_info_first_slot > 0U) ? 1U : 0U);
+    }
+    else if (row_index == (MAIN_INFO_ROW_COUNT - 1U))
+    {
+        Display_ComposeMainInfoScrollIndicator(0U,
+                                               (main_info_first_slot < max_scroll) ? 1U : 0U);
     }
 
-    Display_DrawMainInfoScrollIndicators();
+    Display_MenuRowComposeBlit(main_info_row_y[row_index]);
+}
+
+static void Display_DrawMainInfoRows(const Preset_t *preset)
+{
+    for (uint8_t index = 0U; index < MAIN_INFO_ROW_COUNT; ++index)
+        Display_DrawMainInfoComposedRow(preset, index);
 }
 
 static void Display_DrawSavingPopup(void)
@@ -2495,37 +2661,41 @@ static void Display_DrawSavingPopup(void)
     uint16_t popup_x = (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
     uint16_t popup_y = main_info_row_y[MAIN_SAVING_POPUP_ROW_INDEX];
 
-    ST7796_DrawFilledRectangle(popup_x,
-                               popup_y,
-                               popup_w,
-                               MAIN_INFO_FONT.height,
-                               MAIN_SAVING_POPUP_BG_COLOUR);
-    ST7796_DrawLine(popup_x,
-                    popup_y,
-                    (uint16_t)(popup_x + popup_w - 1U),
-                    popup_y,
-                    BLACK);
-    ST7796_DrawLine(popup_x,
-                    (uint16_t)(popup_y + MAIN_INFO_FONT.height - 1U),
-                    (uint16_t)(popup_x + popup_w - 1U),
-                    (uint16_t)(popup_y + MAIN_INFO_FONT.height - 1U),
-                    BLACK);
-    ST7796_DrawLine(popup_x,
-                    popup_y,
-                    popup_x,
-                    (uint16_t)(popup_y + MAIN_INFO_FONT.height - 1U),
-                    BLACK);
-    ST7796_DrawLine((uint16_t)(popup_x + popup_w - 1U),
-                    popup_y,
-                    (uint16_t)(popup_x + popup_w - 1U),
-                    (uint16_t)(popup_y + MAIN_INFO_FONT.height - 1U),
-                    BLACK);
-    ST7796_WriteString32(popup_x,
-                         popup_y,
-                         MAIN_SAVING_POPUP_TEXT,
-                         MAIN_INFO_FONT,
-                         MAIN_SAVING_POPUP_TEXT_COLOUR,
-                         MAIN_SAVING_POPUP_BG_COLOUR);
+    Display_MenuRowComposeFillRect(0U,
+                                   0U,
+                                   popup_w,
+                                   MAIN_INFO_FONT.height,
+                                   MAIN_SAVING_POPUP_BG_COLOUR);
+    Display_MenuRowComposeFillRect(0U,
+                                   0U,
+                                   popup_w,
+                                   1U,
+                                   BLACK);
+    Display_MenuRowComposeFillRect(0U,
+                                   (uint16_t)(MAIN_INFO_FONT.height - 1U),
+                                   popup_w,
+                                   1U,
+                                   BLACK);
+    Display_MenuRowComposeFillRect(0U,
+                                   0U,
+                                   1U,
+                                   MAIN_INFO_FONT.height,
+                                   BLACK);
+    Display_MenuRowComposeFillRect((uint16_t)(popup_w - 1U),
+                                   0U,
+                                   1U,
+                                   MAIN_INFO_FONT.height,
+                                   BLACK);
+    Display_MenuRowComposeString32(0U,
+                                   0U,
+                                   MAIN_SAVING_POPUP_TEXT,
+                                   MAIN_INFO_FONT,
+                                   MAIN_SAVING_POPUP_TEXT_COLOUR,
+                                   MAIN_SAVING_POPUP_BG_COLOUR);
+    Display_ComposeBlit(popup_x,
+                        popup_y,
+                        popup_w,
+                        MAIN_INFO_FONT.height);
 }
 
 void Display_ShowSavingPopup(void)
@@ -2553,42 +2723,6 @@ void Display_HideSavingPopup(const Preset_t *preset)
     Display_DrawMainInfoRows(preset);
 }
 
-static void Display_DrawMainInfoLeftRowsOnly(const Preset_t *preset,
-                                             uint8_t previous_first_slot)
-{
-    for (uint8_t index = 0U; index < MAIN_INFO_ROW_COUNT; ++index)
-    {
-        uint8_t previous_info_index = (uint8_t)(previous_first_slot + index);
-        uint8_t info_index = (uint8_t)(main_info_first_slot + index);
-        uint16_t row_y = main_info_row_y[index];
-
-        if (previous_info_index < PRESET_DEVICE_SLOTS && info_index < PRESET_DEVICE_SLOTS)
-        {
-            Display_DrawMainInfoProgramRow(preset, info_index, row_y);
-            continue;
-        }
-
-        if (previous_info_index >= PRESET_DEVICE_SLOTS && info_index >= PRESET_DEVICE_SLOTS)
-        {
-            Display_DrawMainInfoCcLabel((uint8_t)(info_index - PRESET_DEVICE_SLOTS), row_y);
-            Display_DrawMainInfoCcFields(preset,
-                                         (uint8_t)(info_index - PRESET_DEVICE_SLOTS),
-                                         row_y);
-            continue;
-        }
-
-        ST7796_DrawFilledRectangle(0U,
-                                   row_y,
-                                   MAIN_INFO_RIGHT_X,
-                                   MAIN_INFO_FONT.height,
-                                   DISPLAY_BG_COLOUR);
-
-        Display_DrawMainInfoLeftRow(preset, info_index, row_y);
-    }
-
-    Display_DrawMainInfoScrollIndicators();
-}
-
 /* ?????? Display_DrawMainLayout ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
  * Draws the parts of the screen that don't change between presets:
  *   ??? Dark-grey footer bar at the bottom.
@@ -2606,11 +2740,8 @@ static void Display_ClearStandardMenuRow(uint8_t row_index)
     if (row_index >= MENU_VISIBLE_ROW_COUNT)
         return;
 
-    ST7796_DrawFilledRectangle(0U,
-                               menu_row_y[row_index],
-                               ST7796_WIDTH,
-                               MAIN_INFO_FONT.height,
-                               DISPLAY_BG_COLOUR);
+    Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
+    Display_MenuRowComposeBlit(menu_row_y[row_index]);
 }
 
 static void Display_DrawMenuRootItem(uint8_t item_index)
@@ -2654,39 +2785,33 @@ static void Display_DrawMenuBankLabelNumberOnly(uint16_t row_y, uint8_t bank_ind
 
     (void)snprintf(number_text, sizeof(number_text), "%u", (uint8_t)(bank_index + 1U));
 
-    ST7796_DrawFilledRectangle(number_x,
-                               row_y,
-                               (uint16_t)(MENU_BANK_LABEL_NUMBER_DIGITS * MAIN_INFO_FONT.width),
-                               MAIN_INFO_FONT.height,
-                               DISPLAY_BG_COLOUR);
     Display_DrawMenuTextSegment32(number_x,
                                   row_y,
                                   number_text,
                                   0U);
 }
 
-static void Display_RedrawMenuBankWindow(uint8_t first_visible_index)
+static void Display_DrawMenuBankWindowRow(uint8_t row_index, uint8_t bank_index)
 {
-    for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
+    char label_text[12];
+    const RuntimeConfigBank_t *bank;
+
+    if (row_index >= MENU_VISIBLE_ROW_COUNT)
+        return;
+
+    if (bank_index >= PRESET_BANK_COUNT)
     {
-        uint8_t bank_index = (uint8_t)(first_visible_index + row_index);
-        char label_text[12];
-        const RuntimeConfigBank_t *bank;
-
-        if (bank_index >= PRESET_BANK_COUNT)
-        {
-            Display_ClearStandardMenuRow(row_index);
-            continue;
-        }
-
-        bank = RuntimeConfig_GetBank(bank_index);
-        Display_FormatMenuBankLabel(bank_index, label_text, sizeof(label_text));
-        Display_DrawMenuBankLabelNumberOnly(menu_row_y[row_index], bank_index);
-        Display_DrawMenuRowValueOnly(menu_row_y[row_index],
-                                     label_text,
-                                     bank ? bank->name : "",
-                                     (bank_index == menu_bank_selection_index) ? 1U : 0U);
+        Display_ClearStandardMenuRow(row_index);
+        return;
     }
+
+    bank = RuntimeConfig_GetBank(bank_index);
+    Display_FormatMenuBankLabel(bank_index, label_text, sizeof(label_text));
+    Display_DrawMenuBankLabelNumberOnly(menu_row_y[row_index], bank_index);
+    Display_DrawMenuRowValueOnly(menu_row_y[row_index],
+                                 label_text,
+                                 bank ? bank->name : "",
+                                 (bank_index == menu_bank_selection_index) ? 1U : 0U);
 }
 
 static void Display_DrawMenuBankItem(uint8_t bank_index)
@@ -2753,16 +2878,14 @@ static void Display_FormatBankEditValue(uint8_t item_index, char *buffer, size_t
     }
 }
 
-static void Display_DrawMenuBankCounterValueUpdate(uint16_t row_y, uint8_t bar_count)
+static void Display_DrawMenuBankCounterValueUpdate(uint16_t row_y,
+                                                   const char *label,
+                                                   uint8_t bar_count)
 {
-    char counter_text[4];
-    uint16_t counter_x = Display_GetMenuRightAlignedValueX("64 bars");
+    char value_text[12];
 
-    (void)snprintf(counter_text, sizeof(counter_text), "%2u", bar_count);
-    (void)Display_WriteMenuValueSegment32(counter_x,
-                                          row_y,
-                                          counter_text,
-                                          1U);
+    (void)snprintf(value_text, sizeof(value_text), "%2u bars", bar_count);
+    Display_DrawMenuRowComposed(row_y, label, value_text, 1U);
 }
 
 static void Display_DrawMenuBankEdit(void)
@@ -2809,13 +2932,10 @@ static void Display_DrawMenuBankEditItem(uint8_t item_index)
 
     if (item_index == 0U && menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_BANK_NAME)
     {
-        Display_DrawMenuRow(menu_row_y[item_index],
-                            menu_bank_edit_labels[item_index],
-                            "",
-                            0U);
-        Display_DrawMenuTextEditValue(menu_row_y[item_index],
-                                      bank ? bank->name : "",
-                                      RUNTIME_CONFIG_BANK_NAME_LENGTH);
+        Display_DrawMenuTextEditRow(menu_row_y[item_index],
+                                    menu_bank_edit_labels[item_index],
+                                    bank ? bank->name : "",
+                                    RUNTIME_CONFIG_BANK_NAME_LENGTH);
         return;
     }
 
@@ -2900,11 +3020,10 @@ static void Display_DrawMenuFunctionButtonTextItemAtRow(uint8_t item_index, uint
             break;
         }
 
-        Display_DrawMenuRow(menu_row_y[row_index],
-                            menu_function_button_labels[item_index],
-                            "",
-                            0U);
-        Display_DrawMenuTextEditValue(menu_row_y[row_index], text_value, cell_count);
+        Display_DrawMenuTextEditRow(menu_row_y[row_index],
+                                    menu_function_button_labels[item_index],
+                                    text_value,
+                                    cell_count);
         return;
     }
 
@@ -3029,6 +3148,51 @@ static void Display_DrawMenuFunctionButtonCcCompareRowAtRow(uint8_t row_index,
     Display_DrawMenuRow(menu_row_y[row_index], value_text, "", selected);
 }
 
+static void Display_DrawMenuFunctionButtonProgramWindowRow(uint8_t row_index, uint8_t program_index)
+{
+    uint8_t message_selection_index = Display_GetFunctionButtonMessageSelectionIndex();
+
+    if (row_index >= MENU_VISIBLE_ROW_COUNT || program_index >= RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
+    {
+        if (row_index < MENU_VISIBLE_ROW_COUNT)
+            Display_ClearStandardMenuRow(row_index);
+        return;
+    }
+
+    if (program_index == message_selection_index)
+    {
+        Display_DrawMenuFunctionButtonProgramCompareEditRowWindowUpdate(menu_row_y[row_index], program_index);
+        return;
+    }
+
+    Display_DrawMenuFunctionButtonProgramCompareEditRowCore(menu_row_y[row_index],
+                                                            program_index,
+                                                            0U,
+                                                            0U,
+                                                            1U);
+}
+
+static void Display_DrawMenuFunctionButtonCcWindowRow(uint8_t row_index, uint8_t cc_index)
+{
+    uint8_t message_selection_index = Display_GetFunctionButtonMessageSelectionIndex();
+    uint8_t cc_selection_index;
+
+    if (row_index >= MENU_VISIBLE_ROW_COUNT || cc_index >= RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT)
+    {
+        if (row_index < MENU_VISIBLE_ROW_COUNT)
+            Display_ClearStandardMenuRow(row_index);
+        return;
+    }
+
+    if (message_selection_index < RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
+        return;
+
+    cc_selection_index = (uint8_t)(message_selection_index - RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT);
+    Display_DrawMenuFunctionButtonCcCompareRowAtRow(row_index,
+                                                    cc_index,
+                                                    (cc_index == cc_selection_index) ? 1U : 0U);
+}
+
 static void Display_DrawMenuFunctionButton(void)
 {
     uint8_t message_selection_index;
@@ -3103,45 +3267,6 @@ static void Display_DrawMenuFunctionButton(void)
         for (uint8_t row_offset = 0U; row_offset < (MENU_VISIBLE_ROW_COUNT - 2U); ++row_offset)
         {
             uint8_t cc_index = (uint8_t)(first_cc_index + row_offset);
-
-            Display_DrawMenuFunctionButtonCcCompareRowAtRow((uint8_t)(row_offset + 2U),
-                                                            cc_index,
-                                                            (cc_index == cc_selection_index) ? 1U : 0U);
-        }
-    }
-}
-
-static void Display_RedrawMenuFunctionButtonWindow(uint8_t layout_signature, uint8_t window_start)
-{
-    if (layout_signature == 3U)
-    {
-        uint8_t message_selection_index = Display_GetFunctionButtonMessageSelectionIndex();
-
-        for (uint8_t row_offset = 0U; row_offset < (MENU_VISIBLE_ROW_COUNT - 1U); ++row_offset)
-        {
-            uint8_t program_index = (uint8_t)(window_start + row_offset);
-
-            if (program_index == message_selection_index)
-                Display_DrawMenuFunctionButtonProgramCompareEditRowWindowUpdate(menu_row_y[(uint8_t)(row_offset + 1U)], program_index);
-            else
-                Display_DrawMenuFunctionButtonProgramCompareEditRowCore(menu_row_y[(uint8_t)(row_offset + 1U)],
-                                                                        program_index,
-                                                                        0U,
-                                                                        0U,
-                                                                        1U);
-        }
-
-        return;
-    }
-
-    if (layout_signature == 5U)
-    {
-        uint8_t cc_selection_index = (uint8_t)(Display_GetFunctionButtonMessageSelectionIndex()
-                                             - RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT);
-
-        for (uint8_t row_offset = 0U; row_offset < (MENU_VISIBLE_ROW_COUNT - 2U); ++row_offset)
-        {
-            uint8_t cc_index = (uint8_t)(window_start + row_offset);
 
             Display_DrawMenuFunctionButtonCcCompareRowAtRow((uint8_t)(row_offset + 2U),
                                                             cc_index,
@@ -3305,41 +3430,35 @@ static void Display_DrawMenuDeviceLabelNumberOnly(uint16_t row_y, uint8_t device
 
     (void)snprintf(number_text, sizeof(number_text), "%u", (uint8_t)(device_index + 1U));
 
-    ST7796_DrawFilledRectangle(number_x,
-                               row_y,
-                               (uint16_t)(MENU_DEVICE_LABEL_NUMBER_DIGITS * MAIN_INFO_FONT.width),
-                               MAIN_INFO_FONT.height,
-                               DISPLAY_BG_COLOUR);
     Display_DrawMenuTextSegment32(number_x,
                                   row_y,
                                   number_text,
                                   0U);
 }
 
-static void Display_RedrawMenuDeviceWindow(uint8_t first_visible_index)
+static void Display_DrawMenuDeviceWindowRow(uint8_t row_index, uint8_t device_index)
 {
-    for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
+    char label_text[14];
+    char value_text[12];
+    const RuntimeConfigDevice_t *device;
+
+    if (row_index >= MENU_VISIBLE_ROW_COUNT)
+        return;
+
+    if (device_index >= MIDI_DEVICE_COUNT)
     {
-        uint8_t device_index = (uint8_t)(first_visible_index + row_index);
-        char label_text[14];
-        char value_text[12];
-        const RuntimeConfigDevice_t *device;
-
-        if (device_index >= MIDI_DEVICE_COUNT)
-        {
-            Display_ClearStandardMenuRow(row_index);
-            continue;
-        }
-
-        device = RuntimeConfig_GetDevice(device_index);
-        Display_FormatMenuDeviceLabel(device_index, label_text, sizeof(label_text));
-        Display_FormatMenuDeviceListValue(device, value_text, sizeof(value_text));
-        Display_DrawMenuDeviceLabelNumberOnly(menu_row_y[row_index], device_index);
-        Display_DrawMenuRowValueOnly(menu_row_y[row_index],
-                                     label_text,
-                                     value_text,
-                                     (device_index == menu_device_selection_index) ? 1U : 0U);
+        Display_ClearStandardMenuRow(row_index);
+        return;
     }
+
+    device = RuntimeConfig_GetDevice(device_index);
+    Display_FormatMenuDeviceLabel(device_index, label_text, sizeof(label_text));
+    Display_FormatMenuDeviceListValue(device, value_text, sizeof(value_text));
+    Display_DrawMenuDeviceLabelNumberOnly(menu_row_y[row_index], device_index);
+    Display_DrawMenuRowValueOnly(menu_row_y[row_index],
+                                 label_text,
+                                 value_text,
+                                 (device_index == menu_device_selection_index) ? 1U : 0U);
 }
 
 static void Display_DrawMenuDeviceItem(uint8_t device_index)
@@ -3511,7 +3630,7 @@ static void Display_FormatDeviceEditValue(uint8_t item_index, char *buffer, size
             Display_FormatDeviceCcValue(&device->tap_tempo, buffer, buffer_size);
         break;
     case 7U:
-        (void)snprintf(buffer, buffer_size, "Pending");
+        buffer[0] = '\0';
         break;
     default:
         buffer[0] = '\0';
@@ -3573,23 +3692,27 @@ static void Display_DrawMenuDeviceEditItem(uint8_t item_index)
 
     if (item_index == 0U && menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_DEVICE_NAME)
     {
-        Display_DrawMenuRow(menu_row_y[row_index],
-                            menu_device_edit_labels[item_index],
-                            "",
-                            0U);
-        Display_DrawMenuTextEditValue(menu_row_y[row_index],
-                                      device ? device->name : "",
-                                      RUNTIME_CONFIG_DEVICE_NAME_LENGTH);
+        Display_DrawMenuTextEditRow(menu_row_y[row_index],
+                                    menu_device_edit_labels[item_index],
+                                    device ? device->name : "",
+                                    RUNTIME_CONFIG_DEVICE_NAME_LENGTH);
         return;
     }
 
     if (item_index >= 3U && item_index <= 6U && item_index == menu_device_edit_selection_index)
     {
-        Display_DrawMenuRow(menu_row_y[row_index],
-                            menu_device_edit_labels[item_index],
-                            "",
-                            0U);
-        Display_DrawMenuDeviceCcEditFields(menu_row_y[row_index], Display_GetSelectedDeviceCc((RuntimeConfigDevice_t *)device));
+        Display_DrawMenuDeviceCcEditRow(menu_row_y[row_index],
+                                        menu_device_edit_labels[item_index],
+                                        Display_GetSelectedDeviceCc((RuntimeConfigDevice_t *)device));
+        return;
+    }
+
+    if (item_index == 7U)
+    {
+        Display_DrawMenuCenteredBadgeRow(menu_row_y[row_index],
+                                         menu_device_edit_labels[item_index],
+                                         BLACK,
+                                         RED);
         return;
     }
 
@@ -3604,20 +3727,18 @@ static void Display_DrawMenuDeviceEditItem(uint8_t item_index)
 static void Display_DrawMenuDeviceInitConfirm(void)
 {
     char confirm_text[20];
-    uint16_t text_x;
 
     (void)snprintf(confirm_text,
                    sizeof(confirm_text),
                    "INIT DEVICE %u?",
                    (uint8_t)(menu_active_device_index + 1U));
-    text_x = (uint16_t)((ST7796_WIDTH - ((uint16_t)strlen(confirm_text) * MAIN_BANK_FONT.width)) / 2U);
 
-    ST7796_WriteString32(text_x,
-                         MAIN_BANK_TEXT_Y,
-                         confirm_text,
-                         MAIN_BANK_FONT,
-                         MAIN_BANK_COLOUR,
-                         DISPLAY_BG_COLOUR);
+    Display_WriteCenteredPaddedText32WithBackground(MAIN_BANK_TEXT_Y,
+                                                    confirm_text,
+                                                    MAIN_BANK_TEXT_CHARS,
+                                                    MAIN_BANK_FONT,
+                                                    RED,
+                                                    DISPLAY_BG_COLOUR);
 }
 
 static void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buffer_size)
@@ -3949,12 +4070,18 @@ static void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item
 
         if (selected && item_index >= 3U && item_index <= 6U)
         {
-            Display_DrawMenuRowValueOnly(menu_row_y[row_index],
-                                         menu_device_edit_labels[item_index],
-                                         "",
-                                         0U);
-            Display_DrawMenuDeviceCcEditFields(menu_row_y[row_index],
-                                               Display_GetDeviceCcForMenuItem((RuntimeConfigDevice_t *)device, item_index));
+            Display_DrawMenuDeviceCcEditRow(menu_row_y[row_index],
+                                            menu_device_edit_labels[item_index],
+                                            Display_GetDeviceCcForMenuItem((RuntimeConfigDevice_t *)device, item_index));
+            return;
+        }
+
+        if (item_index == 7U)
+        {
+            Display_DrawMenuCenteredBadgeRow(menu_row_y[row_index],
+                                             menu_device_edit_labels[item_index],
+                                             BLACK,
+                                             RED);
             return;
         }
 
@@ -4072,6 +4199,250 @@ static uint8_t Display_GetMenuFirstVisibleIndexForPage(DisplayMenuPage_t page, u
     }
 }
 
+static uint8_t Display_GetMenuVisibleRowIndex(DisplayMenuPage_t page,
+                                              uint8_t item_index,
+                                              uint8_t *row_index)
+{
+    uint8_t current_selection = Display_GetMenuSelectionIndexForPage(page);
+    uint8_t first_visible_index = Display_GetMenuFirstVisibleIndexForPage(page, current_selection);
+
+    if (!row_index)
+        return 0U;
+
+    switch (page)
+    {
+    case DISPLAY_MENU_PAGE_ROOT:
+    case DISPLAY_MENU_PAGE_BANK_EDIT:
+    case DISPLAY_MENU_PAGE_GLOBAL:
+        if (item_index >= MENU_VISIBLE_ROW_COUNT)
+            return 0U;
+
+        *row_index = item_index;
+        return 1U;
+
+    case DISPLAY_MENU_PAGE_BANKS:
+    case DISPLAY_MENU_PAGE_DEVICES:
+    case DISPLAY_MENU_PAGE_DEVICE_EDIT:
+        if (item_index < first_visible_index || item_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
+            return 0U;
+
+        *row_index = (uint8_t)(item_index - first_visible_index);
+        return 1U;
+
+    case DISPLAY_MENU_PAGE_FUNCTION_BUTTON:
+    case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES:
+    case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES:
+        return Display_GetFunctionButtonSelectionRow(item_index, row_index);
+
+    default:
+        return 0U;
+    }
+}
+
+typedef enum
+{
+    DISPLAY_MENU_DIRTY_ROW_ACTION_NONE = 0,
+    DISPLAY_MENU_DIRTY_ROW_ACTION_SELECTION,
+    DISPLAY_MENU_DIRTY_ROW_ACTION_CURRENT_VALUE,
+    DISPLAY_MENU_DIRTY_ROW_ACTION_BANK_WINDOW,
+    DISPLAY_MENU_DIRTY_ROW_ACTION_DEVICE_WINDOW,
+    DISPLAY_MENU_DIRTY_ROW_ACTION_FUNCTION_BUTTON_PROGRAM_WINDOW,
+    DISPLAY_MENU_DIRTY_ROW_ACTION_FUNCTION_BUTTON_CC_WINDOW,
+    DISPLAY_MENU_DIRTY_ROW_ACTION_CLEAR,
+} DisplayMenuDirtyRowAction_t;
+
+static void Display_MenuQueueDirtyRowAction(uint8_t row_index,
+                                            uint8_t item_index,
+                                            DisplayMenuDirtyRowAction_t action,
+                                            uint8_t *dirty_row_mask,
+                                            uint8_t dirty_row_items[MENU_VISIBLE_ROW_COUNT],
+                                            DisplayMenuDirtyRowAction_t dirty_row_actions[MENU_VISIBLE_ROW_COUNT])
+{
+    if (!dirty_row_mask || !dirty_row_items || !dirty_row_actions || row_index >= MENU_VISIBLE_ROW_COUNT)
+        return;
+
+    *dirty_row_mask = (uint8_t)(*dirty_row_mask | (uint8_t)(1U << row_index));
+    dirty_row_items[row_index] = item_index;
+    dirty_row_actions[row_index] = action;
+}
+
+static void Display_MenuQueueDirtySelectionItem(DisplayMenuPage_t page,
+                                                uint8_t item_index,
+                                                uint8_t *dirty_row_mask,
+                                                uint8_t dirty_row_items[MENU_VISIBLE_ROW_COUNT],
+                                                DisplayMenuDirtyRowAction_t dirty_row_actions[MENU_VISIBLE_ROW_COUNT])
+{
+    uint8_t row_index;
+
+    if (!dirty_row_mask || !dirty_row_items || !dirty_row_actions)
+        return;
+
+    if (!Display_GetMenuVisibleRowIndex(page, item_index, &row_index) || row_index >= MENU_VISIBLE_ROW_COUNT)
+        return;
+
+    Display_MenuQueueDirtyRowAction(row_index,
+                                    item_index,
+                                    DISPLAY_MENU_DIRTY_ROW_ACTION_SELECTION,
+                                    dirty_row_mask,
+                                    dirty_row_items,
+                                    dirty_row_actions);
+}
+
+static void Display_MenuQueueDirtyCurrentValueItem(DisplayMenuPage_t page,
+                                                   uint8_t item_index,
+                                                   uint8_t *dirty_row_mask,
+                                                   uint8_t dirty_row_items[MENU_VISIBLE_ROW_COUNT],
+                                                   DisplayMenuDirtyRowAction_t dirty_row_actions[MENU_VISIBLE_ROW_COUNT])
+{
+    uint8_t row_index;
+
+    if (!Display_GetMenuVisibleRowIndex(page, item_index, &row_index))
+        return;
+
+    Display_MenuQueueDirtyRowAction(row_index,
+                                    item_index,
+                                    DISPLAY_MENU_DIRTY_ROW_ACTION_CURRENT_VALUE,
+                                    dirty_row_mask,
+                                    dirty_row_items,
+                                    dirty_row_actions);
+}
+
+static void Display_MenuQueueDirtyWindowRows(DisplayMenuPage_t page,
+                                             uint8_t first_visible_index,
+                                             uint8_t *dirty_row_mask,
+                                             uint8_t dirty_row_items[MENU_VISIBLE_ROW_COUNT],
+                                             DisplayMenuDirtyRowAction_t dirty_row_actions[MENU_VISIBLE_ROW_COUNT])
+{
+    uint8_t item_count;
+    DisplayMenuDirtyRowAction_t row_action;
+
+    switch (page)
+    {
+    case DISPLAY_MENU_PAGE_BANKS:
+        item_count = PRESET_BANK_COUNT;
+        row_action = DISPLAY_MENU_DIRTY_ROW_ACTION_BANK_WINDOW;
+        break;
+    case DISPLAY_MENU_PAGE_DEVICES:
+        item_count = MIDI_DEVICE_COUNT;
+        row_action = DISPLAY_MENU_DIRTY_ROW_ACTION_DEVICE_WINDOW;
+        break;
+    default:
+        return;
+    }
+
+    for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
+    {
+        uint8_t item_index = (uint8_t)(first_visible_index + row_index);
+
+        if (item_index >= item_count)
+        {
+            Display_MenuQueueDirtyRowAction(row_index,
+                                            0U,
+                                            DISPLAY_MENU_DIRTY_ROW_ACTION_CLEAR,
+                                            dirty_row_mask,
+                                            dirty_row_items,
+                                            dirty_row_actions);
+            continue;
+        }
+
+        Display_MenuQueueDirtyRowAction(row_index,
+                                        item_index,
+                                        row_action,
+                                        dirty_row_mask,
+                                        dirty_row_items,
+                                        dirty_row_actions);
+    }
+}
+
+static void Display_MenuQueueDirtyFunctionButtonWindowRows(uint8_t layout_signature,
+                                                           uint8_t window_start,
+                                                           uint8_t *dirty_row_mask,
+                                                           uint8_t dirty_row_items[MENU_VISIBLE_ROW_COUNT],
+                                                           DisplayMenuDirtyRowAction_t dirty_row_actions[MENU_VISIBLE_ROW_COUNT])
+{
+    if (layout_signature == 3U)
+    {
+        for (uint8_t row_offset = 0U; row_offset < (MENU_VISIBLE_ROW_COUNT - 1U); ++row_offset)
+        {
+            Display_MenuQueueDirtyRowAction((uint8_t)(row_offset + 1U),
+                                            (uint8_t)(window_start + row_offset),
+                                            DISPLAY_MENU_DIRTY_ROW_ACTION_FUNCTION_BUTTON_PROGRAM_WINDOW,
+                                            dirty_row_mask,
+                                            dirty_row_items,
+                                            dirty_row_actions);
+        }
+
+        return;
+    }
+
+    if (layout_signature == 5U)
+    {
+        for (uint8_t row_offset = 0U; row_offset < (MENU_VISIBLE_ROW_COUNT - 2U); ++row_offset)
+        {
+            Display_MenuQueueDirtyRowAction((uint8_t)(row_offset + 2U),
+                                            (uint8_t)(window_start + row_offset),
+                                            DISPLAY_MENU_DIRTY_ROW_ACTION_FUNCTION_BUTTON_CC_WINDOW,
+                                            dirty_row_mask,
+                                            dirty_row_items,
+                                            dirty_row_actions);
+        }
+    }
+}
+
+static void Display_MenuFlushDirtyRows(DisplayMenuPage_t page,
+                                       uint8_t dirty_row_mask,
+                                       const uint8_t dirty_row_items[MENU_VISIBLE_ROW_COUNT],
+                                       const DisplayMenuDirtyRowAction_t dirty_row_actions[MENU_VISIBLE_ROW_COUNT])
+{
+    uint8_t current_selection = Display_GetMenuSelectionIndexForPage(page);
+
+    if (!dirty_row_items || !dirty_row_actions)
+        return;
+
+    for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
+    {
+        if ((dirty_row_mask & (uint8_t)(1U << row_index)) == 0U)
+            continue;
+
+        switch (dirty_row_actions[row_index])
+        {
+        case DISPLAY_MENU_DIRTY_ROW_ACTION_SELECTION:
+            Display_RedrawMenuSelectionItem(page,
+                                            dirty_row_items[row_index],
+                                            (dirty_row_items[row_index] == current_selection) ? 1U : 0U);
+            break;
+
+        case DISPLAY_MENU_DIRTY_ROW_ACTION_CURRENT_VALUE:
+            Display_RedrawMenuCurrentValueItem(page, dirty_row_items[row_index]);
+            break;
+
+        case DISPLAY_MENU_DIRTY_ROW_ACTION_BANK_WINDOW:
+            Display_DrawMenuBankWindowRow(row_index, dirty_row_items[row_index]);
+            break;
+
+        case DISPLAY_MENU_DIRTY_ROW_ACTION_DEVICE_WINDOW:
+            Display_DrawMenuDeviceWindowRow(row_index, dirty_row_items[row_index]);
+            break;
+
+        case DISPLAY_MENU_DIRTY_ROW_ACTION_FUNCTION_BUTTON_PROGRAM_WINDOW:
+            Display_DrawMenuFunctionButtonProgramWindowRow(row_index, dirty_row_items[row_index]);
+            break;
+
+        case DISPLAY_MENU_DIRTY_ROW_ACTION_FUNCTION_BUTTON_CC_WINDOW:
+            Display_DrawMenuFunctionButtonCcWindowRow(row_index, dirty_row_items[row_index]);
+            break;
+
+        case DISPLAY_MENU_DIRTY_ROW_ACTION_CLEAR:
+            Display_ClearStandardMenuRow(row_index);
+            break;
+
+        case DISPLAY_MENU_DIRTY_ROW_ACTION_NONE:
+        default:
+            break;
+        }
+    }
+}
+
 static void Display_DrawMenuPageItem(DisplayMenuPage_t page, uint8_t item_index)
 {
     switch (page)
@@ -4106,7 +4477,13 @@ static void Display_DrawMenuPageItem(DisplayMenuPage_t page, uint8_t item_index)
 
 static void Display_MenuRefreshBodyOnly(void)
 {
-    Display_ClearMenuBody();
+    if (!menu_draw_state_valid
+     || Display_MenuPageUsesFreeformBody(menu_page)
+     || Display_MenuPageUsesFreeformBody(menu_last_drawn_page))
+    {
+        Display_ClearMenuBody();
+    }
+
     Display_DrawCurrentMenuPageBody();
     menu_last_drawn_page = menu_page;
     menu_draw_state_valid = 1U;
@@ -4138,17 +4515,9 @@ static void Display_MenuRedrawCurrentItem(void)
     Display_DrawMenuPageItem(menu_page, Display_GetMenuSelectionIndexForPage(menu_page));
 }
 
-static void Display_MenuRedrawCurrentValue(void)
+static void Display_RedrawMenuCurrentValueItem(DisplayMenuPage_t page, uint8_t item_index)
 {
-    char value_text[32];
-
-    if (!menu_mode_active || !menu_draw_state_valid)
-    {
-        Display_MenuRedrawCurrentItem();
-        return;
-    }
-
-    switch (menu_page)
+    switch (page)
     {
     case DISPLAY_MENU_PAGE_BANK_EDIT:
     {
@@ -4158,7 +4527,6 @@ static void Display_MenuRedrawCurrentValue(void)
             "Function Button",
             "Counter",
         };
-        uint8_t item_index = menu_bank_edit_selection_index;
         const RuntimeConfigBank_t *bank = RuntimeConfig_GetBank(menu_active_bank_index);
 
         if (item_index >= MENU_BANK_EDIT_ITEM_COUNT)
@@ -4166,29 +4534,21 @@ static void Display_MenuRedrawCurrentValue(void)
 
         if (item_index == 0U && menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_BANK_NAME)
         {
-            Display_DrawMenuRowValueOnly(menu_row_y[item_index],
-                                         menu_bank_edit_labels[item_index],
-                                         "",
-                                         0U);
-            Display_DrawMenuTextEditValue(menu_row_y[item_index],
-                                          bank ? bank->name : "",
-                                          RUNTIME_CONFIG_BANK_NAME_LENGTH);
+            Display_DrawMenuTextEditRow(menu_row_y[item_index],
+                                        menu_bank_edit_labels[item_index],
+                                        bank ? bank->name : "",
+                                        RUNTIME_CONFIG_BANK_NAME_LENGTH);
             return;
         }
-
-        Display_FormatBankEditValue(item_index, value_text, sizeof(value_text));
 
         if (item_index == 3U && bank)
         {
-            Display_DrawMenuBankCounterValueUpdate(menu_row_y[item_index], bank->midi_clock_bar_count);
+            Display_DrawMenuBankCounterValueUpdate(menu_row_y[item_index],
+                                                   menu_bank_edit_labels[item_index],
+                                                   bank->midi_clock_bar_count);
             return;
         }
-
-        Display_DrawMenuRowValueOnly(menu_row_y[item_index],
-                                     menu_bank_edit_labels[item_index],
-                                     value_text,
-                                     1U);
-        return;
+        break;
     }
 
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON:
@@ -4225,32 +4585,17 @@ static void Display_MenuRedrawCurrentValue(void)
                         break;
                     }
 
-                    Display_DrawMenuTextEditValue(menu_row_y[row_index], text_value, cell_count);
+                    Display_DrawMenuTextEditRow(menu_row_y[row_index],
+                                                (item_index == 0U) ? "Name"
+                                                                    : ((item_index == 1U) ? "Active Label"
+                                                                                         : "Inactive Label"),
+                                                text_value,
+                                                cell_count);
                     return;
                 }
             }
         }
-
-        {
-            uint8_t item_index = menu_function_button_selection_index;
-            uint8_t row_index;
-
-            if (item_index >= MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX
-             && Display_GetFunctionButtonSelectionRow(item_index, &row_index))
-            {
-                uint8_t message_selection_index = (uint8_t)(item_index - MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX);
-
-                if (message_selection_index < RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
-                {
-                    Display_DrawMenuFunctionButtonProgramCompareEditRowNoClear(menu_row_y[row_index],
-                                                                               message_selection_index);
-                    return;
-                }
-            }
-        }
-
-        Display_MenuRedrawCurrentItem();
-        return;
+        break;
 
     case DISPLAY_MENU_PAGE_DEVICE_EDIT:
     {
@@ -4265,11 +4610,9 @@ static void Display_MenuRedrawCurrentValue(void)
             "Init Device",
         };
         const RuntimeConfigDevice_t *device = RuntimeConfig_GetDevice(menu_active_device_index);
-        uint8_t item_index = menu_device_edit_selection_index;
         uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_DEVICE_EDIT_ITEM_COUNT,
                                                                        item_index);
         uint8_t row_index;
-        uint8_t row_selected = 1U;
 
         if (item_index < first_visible_index || item_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
             return;
@@ -4277,59 +4620,61 @@ static void Display_MenuRedrawCurrentValue(void)
         if (item_index == 0U && menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_DEVICE_NAME)
         {
             row_index = (uint8_t)(item_index - first_visible_index);
-            Display_DrawMenuRowValueOnly(menu_row_y[row_index],
-                                         menu_device_edit_labels[item_index],
-                                         "",
-                                         0U);
-            Display_DrawMenuTextEditValue(menu_row_y[row_index],
-                                          device ? device->name : "",
-                                          RUNTIME_CONFIG_DEVICE_NAME_LENGTH);
+            Display_DrawMenuTextEditRow(menu_row_y[row_index],
+                                        menu_device_edit_labels[item_index],
+                                        device ? device->name : "",
+                                        RUNTIME_CONFIG_DEVICE_NAME_LENGTH);
             return;
         }
-
-        if (item_index >= 3U && item_index <= 6U)
-            row_selected = 0U;
-
-        row_index = (uint8_t)(item_index - first_visible_index);
-
-        if (item_index >= 3U && item_index <= 6U)
-        {
-            Display_DrawMenuRowValueOnly(menu_row_y[row_index],
-                                         menu_device_edit_labels[item_index],
-                                         "",
-                                         0U);
-            Display_DrawMenuDeviceCcEditFields(menu_row_y[row_index], Display_GetSelectedDeviceCc((RuntimeConfigDevice_t *)device));
-            return;
-        }
-
-        Display_FormatDeviceEditValue(item_index, value_text, sizeof(value_text));
-        Display_DrawMenuRowValueOnly(menu_row_y[row_index],
-                                     menu_device_edit_labels[item_index],
-                                     value_text,
-                                     row_selected);
-        return;
+        break;
     }
 
-    case DISPLAY_MENU_PAGE_GLOBAL:
+    default:
+        break;
+    }
+
+    Display_RedrawMenuSelectionItem(page, item_index, 1U);
+}
+
+static void Display_MenuRedrawCurrentValue(void)
+{
+    uint8_t item_index;
+    uint8_t dirty_row_mask = 0U;
+    uint8_t dirty_row_items[MENU_VISIBLE_ROW_COUNT] = { 0U };
+    DisplayMenuDirtyRowAction_t dirty_row_actions[MENU_VISIBLE_ROW_COUNT] = { DISPLAY_MENU_DIRTY_ROW_ACTION_NONE };
+
+    if (!menu_mode_active || !menu_draw_state_valid)
     {
-        static const char * const menu_global_labels[MENU_GLOBAL_ITEM_COUNT] = {
-            "Startup Delay",
-            "Screen Saver",
-            "Sync Style",
-            "Brightness",
-        };
-        uint8_t item_index = menu_global_selection_index;
-
-        if (item_index >= MENU_GLOBAL_ITEM_COUNT)
-            return;
-
-        Display_FormatGlobalMenuValue(item_index, value_text, sizeof(value_text));
-        Display_DrawMenuRowValueOnly(menu_row_y[item_index],
-                                     menu_global_labels[item_index],
-                                     value_text,
-                                     1U);
+        Display_MenuRedrawCurrentItem();
         return;
     }
+
+    item_index = Display_GetMenuSelectionIndexForPage(menu_page);
+
+    switch (menu_page)
+    {
+    case DISPLAY_MENU_PAGE_BANK_EDIT:
+    case DISPLAY_MENU_PAGE_FUNCTION_BUTTON:
+    case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES:
+    case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES:
+    case DISPLAY_MENU_PAGE_DEVICE_EDIT:
+    case DISPLAY_MENU_PAGE_GLOBAL:
+        Display_MenuQueueDirtyCurrentValueItem(menu_page,
+                                               item_index,
+                                               &dirty_row_mask,
+                                               dirty_row_items,
+                                               dirty_row_actions);
+        if (dirty_row_mask == 0U)
+        {
+            Display_RedrawMenuCurrentValueItem(menu_page, item_index);
+            return;
+        }
+
+        Display_MenuFlushDirtyRows(menu_page,
+                                   dirty_row_mask,
+                                   dirty_row_items,
+                                   dirty_row_actions);
+        return;
 
     default:
         Display_MenuRedrawCurrentItem();
@@ -4342,6 +4687,9 @@ static void Display_MenuRedrawSelectionChange(DisplayMenuPage_t page, uint8_t pr
     uint8_t current_selection = Display_GetMenuSelectionIndexForPage(page);
     uint8_t previous_first_visible = Display_GetMenuFirstVisibleIndexForPage(page, previous_selection);
     uint8_t current_first_visible = Display_GetMenuFirstVisibleIndexForPage(page, current_selection);
+    uint8_t dirty_row_mask = 0U;
+    uint8_t dirty_row_items[MENU_VISIBLE_ROW_COUNT] = { 0U };
+    DisplayMenuDirtyRowAction_t dirty_row_actions[MENU_VISIBLE_ROW_COUNT] = { DISPLAY_MENU_DIRTY_ROW_ACTION_NONE };
 
     if (page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON
      || page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES
@@ -4362,7 +4710,15 @@ static void Display_MenuRedrawSelectionChange(DisplayMenuPage_t page, uint8_t pr
         {
             if (current_signature == 3U || current_signature == 5U)
             {
-                Display_RedrawMenuFunctionButtonWindow(current_signature, current_window_start);
+                Display_MenuQueueDirtyFunctionButtonWindowRows(current_signature,
+                                                              current_window_start,
+                                                              &dirty_row_mask,
+                                                              dirty_row_items,
+                                                              dirty_row_actions);
+                Display_MenuFlushDirtyRows(page,
+                                           dirty_row_mask,
+                                           dirty_row_items,
+                                           dirty_row_actions);
                 return;
             }
 
@@ -4370,23 +4726,34 @@ static void Display_MenuRedrawSelectionChange(DisplayMenuPage_t page, uint8_t pr
             return;
         }
 
-        Display_RedrawMenuSelectionItem(page, previous_selection, 0U);
+        Display_MenuQueueDirtySelectionItem(page,
+                                            previous_selection,
+                                            &dirty_row_mask,
+                                            dirty_row_items,
+                                            dirty_row_actions);
         if (current_selection != previous_selection)
-            Display_RedrawMenuSelectionItem(page, current_selection, 1U);
+            Display_MenuQueueDirtySelectionItem(page,
+                                                current_selection,
+                                                &dirty_row_mask,
+                                                dirty_row_items,
+                                                dirty_row_actions);
+        Display_MenuFlushDirtyRows(page, dirty_row_mask, dirty_row_items, dirty_row_actions);
         return;
     }
 
     if (previous_first_visible != current_first_visible)
     {
-        if (page == DISPLAY_MENU_PAGE_BANKS)
+        if (page == DISPLAY_MENU_PAGE_BANKS || page == DISPLAY_MENU_PAGE_DEVICES)
         {
-            Display_RedrawMenuBankWindow(current_first_visible);
-            return;
-        }
-
-        if (page == DISPLAY_MENU_PAGE_DEVICES)
-        {
-            Display_RedrawMenuDeviceWindow(current_first_visible);
+            Display_MenuQueueDirtyWindowRows(page,
+                                             current_first_visible,
+                                             &dirty_row_mask,
+                                             dirty_row_items,
+                                             dirty_row_actions);
+            Display_MenuFlushDirtyRows(page,
+                                       dirty_row_mask,
+                                       dirty_row_items,
+                                       dirty_row_actions);
             return;
         }
 
@@ -4394,9 +4761,18 @@ static void Display_MenuRedrawSelectionChange(DisplayMenuPage_t page, uint8_t pr
         return;
     }
 
-    Display_RedrawMenuSelectionItem(page, previous_selection, 0U);
+    Display_MenuQueueDirtySelectionItem(page,
+                                        previous_selection,
+                                        &dirty_row_mask,
+                                        dirty_row_items,
+                                        dirty_row_actions);
     if (current_selection != previous_selection)
-        Display_RedrawMenuSelectionItem(page, current_selection, 1U);
+        Display_MenuQueueDirtySelectionItem(page,
+                                            current_selection,
+                                            &dirty_row_mask,
+                                            dirty_row_items,
+                                            dirty_row_actions);
+    Display_MenuFlushDirtyRows(page, dirty_row_mask, dirty_row_items, dirty_row_actions);
 }
 
 void Display_MenuRefresh(void)
@@ -4408,7 +4784,16 @@ void Display_MenuRefresh(void)
 
     if (!menu_draw_state_valid)
     {
-        ST7796_DrawFilledRectangle(0U, 0U, ST7796_WIDTH, MENU_BODY_Y, DISPLAY_BG_COLOUR);
+        ST7796_DrawFilledRectangle(TRANSPORT_BARBEAT_TEXT_X,
+                                   TRANSPORT_BARBEAT_TEXT_Y,
+                                   TRANSPORT_BARBEAT_TEXT_W,
+                                   MAIN_PRESET_FONT_CELL_HEIGHT,
+                                   DISPLAY_BG_COLOUR);
+        ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X,
+                                   BPM_TEXT_Y,
+                                   BPM_DISPLAY_AREA_W,
+                                   BPM_FONT.height,
+                                   DISPLAY_BG_COLOUR);
         Display_DrawFootbar();
         Display_DrawMainModeHeader();
     }
@@ -5014,8 +5399,6 @@ uint8_t Display_MainInfoScrollBy(int8_t delta)
 uint8_t Display_MainInfoScrollAndRefresh(const Preset_t *preset, int8_t delta)
 {
     uint8_t previous_first_slot;
-    uint8_t previous_right_first_item;
-    uint8_t current_right_first_item;
 
     if (!preset)
         return 0U;
@@ -5024,15 +5407,8 @@ uint8_t Display_MainInfoScrollAndRefresh(const Preset_t *preset, int8_t delta)
     if (!Display_MainInfoScrollBy(delta))
         return 0U;
 
-    previous_right_first_item = Display_GetMainInfoRightFirstItemForFirstSlot(previous_first_slot);
-    current_right_first_item = Display_GetMainInfoRightFirstItem();
-
-    Display_DrawMainInfoLeftRowsOnly(preset, previous_first_slot);
-    if (Display_GetMainInfoRightFirstItemRenderState(previous_right_first_item)
-        != Display_GetMainInfoRightFirstItemRenderState(current_right_first_item))
-    {
-        Display_DrawMainInfoRightRowsOnly(preset, previous_right_first_item);
-    }
+    (void)previous_first_slot;
+    Display_DrawMainInfoRows(preset);
 
     return 1U;
 }
@@ -5071,13 +5447,11 @@ void Display_PresetNameEditEnter(void)
 
     preset_name_edit_active = 1U;
     preset_name_edit_cursor_index = 0U;
-    preset_name_full_refresh_pending = 1U;
 }
 
 void Display_PresetNameEditExit(void)
 {
     preset_name_edit_active = 0U;
-    preset_name_full_refresh_pending = 0U;
 }
 
 uint8_t Display_PresetNameEditIsActive(void)
@@ -5106,9 +5480,8 @@ uint8_t Display_PresetNameEditMoveCursor(const Preset_t *preset, int8_t delta)
         return 0U;
 
     preset_name_edit_cursor_index = (uint8_t)next_index;
-    /* Redraw only the two cells whose highlight state changed. */
-    Display_DrawPresetNameCell(preset, Display_GetPresetNameCellIndex(preset, previous_index));
-    Display_DrawPresetNameCell(preset, Display_GetPresetNameCellIndex(preset, preset_name_edit_cursor_index));
+    (void)previous_index;
+    Display_DrawPresetName(preset);
     return 1U;
 }
 
@@ -5143,8 +5516,6 @@ uint8_t Display_PresetEditMoveCursorAndRefresh(const Preset_t *preset, int8_t de
     DisplayPresetEditField_t previous_field;
     DisplayPresetEditField_t next_field;
     uint8_t previous_first_slot;
-    uint8_t previous_right_first_item;
-    uint8_t current_right_first_item;
     uint8_t moved;
 
     if (!preset || !preset_edit_mode_active)
@@ -5159,38 +5530,7 @@ uint8_t Display_PresetEditMoveCursorAndRefresh(const Preset_t *preset, int8_t de
     next_field = Display_PresetEditGetField();
     if (main_info_first_slot != previous_first_slot)
     {
-        previous_right_first_item = Display_GetMainInfoRightFirstItemForFirstSlot(previous_first_slot);
-        current_right_first_item = Display_GetMainInfoRightFirstItem();
-
-        Display_DrawMainInfoLeftRowsOnly(preset, previous_first_slot);
-
-        if (Display_GetMainInfoRightFirstItemRenderState(previous_right_first_item)
-            != Display_GetMainInfoRightFirstItemRenderState(current_right_first_item))
-        {
-            Display_DrawMainInfoRightRowsOnly(preset, previous_right_first_item);
-        }
-        else
-        {
-            if (previous_field.type == DISPLAY_PRESET_EDIT_FIELD_RELAY
-                && previous_field.itemIndex >= current_right_first_item
-                && previous_field.itemIndex < (uint8_t)(current_right_first_item + MAIN_INFO_ROW_COUNT))
-            {
-                Display_DrawMainInfoRelayField(preset,
-                                               previous_field.itemIndex,
-                                               main_info_row_y[previous_field.itemIndex - current_right_first_item],
-                                               0U);
-            }
-
-            if (next_field.type == DISPLAY_PRESET_EDIT_FIELD_RELAY
-                && next_field.itemIndex >= current_right_first_item
-                && next_field.itemIndex < (uint8_t)(current_right_first_item + MAIN_INFO_ROW_COUNT))
-            {
-                Display_DrawMainInfoRelayField(preset,
-                                               next_field.itemIndex,
-                                               main_info_row_y[next_field.itemIndex - current_right_first_item],
-                                               1U);
-            }
-        }
+        Display_DrawMainInfoRows(preset);
         return 1U;
     }
 
@@ -5203,36 +5543,30 @@ uint8_t Display_PresetEditMoveCursorAndRefresh(const Preset_t *preset, int8_t de
     case DISPLAY_PRESET_EDIT_FIELD_PROGRAM:
         if (previous_field.itemIndex >= previous_first_slot
             && previous_field.itemIndex < (uint8_t)(previous_first_slot + MAIN_INFO_ROW_COUNT))
-        {
-            Display_DrawMainInfoProgramField(preset,
-                                             previous_field.itemIndex,
-                                             main_info_row_y[previous_field.itemIndex - previous_first_slot],
-                                             0U);
-        }
+            Display_DrawMainInfoComposedRow(preset,
+                                            (uint8_t)(previous_field.itemIndex - previous_first_slot));
         break;
 
     case DISPLAY_PRESET_EDIT_FIELD_RELAY:
-        if (previous_field.itemIndex < MAIN_INFO_ROW_COUNT)
+    {
+        uint8_t right_first_item = Display_GetMainInfoRightFirstItem();
+
+        if (previous_field.itemIndex >= right_first_item
+            && previous_field.itemIndex < (uint8_t)(right_first_item + MAIN_INFO_ROW_COUNT))
         {
-            Display_DrawMainInfoRelayField(preset,
-                                           previous_field.itemIndex,
-                                           main_info_row_y[previous_field.itemIndex],
-                                           0U);
+            Display_DrawMainInfoComposedRow(preset,
+                                            (uint8_t)(previous_field.itemIndex - right_first_item));
         }
         break;
+    }
 
     case DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL:
     case DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER:
     case DISPLAY_PRESET_EDIT_FIELD_CC_VALUE:
         if ((PRESET_DEVICE_SLOTS + previous_field.itemIndex) >= previous_first_slot
             && (PRESET_DEVICE_SLOTS + previous_field.itemIndex) < (uint8_t)(previous_first_slot + MAIN_INFO_ROW_COUNT))
-        {
-            Display_DrawMainInfoCcField(preset,
-                                        previous_field.itemIndex,
-                                        previous_field.type,
-                                        main_info_row_y[(PRESET_DEVICE_SLOTS + previous_field.itemIndex) - previous_first_slot],
-                                        0U);
-        }
+            Display_DrawMainInfoComposedRow(preset,
+                                            (uint8_t)((PRESET_DEVICE_SLOTS + previous_field.itemIndex) - previous_first_slot));
         break;
 
     default:
@@ -5260,7 +5594,6 @@ void Display_PresetEditRefreshCurrentField(const Preset_t *preset)
 {
     DisplayPresetEditField_t field;
     uint8_t row_index;
-    uint16_t row_y;
 
     if (!preset || !preset_edit_mode_active)
         return;
@@ -5271,16 +5604,6 @@ void Display_PresetEditRefreshCurrentField(const Preset_t *preset)
     switch (field.type)
     {
     case DISPLAY_PRESET_EDIT_FIELD_NAME:
-        if (Display_PresetNameEditIsActive()
-            && !preset_name_full_refresh_pending
-            && Display_GetPresetNameRenderLength(preset) == preset_name_last_render_length
-            && Display_GetPresetNamePadLeft(preset) == preset_name_last_pad_left)
-        {
-            Display_DrawPresetNameCell(preset,
-                                       Display_GetPresetNameCellIndex(preset, preset_name_edit_cursor_index));
-            return;
-        }
-
         Display_DrawPresetName(preset);
         return;
 
@@ -5292,21 +5615,24 @@ void Display_PresetEditRefreshCurrentField(const Preset_t *preset)
         if (row_index >= MAIN_INFO_ROW_COUNT)
             return;
 
-        row_y = main_info_row_y[row_index];
-        Display_DrawMainInfoProgramField(preset, field.itemIndex, row_y, 1U);
+        Display_DrawMainInfoComposedRow(preset, row_index);
         return;
 
     case DISPLAY_PRESET_EDIT_FIELD_RELAY:
-        if (field.itemIndex >= PRESET_RELAY_COUNT)
+    {
+        uint8_t right_first_item = Display_GetMainInfoRightFirstItem();
+
+        if (field.itemIndex >= PRESET_RELAY_COUNT
+            || field.itemIndex < right_first_item)
             return;
 
-        row_index = field.itemIndex;
+        row_index = (uint8_t)(field.itemIndex - right_first_item);
         if (row_index >= MAIN_INFO_ROW_COUNT)
             return;
 
-        row_y = main_info_row_y[row_index];
-    Display_DrawMainInfoRelayField(preset, field.itemIndex, row_y, 1U);
+        Display_DrawMainInfoComposedRow(preset, row_index);
         return;
+    }
 
     case DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL:
     case DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER:
@@ -5315,8 +5641,7 @@ void Display_PresetEditRefreshCurrentField(const Preset_t *preset)
         if (row_index >= MAIN_INFO_ROW_COUNT)
             return;
 
-        row_y = main_info_row_y[row_index];
-        Display_DrawMainInfoCcField(preset, field.itemIndex, field.type, row_y, 1U);
+        Display_DrawMainInfoComposedRow(preset, row_index);
         return;
 
     default:
@@ -5419,17 +5744,18 @@ void Display_UpdateBPM(uint16_t bpm)
             return;
         }
 
-        Display_ClearBpmArea();
-        ST7796_WriteString32(BPM_SYNC_LOST_X, BPM_TEXT_Y, BPM_SYNC_LOST_TEXT, BPM_FONT, BPM_SYNC_LOST_COLOUR, BPM_BG_COLOUR);
+        Display_DrawBpmAreaComposed(BPM_SYNC_LOST_X,
+                                    BPM_SYNC_LOST_TEXT,
+                                    BPM_SYNC_LOST_COLOUR,
+                                    BPM_DISPLAY_AREA_X,
+                                    NULL,
+                                    BPM_SYNC_LOST_COLOUR);
 
         bpm_display_valid = 1U;
         bpm_display_external = 0U;
         bpm_display_sync_lost = 1U;
         bpm_display_value_x10 = 0U;
         bpm_display_external_update_tick = 0U;
-        bpm_display_internal_text[0] = '\0';
-        bpm_display_external_text[0] = '\0';
-        bpm_display_internal_head_x = 0U;
         return;
     }
 
@@ -5445,62 +5771,16 @@ void Display_UpdateBPM(uint16_t bpm)
             return;
         }
 
-        full_redraw = (uint8_t)(!bpm_display_valid || was_sync_lost || bpm_display_external);
-        if (full_redraw)
-        {
-            Display_ClearBpmArea();
-        }
-
         Display_FormatBpmText(buf, sizeof(buf), BPM_TEXT_MODE_INTERNAL, bpm);
         uint8_t internal_head_len = (uint8_t)strlen(buf);
         uint16_t internal_head_x = (uint16_t)(BPM_INTERNAL_SUFFIX_TEXT_X - ((uint16_t)internal_head_len * BPM_FONT.width));
 
-        if (full_redraw)
-        {
-            ST7796_WriteString32(BPM_INTERNAL_SUFFIX_TEXT_X,
-                                 BPM_TEXT_Y,
-                                 BPM_INTERNAL_SUFFIX_TEXT,
-                                 BPM_FONT,
-                                 BPM_INTERNAL_COLOUR,
-                                 BPM_BG_COLOUR);
-            ST7796_WriteString32(internal_head_x,
-                                 BPM_TEXT_Y,
-                                 buf,
-                                 BPM_FONT,
-                                 BPM_INTERNAL_COLOUR,
-                                 BPM_BG_COLOUR);
-        }
-
-        if (!full_redraw)
-        {
-            if (internal_head_x != bpm_display_internal_head_x)
-            {
-                ST7796_DrawFilledRectangle(BPM_INTERNAL_HEAD_TEXT_X,
-                                           BPM_TEXT_Y,
-                                           BPM_INTERNAL_HEAD_AREA_W,
-                                           BPM_FONT.height,
-                                           BPM_BG_COLOUR);
-                ST7796_WriteString32(internal_head_x,
-                                     BPM_TEXT_Y,
-                                     buf,
-                                     BPM_FONT,
-                                     BPM_INTERNAL_COLOUR,
-                                     BPM_BG_COLOUR);
-            }
-            else
-            {
-                Display_UpdateBpmTextCells(internal_head_x,
-                                           BPM_TEXT_Y,
-                                           BPM_INTERNAL_HEAD_TEXT_CHARS,
-                                           bpm_display_internal_text,
-                                           buf,
-                                           BPM_INTERNAL_COLOUR);
-            }
-        }
-
-        bpm_display_internal_head_x = internal_head_x;
-        strcpy(bpm_display_internal_text, buf);
-        bpm_display_external_text[0] = '\0';
+        Display_DrawBpmAreaComposed(internal_head_x,
+                                    buf,
+                                    BPM_INTERNAL_COLOUR,
+                                    BPM_INTERNAL_SUFFIX_TEXT_X,
+                                    BPM_INTERNAL_SUFFIX_TEXT,
+                                    BPM_INTERNAL_COLOUR);
 
         bpm_display_valid = 1U;
         bpm_display_external = 0U;
@@ -5512,11 +5792,7 @@ void Display_UpdateBPM(uint16_t bpm)
 
 
     full_redraw = (uint8_t)(!bpm_display_valid || was_sync_lost || !bpm_display_external);
-    if (full_redraw)
-    {
-        Display_ClearBpmArea();
-    }
-    else
+    if (!full_redraw)
     {
         if ((now_ms - bpm_display_external_update_tick) < BPM_EXT_UPDATE_MIN_INTERVAL_MS)
         {
@@ -5555,14 +5831,12 @@ void Display_UpdateBPM(uint16_t bpm)
     }
 
     Display_FormatBpmText(buf, sizeof(buf), BPM_TEXT_MODE_EXTERNAL, display_bpm_x10);
-    Display_UpdateBpmTextCells(BPM_EXT_TEXT_X,
-                               BPM_TEXT_Y,
-                               BPM_EXT_TEXT_CHARS,
-                               full_redraw ? "" : bpm_display_external_text,
-                               buf,
-                               EXT_BPM_COLOUR);
-    strcpy(bpm_display_external_text, buf);
-    bpm_display_internal_text[0] = '\0';
+    Display_DrawBpmAreaComposed(BPM_EXT_TEXT_X,
+                                buf,
+                                EXT_BPM_COLOUR,
+                                BPM_DISPLAY_AREA_X,
+                                NULL,
+                                EXT_BPM_COLOUR);
 
     bpm_display_valid = 1U;
     bpm_display_external = 1U;
@@ -5588,20 +5862,37 @@ void Display_UpdateBPM(uint16_t bpm)
 
 static void Display_LoadingBarClearTextRow(void)
 {
-    ST7796_DrawFilledRectangle(0U, LOADING_BAR_TEXT_Y, ST7796_WIDTH, LOADING_BAR_TEXT_FONT.height, LOADING_BAR_BG_COLOUR);
+    Display_MenuRowComposeFillRect(0U,
+                                   0U,
+                                   ST7796_WIDTH,
+                                   LOADING_BAR_TEXT_FONT.height,
+                                   LOADING_BAR_BG_COLOUR);
+    Display_ComposeBlit(0U,
+                        LOADING_BAR_TEXT_Y,
+                        ST7796_WIDTH,
+                        LOADING_BAR_TEXT_FONT.height);
 }
 
 static void Display_LoadingBarSetText(const char *text, uint16_t colour)
 {
     size_t text_len = strlen(text);
+    uint16_t text_x = (uint16_t)(ST7796_WIDTH - ((uint16_t)text_len * LOADING_BAR_TEXT_FONT.width) - LOADING_BAR_X);
 
-    Display_LoadingBarClearTextRow();
-    ST7796_WriteString((uint16_t)(ST7796_WIDTH - ((uint16_t)text_len * LOADING_BAR_TEXT_FONT.width) - LOADING_BAR_X),
-                       LOADING_BAR_TEXT_Y,
-                       text,
-                       LOADING_BAR_TEXT_FONT,
-                       colour,
-                       LOADING_BAR_BG_COLOUR);
+    Display_MenuRowComposeFillRect(0U,
+                                   0U,
+                                   ST7796_WIDTH,
+                                   LOADING_BAR_TEXT_FONT.height,
+                                   LOADING_BAR_BG_COLOUR);
+    Display_RowComposeString16(text_x,
+                               0U,
+                               text,
+                               LOADING_BAR_TEXT_FONT,
+                               colour,
+                               LOADING_BAR_BG_COLOUR);
+    Display_ComposeBlit(0U,
+                        LOADING_BAR_TEXT_Y,
+                        ST7796_WIDTH,
+                        LOADING_BAR_TEXT_FONT.height);
 }
 
 void Display_LoadingBar(uint32_t duration_ms)

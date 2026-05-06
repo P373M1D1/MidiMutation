@@ -175,6 +175,7 @@ static void TempoEncoder_Init(void);
 static void TempoEncoder_ProcessPending(void);
 static void TempoEncoder_ApplyBpmStep(int8_t step);
 static void ExternalClockHoldoverMirror_Service(void);
+static uint8_t Bank_StepUpWithSpillover(void);
 static uint8_t PresetEdit_Enter(void);
 static void PresetEdit_Exit(void);
 static uint8_t PresetEdit_ApplyDelta(int8_t delta);
@@ -466,6 +467,15 @@ static const Preset_t *App_GetCurrentDisplayPreset(void)
   return active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK);
 }
 
+static uint8_t Bank_StepUpWithSpillover(void)
+{
+  uint8_t preset_slot = (uint8_t)(active_preset_index % PRESETS_PER_BANK);
+
+  current_bank = (uint8_t)((current_bank + 1U) % PRESET_BANK_COUNT);
+  App_ActivatePreset((uint8_t)(current_bank * PRESETS_PER_BANK + preset_slot));
+  return 1U;
+}
+
 static void Menu_SaveIfDirty(void)
 {
   if (!RuntimeConfig_IsDirty())
@@ -563,20 +573,16 @@ int main(void)
   Display_BL_FadeOut();
     ST7796_FillScreen(STARTUP_STATUS_BG_COLOUR);  /* clear while backlight is off ??? invisible */
   Display_BL_FadeIn();
-    /* Restore persisted tempo/bank/preset so the first drawn main screen comes
-     * up in the same state the unit was left in last time. */
+    /* Restore persisted tempo, but always boot into bank 1 / preset 1 so the
+     * first main screen is deterministic regardless of the last live state. */
   g_bpm = BPM_Flash_Load();
   if (!BPM_Flash_IsValid())
   {
       /* Flash blank or corrupt ??? using default BPM */
       g_bpm = BPM_DEFAULT;
   }
-    current_bank = BPM_Flash_LoadBankIndex();
-  active_preset_index = BPM_Flash_LoadPresetIndex();
-    if ((active_preset_index / PRESETS_PER_BANK) != current_bank)
-    {
-      active_preset_index = (uint8_t)(current_bank * PRESETS_PER_BANK);
-    }
+    current_bank = 0U;
+  active_preset_index = 0U;
   MX_TIM6_Init(g_bpm);
   HAL_TIM_Base_Start_IT(&htim6);
   App_ActivatePreset(active_preset_index);
@@ -1142,6 +1148,12 @@ static void EncoderCheck_ProcessPending(void)
     return;
   }
 
+  if ((press_mask & 0x04U) && !Display_PresetEditIsActive())
+  {
+    Bank_StepUpWithSpillover();
+    return;
+  }
+
   if ((press_mask & 0x01U) && !Display_PresetEditIsActive())
   {
     PresetEdit_Enter();
@@ -1368,8 +1380,8 @@ static void Encoder2_SampleInterrupt(void)
   }
 }
 
-/* ENC2 is intentionally idle during preset edit mode. The footbar reserves it
- * for a future explicit "send current field" action, while ENC3 owns value edits. */
+/* ENC2 scrolls the active preset on the main screen, but stays out of menu and
+ * preset-edit flows where the other encoders already own navigation/value edits. */
 static void Encoder2_ProcessPending(void)
 {
   uint32_t primask;
@@ -1399,8 +1411,29 @@ static void Encoder2_ProcessPending(void)
 
   Display_ScreensaverActivity();
 
+  if (Display_MenuIsActive())
+    return;
+
   if (Display_PresetEditIsActive())
     return;
+
+  if (pending_steps != 0)
+  {
+    int16_t bank_base = (int16_t)(current_bank * PRESETS_PER_BANK);
+    int16_t slot_index = (int16_t)active_preset_index - bank_base;
+    int16_t next_slot = slot_index + (int16_t)pending_steps;
+
+    if (slot_index < 0 || slot_index >= (int16_t)PRESETS_PER_BANK)
+      next_slot = 0;
+
+    while (next_slot < 0)
+      next_slot += (int16_t)PRESETS_PER_BANK;
+
+    while (next_slot >= (int16_t)PRESETS_PER_BANK)
+      next_slot -= (int16_t)PRESETS_PER_BANK;
+
+    App_ActivatePreset((uint8_t)(bank_base + next_slot));
+  }
 }
 
 static void TempoEncoder_Init(void)

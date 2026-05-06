@@ -62,6 +62,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Custom application sources
+    Core/Src/display_compose.c
     Core/Src/display_functions.c
     Core/Src/bpm_functions.c
     Core/Src/led_functions.c
