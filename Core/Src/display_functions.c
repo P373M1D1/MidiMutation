@@ -222,6 +222,10 @@ void Display_BL_FadeOut(void)
 #define MENU_FUNCTION_BUTTON_ITEM_COUNT (MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT + MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT) // total rows in the combined function-button editor page
 #define MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT (RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT + RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT) // total rows shown on the dense function-button message pages
 #define MENU_DEVICE_EDIT_ITEM_COUNT     8U                   // number of items on the device edit page
+#define MENU_BANK_LABEL_PREFIX          "Bank "             // static prefix for bank list labels
+#define MENU_BANK_LABEL_NUMBER_DIGITS   ((PRESET_BANK_COUNT >= 100U) ? 3U : ((PRESET_BANK_COUNT >= 10U) ? 2U : 1U)) // width reserved for the changing numeric suffix in bank list labels
+#define MENU_DEVICE_LABEL_PREFIX        "Device "           // static prefix for device list labels
+#define MENU_DEVICE_LABEL_NUMBER_DIGITS ((MIDI_DEVICE_COUNT >= 100U) ? 3U : ((MIDI_DEVICE_COUNT >= 10U) ? 2U : 1U)) // width reserved for the changing numeric suffix in device list labels
 #define MENU_ITEM_X                     24U                  // left edge of the menu row content area
 #define MENU_ITEM_W                     (ST7796_WIDTH - (MENU_ITEM_X * 2U)) // width of the menu row content area
 #define MENU_BODY_Y                     MAIN_PRESET_TEXT_Y   // top edge of the menu body area below the header strip
@@ -1683,14 +1687,20 @@ static void Display_DrawMenuDeviceCcEditFields(uint16_t row_y, const MidiCC_t *c
 
 static void Display_DrawMenuFunctionButtonProgramCompareEditRowCore(uint16_t row_y,
                                                                     uint8_t program_index,
-                                                                    uint8_t clear_row)
+                                                                    uint8_t selected,
+                                                                    uint8_t clear_row,
+                                                                    uint8_t redraw_number)
 {
     const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(menu_active_bank_index);
     char active_channel_text[4];
     char active_program_text[4];
     char inactive_channel_text[4];
     char inactive_program_text[4];
-    uint16_t draw_x = MENU_ITEM_X;
+    uint16_t active_channel_x = (uint16_t)(MENU_ITEM_X + (5U * MAIN_INFO_FONT.width));
+    uint16_t active_program_x = (uint16_t)(MENU_ITEM_X + (11U * MAIN_INFO_FONT.width));
+    uint16_t inactive_channel_x = (uint16_t)(MENU_ITEM_X + (19U * MAIN_INFO_FONT.width));
+    uint16_t inactive_program_x = (uint16_t)(MENU_ITEM_X + (25U * MAIN_INFO_FONT.width));
+    char row_number_text[2];
 
     if (!function_button || program_index >= RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
         return;
@@ -1721,38 +1731,58 @@ static void Display_DrawMenuFunctionButtonProgramCompareEditRowCore(uint16_t row
                                     0U);
 
     if (clear_row)
+    {
         Display_DrawMenuRow(row_y, "", "", 0U);
+        Display_DrawMenuTextSegment32((uint16_t)(MENU_ITEM_X + (1U * MAIN_INFO_FONT.width)), row_y, " Ch:", 0U);
+        Display_DrawMenuTextSegment32((uint16_t)(MENU_ITEM_X + (7U * MAIN_INFO_FONT.width)), row_y, " Pg:", 0U);
+        Display_DrawMenuTextSegment32((uint16_t)(MENU_ITEM_X + (14U * MAIN_INFO_FONT.width)), row_y, "  Ch:", 0U);
+        Display_DrawMenuTextSegment32((uint16_t)(MENU_ITEM_X + (21U * MAIN_INFO_FONT.width)), row_y, " Pg:", 0U);
+        redraw_number = 1U;
+    }
 
-    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, "CH:", 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x,
-                                             row_y,
-                                             active_channel_text,
-                                             (menu_function_button_message_field_index == 0U) ? 1U : 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, " PRG:", 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x,
-                                             row_y,
-                                             active_program_text,
-                                             (menu_function_button_message_field_index == 1U) ? 1U : 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, "  CH:", 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x,
-                                             row_y,
-                                             inactive_channel_text,
-                                             (menu_function_button_message_field_index == 2U) ? 1U : 0U);
-    draw_x = Display_WriteMenuValueSegment32(draw_x, row_y, " PRG:", 0U);
-    (void)Display_WriteMenuValueSegment32(draw_x,
-                                          row_y,
-                                          inactive_program_text,
-                                          (menu_function_button_message_field_index == 3U) ? 1U : 0U);
+    if (redraw_number)
+    {
+        (void)snprintf(row_number_text, sizeof(row_number_text), "%u", (uint8_t)(program_index + 1U));
+        ST7796_DrawFilledRectangle(MENU_ITEM_X,
+                                   row_y,
+                                   MAIN_INFO_FONT.width,
+                                   MAIN_INFO_FONT.height,
+                                   DISPLAY_BG_COLOUR);
+        Display_DrawMenuTextSegment32(MENU_ITEM_X, row_y, row_number_text, 0U);
+    }
+
+    Display_DrawMenuTextSegment32(active_channel_x,
+                                  row_y,
+                                  active_channel_text,
+                                  (selected && menu_function_button_message_field_index == 0U) ? 1U : 0U);
+    Display_DrawMenuTextSegment32(active_program_x,
+                                  row_y,
+                                  active_program_text,
+                                  (selected && menu_function_button_message_field_index == 1U) ? 1U : 0U);
+    Display_DrawMenuTextSegment32(inactive_channel_x,
+                                  row_y,
+                                  inactive_channel_text,
+                                  (selected && menu_function_button_message_field_index == 2U) ? 1U : 0U);
+    Display_DrawMenuTextSegment32(inactive_program_x,
+                                  row_y,
+                                  inactive_program_text,
+                                  (selected && menu_function_button_message_field_index == 3U) ? 1U : 0U);
 }
 
 static void Display_DrawMenuFunctionButtonProgramCompareEditRow(uint16_t row_y, uint8_t program_index)
 {
-    Display_DrawMenuFunctionButtonProgramCompareEditRowCore(row_y, program_index, 1U);
+    Display_DrawMenuFunctionButtonProgramCompareEditRowCore(row_y, program_index, 1U, 1U, 0U);
 }
 
 static void Display_DrawMenuFunctionButtonProgramCompareEditRowNoClear(uint16_t row_y, uint8_t program_index)
 {
-    Display_DrawMenuFunctionButtonProgramCompareEditRowCore(row_y, program_index, 0U);
+    Display_DrawMenuFunctionButtonProgramCompareEditRowCore(row_y, program_index, 1U, 0U, 0U);
+}
+
+static void Display_DrawMenuFunctionButtonProgramCompareEditRowWindowUpdate(uint16_t row_y,
+                                                                            uint8_t program_index)
+{
+    Display_DrawMenuFunctionButtonProgramCompareEditRowCore(row_y, program_index, 1U, 0U, 1U);
 }
 
 static void Display_DrawMenuFunctionButtonCcCompareEditRowCore(uint16_t row_y,
@@ -2609,6 +2639,56 @@ static void Display_DrawMenuRoot(void)
         Display_DrawMenuRootItem(index);
 }
 
+static void Display_FormatMenuBankLabel(uint8_t bank_index, char *buffer, size_t buffer_size)
+{
+    if (!buffer || buffer_size == 0U)
+        return;
+
+    (void)snprintf(buffer, buffer_size, MENU_BANK_LABEL_PREFIX "%u", (uint8_t)(bank_index + 1U));
+}
+
+static void Display_DrawMenuBankLabelNumberOnly(uint16_t row_y, uint8_t bank_index)
+{
+    char number_text[4];
+    uint16_t number_x = (uint16_t)(MENU_ITEM_X + (((uint16_t)strlen(MENU_BANK_LABEL_PREFIX)) * MAIN_INFO_FONT.width));
+
+    (void)snprintf(number_text, sizeof(number_text), "%u", (uint8_t)(bank_index + 1U));
+
+    ST7796_DrawFilledRectangle(number_x,
+                               row_y,
+                               (uint16_t)(MENU_BANK_LABEL_NUMBER_DIGITS * MAIN_INFO_FONT.width),
+                               MAIN_INFO_FONT.height,
+                               DISPLAY_BG_COLOUR);
+    Display_DrawMenuTextSegment32(number_x,
+                                  row_y,
+                                  number_text,
+                                  0U);
+}
+
+static void Display_RedrawMenuBankWindow(uint8_t first_visible_index)
+{
+    for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
+    {
+        uint8_t bank_index = (uint8_t)(first_visible_index + row_index);
+        char label_text[12];
+        const RuntimeConfigBank_t *bank;
+
+        if (bank_index >= PRESET_BANK_COUNT)
+        {
+            Display_ClearStandardMenuRow(row_index);
+            continue;
+        }
+
+        bank = RuntimeConfig_GetBank(bank_index);
+        Display_FormatMenuBankLabel(bank_index, label_text, sizeof(label_text));
+        Display_DrawMenuBankLabelNumberOnly(menu_row_y[row_index], bank_index);
+        Display_DrawMenuRowValueOnly(menu_row_y[row_index],
+                                     label_text,
+                                     bank ? bank->name : "",
+                                     (bank_index == menu_bank_selection_index) ? 1U : 0U);
+    }
+}
+
 static void Display_DrawMenuBankItem(uint8_t bank_index)
 {
     uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(PRESET_BANK_COUNT, menu_bank_selection_index);
@@ -2619,7 +2699,7 @@ static void Display_DrawMenuBankItem(uint8_t bank_index)
         return;
 
     row_index = (uint8_t)(bank_index - first_visible_index);
-    (void)snprintf(label_text, sizeof(label_text), "Bank %u", (uint8_t)(bank_index + 1U));
+    Display_FormatMenuBankLabel(bank_index, label_text, sizeof(label_text));
     Display_DrawMenuRow(menu_row_y[row_index],
                         label_text,
                         RuntimeConfig_GetBank(bank_index)->name,
@@ -2665,12 +2745,24 @@ static void Display_FormatBankEditValue(uint8_t item_index, char *buffer, size_t
         (void)snprintf(buffer, buffer_size, "Edit");
         break;
     case 3U:
-        (void)snprintf(buffer, buffer_size, "%u bars", bank->midi_clock_bar_count);
+        (void)snprintf(buffer, buffer_size, "%2u bars", bank->midi_clock_bar_count);
         break;
     default:
         buffer[0] = '\0';
         break;
     }
+}
+
+static void Display_DrawMenuBankCounterValueUpdate(uint16_t row_y, uint8_t bar_count)
+{
+    char counter_text[4];
+    uint16_t counter_x = Display_GetMenuRightAlignedValueX("64 bars");
+
+    (void)snprintf(counter_text, sizeof(counter_text), "%2u", bar_count);
+    (void)Display_WriteMenuValueSegment32(counter_x,
+                                          row_y,
+                                          counter_text,
+                                          1U);
 }
 
 static void Display_DrawMenuBankEdit(void)
@@ -2833,52 +2925,6 @@ static void Display_DrawMenuFunctionButtonCcHeaderRow(uint16_t row_y)
     Display_DrawMenuRow(row_y, "  Ch Cc  Val    Ch Cc  Val", "", 0U);
 }
 
-static void Display_FormatFunctionButtonProgramCompareRow(uint8_t program_index,
-                                                          char *buffer,
-                                                          size_t buffer_size)
-{
-    const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(menu_active_bank_index);
-    char active_channel_text[4];
-    char active_program_text[4];
-    char inactive_channel_text[4];
-    char inactive_program_text[4];
-
-    if (!buffer || buffer_size == 0U || !function_button || program_index >= RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
-        return;
-
-    Display_FormatMenuOptionalField(active_channel_text,
-                                    sizeof(active_channel_text),
-                                    function_button->active_programs[program_index].channel,
-                                    PRESET_CC_CHANNEL_UNUSED,
-                                    2U,
-                                    0U);
-    Display_FormatMenuOptionalField(active_program_text,
-                                    sizeof(active_program_text),
-                                    function_button->active_programs[program_index].program,
-                                    PRESET_PROGRAM_NONE,
-                                    3U,
-                                    0U);
-    Display_FormatMenuOptionalField(inactive_channel_text,
-                                    sizeof(inactive_channel_text),
-                                    function_button->inactive_programs[program_index].channel,
-                                    PRESET_CC_CHANNEL_UNUSED,
-                                    2U,
-                                    0U);
-    Display_FormatMenuOptionalField(inactive_program_text,
-                                    sizeof(inactive_program_text),
-                                    function_button->inactive_programs[program_index].program,
-                                    PRESET_PROGRAM_NONE,
-                                    3U,
-                                    0U);
-    (void)snprintf(buffer,
-                   buffer_size,
-                   "CH:%s PRG:%s  CH:%s PRG:%s",
-                   active_channel_text,
-                   active_program_text,
-                   inactive_channel_text,
-                   inactive_program_text);
-}
-
 static void Display_FormatFunctionButtonCcCompareRow(uint8_t cc_index,
                                                      char *buffer,
                                                      size_t buffer_size)
@@ -2946,8 +2992,6 @@ static void Display_DrawMenuFunctionButtonProgramCompareRowAtRow(uint8_t row_ind
                                                                  uint8_t program_index,
                                                                  uint8_t selected)
 {
-    char value_text[32];
-
     if (program_index >= RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
     {
         Display_ClearStandardMenuRow(row_index);
@@ -2960,8 +3004,7 @@ static void Display_DrawMenuFunctionButtonProgramCompareRowAtRow(uint8_t row_ind
         return;
     }
 
-    Display_FormatFunctionButtonProgramCompareRow(program_index, value_text, sizeof(value_text));
-    Display_DrawMenuRow(menu_row_y[row_index], value_text, "", selected);
+    Display_DrawMenuFunctionButtonProgramCompareEditRowCore(menu_row_y[row_index], program_index, 0U, 1U, 0U);
 }
 
 static void Display_DrawMenuFunctionButtonCcCompareRowAtRow(uint8_t row_index,
@@ -3060,6 +3103,45 @@ static void Display_DrawMenuFunctionButton(void)
         for (uint8_t row_offset = 0U; row_offset < (MENU_VISIBLE_ROW_COUNT - 2U); ++row_offset)
         {
             uint8_t cc_index = (uint8_t)(first_cc_index + row_offset);
+
+            Display_DrawMenuFunctionButtonCcCompareRowAtRow((uint8_t)(row_offset + 2U),
+                                                            cc_index,
+                                                            (cc_index == cc_selection_index) ? 1U : 0U);
+        }
+    }
+}
+
+static void Display_RedrawMenuFunctionButtonWindow(uint8_t layout_signature, uint8_t window_start)
+{
+    if (layout_signature == 3U)
+    {
+        uint8_t message_selection_index = Display_GetFunctionButtonMessageSelectionIndex();
+
+        for (uint8_t row_offset = 0U; row_offset < (MENU_VISIBLE_ROW_COUNT - 1U); ++row_offset)
+        {
+            uint8_t program_index = (uint8_t)(window_start + row_offset);
+
+            if (program_index == message_selection_index)
+                Display_DrawMenuFunctionButtonProgramCompareEditRowWindowUpdate(menu_row_y[(uint8_t)(row_offset + 1U)], program_index);
+            else
+                Display_DrawMenuFunctionButtonProgramCompareEditRowCore(menu_row_y[(uint8_t)(row_offset + 1U)],
+                                                                        program_index,
+                                                                        0U,
+                                                                        0U,
+                                                                        1U);
+        }
+
+        return;
+    }
+
+    if (layout_signature == 5U)
+    {
+        uint8_t cc_selection_index = (uint8_t)(Display_GetFunctionButtonMessageSelectionIndex()
+                                             - RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT);
+
+        for (uint8_t row_offset = 0U; row_offset < (MENU_VISIBLE_ROW_COUNT - 2U); ++row_offset)
+        {
+            uint8_t cc_index = (uint8_t)(window_start + row_offset);
 
             Display_DrawMenuFunctionButtonCcCompareRowAtRow((uint8_t)(row_offset + 2U),
                                                             cc_index,
@@ -3193,6 +3275,73 @@ static void Display_DrawMenuDevices(void)
     }
 }
 
+static void Display_FormatMenuDeviceLabel(uint8_t device_index, char *buffer, size_t buffer_size)
+{
+    if (!buffer || buffer_size == 0U)
+        return;
+
+    (void)snprintf(buffer, buffer_size, MENU_DEVICE_LABEL_PREFIX "%u", (uint8_t)(device_index + 1U));
+}
+
+static void Display_FormatMenuDeviceListValue(const RuntimeConfigDevice_t *device,
+                                              char *buffer,
+                                              size_t buffer_size)
+{
+    if (!buffer || buffer_size == 0U)
+        return;
+
+    if (device && device->name[0] != '\0')
+        (void)snprintf(buffer, buffer_size, "%s", device->name);
+    else if (device)
+        (void)snprintf(buffer, buffer_size, "CH %u", device->channel);
+    else
+        buffer[0] = '\0';
+}
+
+static void Display_DrawMenuDeviceLabelNumberOnly(uint16_t row_y, uint8_t device_index)
+{
+    char number_text[4];
+    uint16_t number_x = (uint16_t)(MENU_ITEM_X + (((uint16_t)strlen(MENU_DEVICE_LABEL_PREFIX)) * MAIN_INFO_FONT.width));
+
+    (void)snprintf(number_text, sizeof(number_text), "%u", (uint8_t)(device_index + 1U));
+
+    ST7796_DrawFilledRectangle(number_x,
+                               row_y,
+                               (uint16_t)(MENU_DEVICE_LABEL_NUMBER_DIGITS * MAIN_INFO_FONT.width),
+                               MAIN_INFO_FONT.height,
+                               DISPLAY_BG_COLOUR);
+    Display_DrawMenuTextSegment32(number_x,
+                                  row_y,
+                                  number_text,
+                                  0U);
+}
+
+static void Display_RedrawMenuDeviceWindow(uint8_t first_visible_index)
+{
+    for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
+    {
+        uint8_t device_index = (uint8_t)(first_visible_index + row_index);
+        char label_text[14];
+        char value_text[12];
+        const RuntimeConfigDevice_t *device;
+
+        if (device_index >= MIDI_DEVICE_COUNT)
+        {
+            Display_ClearStandardMenuRow(row_index);
+            continue;
+        }
+
+        device = RuntimeConfig_GetDevice(device_index);
+        Display_FormatMenuDeviceLabel(device_index, label_text, sizeof(label_text));
+        Display_FormatMenuDeviceListValue(device, value_text, sizeof(value_text));
+        Display_DrawMenuDeviceLabelNumberOnly(menu_row_y[row_index], device_index);
+        Display_DrawMenuRowValueOnly(menu_row_y[row_index],
+                                     label_text,
+                                     value_text,
+                                     (device_index == menu_device_selection_index) ? 1U : 0U);
+    }
+}
+
 static void Display_DrawMenuDeviceItem(uint8_t device_index)
 {
     uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MIDI_DEVICE_COUNT, menu_device_selection_index);
@@ -3206,12 +3355,8 @@ static void Display_DrawMenuDeviceItem(uint8_t device_index)
 
     row_index = (uint8_t)(device_index - first_visible_index);
     device = RuntimeConfig_GetDevice(device_index);
-    (void)snprintf(label_text, sizeof(label_text), "Device %u", (uint8_t)(device_index + 1U));
-
-    if (device->name[0] != '\0')
-        (void)snprintf(value_text, sizeof(value_text), "%s", device->name);
-    else
-        (void)snprintf(value_text, sizeof(value_text), "CH %u", device->channel);
+    Display_FormatMenuDeviceLabel(device_index, label_text, sizeof(label_text));
+    Display_FormatMenuDeviceListValue(device, value_text, sizeof(value_text));
 
     Display_DrawMenuRow(menu_row_y[row_index],
                         label_text,
@@ -3677,11 +3822,11 @@ static void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item
 
         row_index = (uint8_t)(item_index - first_visible_index);
         bank = RuntimeConfig_GetBank(item_index);
-        (void)snprintf(label_text, sizeof(label_text), "Bank %u", (uint8_t)(item_index + 1U));
-        Display_DrawMenuRowSelectionOnly(menu_row_y[row_index],
-                                         label_text,
-                                         bank ? bank->name : "",
-                                         selected);
+        Display_FormatMenuBankLabel(item_index, label_text, sizeof(label_text));
+        Display_DrawMenuRowValueOnly(menu_row_y[row_index],
+                                     label_text,
+                                     bank ? bank->name : "",
+                                     selected);
         return;
     }
 
@@ -3698,10 +3843,10 @@ static void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item
             return;
 
         Display_FormatBankEditValue(item_index, value_text, sizeof(value_text));
-        Display_DrawMenuRowSelectionOnly(menu_row_y[item_index],
-                                         menu_bank_edit_labels[item_index],
-                                         value_text,
-                                         selected);
+        Display_DrawMenuRowValueOnly(menu_row_y[item_index],
+                                     menu_bank_edit_labels[item_index],
+                                     value_text,
+                                     selected);
         return;
     }
 
@@ -3723,23 +3868,21 @@ static void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item
         if (item_index < MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT)
         {
             Display_FormatFunctionButtonValue(item_index, value_text, sizeof(value_text));
-            Display_DrawMenuRowSelectionOnly(menu_row_y[row_index],
-                                             menu_function_button_labels[item_index],
-                                             value_text,
-                                             selected);
+            Display_DrawMenuRowValueOnly(menu_row_y[row_index],
+                                         menu_function_button_labels[item_index],
+                                         value_text,
+                                         selected);
             return;
         }
 
         message_selection_index = (uint8_t)(item_index - MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX);
         if (message_selection_index < RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
         {
-            if (selected)
-                Display_DrawMenuFunctionButtonProgramCompareEditRowNoClear(menu_row_y[row_index], message_selection_index);
-            else
-            {
-                Display_FormatFunctionButtonProgramCompareRow(message_selection_index, value_text, sizeof(value_text));
-                Display_DrawMenuRowSelectionOnly(menu_row_y[row_index], value_text, "", 0U);
-            }
+            Display_DrawMenuFunctionButtonProgramCompareEditRowCore(menu_row_y[row_index],
+                                                                    message_selection_index,
+                                                                    selected,
+                                                                    0U,
+                                                                    0U);
 
             return;
         }
@@ -3769,19 +3912,13 @@ static void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item
 
         row_index = (uint8_t)(item_index - first_visible_index);
         device = RuntimeConfig_GetDevice(item_index);
-        (void)snprintf(label_text, sizeof(label_text), "Device %u", (uint8_t)(item_index + 1U));
+        Display_FormatMenuDeviceLabel(item_index, label_text, sizeof(label_text));
+        Display_FormatMenuDeviceListValue(device, device_value_text, sizeof(device_value_text));
 
-        if (device && device->name[0] != '\0')
-            (void)snprintf(device_value_text, sizeof(device_value_text), "%s", device->name);
-        else if (device)
-            (void)snprintf(device_value_text, sizeof(device_value_text), "CH %u", device->channel);
-        else
-            device_value_text[0] = '\0';
-
-        Display_DrawMenuRowSelectionOnly(menu_row_y[row_index],
-                                         label_text,
-                                         device_value_text,
-                                         selected);
+        Display_DrawMenuRowValueOnly(menu_row_y[row_index],
+                                     label_text,
+                                     device_value_text,
+                                     selected);
         return;
     }
 
@@ -3812,20 +3949,20 @@ static void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item
 
         if (selected && item_index >= 3U && item_index <= 6U)
         {
-            Display_DrawMenuTextSegment32(MENU_ITEM_X,
-                                          menu_row_y[row_index],
-                                          menu_device_edit_labels[item_index],
-                                          0U);
+            Display_DrawMenuRowValueOnly(menu_row_y[row_index],
+                                         menu_device_edit_labels[item_index],
+                                         "",
+                                         0U);
             Display_DrawMenuDeviceCcEditFields(menu_row_y[row_index],
                                                Display_GetDeviceCcForMenuItem((RuntimeConfigDevice_t *)device, item_index));
             return;
         }
 
         Display_FormatDeviceEditValue(item_index, value_text, sizeof(value_text));
-        Display_DrawMenuRowSelectionOnly(menu_row_y[row_index],
-                                         menu_device_edit_labels[item_index],
-                                         value_text,
-                                         highlight_row);
+        Display_DrawMenuRowValueOnly(menu_row_y[row_index],
+                                     menu_device_edit_labels[item_index],
+                                     value_text,
+                                     highlight_row);
         return;
     }
 
@@ -3842,10 +3979,10 @@ static void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item
             return;
 
         Display_FormatGlobalMenuValue(item_index, value_text, sizeof(value_text));
-        Display_DrawMenuRowSelectionOnly(menu_row_y[item_index],
-                                         menu_global_labels[item_index],
-                                         value_text,
-                                         selected);
+        Display_DrawMenuRowValueOnly(menu_row_y[item_index],
+                                     menu_global_labels[item_index],
+                                     value_text,
+                                     selected);
         return;
     }
 
@@ -4040,6 +4177,13 @@ static void Display_MenuRedrawCurrentValue(void)
         }
 
         Display_FormatBankEditValue(item_index, value_text, sizeof(value_text));
+
+        if (item_index == 3U && bank)
+        {
+            Display_DrawMenuBankCounterValueUpdate(menu_row_y[item_index], bank->midi_clock_bar_count);
+            return;
+        }
+
         Display_DrawMenuRowValueOnly(menu_row_y[item_index],
                                      menu_bank_edit_labels[item_index],
                                      value_text,
@@ -4082,6 +4226,24 @@ static void Display_MenuRedrawCurrentValue(void)
                     }
 
                     Display_DrawMenuTextEditValue(menu_row_y[row_index], text_value, cell_count);
+                    return;
+                }
+            }
+        }
+
+        {
+            uint8_t item_index = menu_function_button_selection_index;
+            uint8_t row_index;
+
+            if (item_index >= MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX
+             && Display_GetFunctionButtonSelectionRow(item_index, &row_index))
+            {
+                uint8_t message_selection_index = (uint8_t)(item_index - MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX);
+
+                if (message_selection_index < RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
+                {
+                    Display_DrawMenuFunctionButtonProgramCompareEditRowNoClear(menu_row_y[row_index],
+                                                                               message_selection_index);
                     return;
                 }
             }
@@ -4190,8 +4352,20 @@ static void Display_MenuRedrawSelectionChange(DisplayMenuPage_t page, uint8_t pr
         uint8_t previous_signature = Display_GetFunctionButtonLayoutSignature(previous_selection, &previous_window_start);
         uint8_t current_signature = Display_GetFunctionButtonLayoutSignature(current_selection, &current_window_start);
 
-        if (previous_signature != current_signature || previous_window_start != current_window_start)
+        if (previous_signature != current_signature)
         {
+            Display_MenuRedrawCurrentPageRows();
+            return;
+        }
+
+        if (previous_window_start != current_window_start)
+        {
+            if (current_signature == 3U || current_signature == 5U)
+            {
+                Display_RedrawMenuFunctionButtonWindow(current_signature, current_window_start);
+                return;
+            }
+
             Display_MenuRedrawCurrentPageRows();
             return;
         }
@@ -4204,6 +4378,18 @@ static void Display_MenuRedrawSelectionChange(DisplayMenuPage_t page, uint8_t pr
 
     if (previous_first_visible != current_first_visible)
     {
+        if (page == DISPLAY_MENU_PAGE_BANKS)
+        {
+            Display_RedrawMenuBankWindow(current_first_visible);
+            return;
+        }
+
+        if (page == DISPLAY_MENU_PAGE_DEVICES)
+        {
+            Display_RedrawMenuDeviceWindow(current_first_visible);
+            return;
+        }
+
         Display_MenuRedrawCurrentPageRows();
         return;
     }
