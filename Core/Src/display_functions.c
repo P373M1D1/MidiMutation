@@ -1151,32 +1151,75 @@ static const char *Display_GetCurrentHeaderText(void)
     return preset_edit_mode_active ? "EDIT" : "LIVE";
 }
 
-static uint8_t Display_GetGlobalBrightnessUiValue(uint16_t brightness)
+static uint16_t Display_GetBrightnessFromUiValue(uint8_t ui_value)
 {
     uint32_t brightness_span = (uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX - (uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN;
+    uint32_t ui_scale = (uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_UI_MAX;
+    uint32_t curve_denominator = ui_scale * ui_scale * ui_scale;
+    uint16_t mapped_brightness = RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN;
+
+    if (ui_value >= RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_UI_MAX)
+        return RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX;
+
+    /* Keep the cubic taper, but force each UI step to land on a strictly
+     * higher raw DAC value so round-tripping through the inverse mapping does
+     * not collapse adjacent low-end UI values onto the same stored value. */
+    for (uint32_t step = 1U; step <= (uint32_t)ui_value; ++step)
+    {
+        uint32_t curved_numerator = step * step * step;
+        uint32_t ideal_brightness = (uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN
+                                  + (((curved_numerator * brightness_span)
+                                    + (curve_denominator / 2UL))
+                                   / curve_denominator);
+
+        if (ideal_brightness <= (uint32_t)mapped_brightness)
+            ideal_brightness = (uint32_t)mapped_brightness + 1U;
+        if (ideal_brightness > (uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX)
+            ideal_brightness = (uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX;
+
+        mapped_brightness = (uint16_t)ideal_brightness;
+    }
+
+    return mapped_brightness;
+}
+
+static uint8_t Display_GetGlobalBrightnessUiValue(uint16_t brightness)
+{
+    uint8_t low = 0U;
+    uint8_t high = RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_UI_MAX;
+    uint8_t candidate;
+    uint16_t candidate_brightness;
+    uint8_t previous;
+    uint16_t previous_brightness;
 
     if (brightness <= RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN)
         return 0U;
     if (brightness >= RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX)
         return RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_UI_MAX;
 
-    return (uint8_t)(((((uint32_t)brightness - (uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN)
-                      * (uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_UI_MAX)
-                     + (brightness_span / 2UL))
-                    / brightness_span);
-}
+    while (low < high)
+    {
+        uint8_t mid = (uint8_t)(low + ((high - low) / 2U));
+        uint16_t mapped = Display_GetBrightnessFromUiValue(mid);
 
-static uint16_t Display_GetBrightnessFromUiValue(uint8_t ui_value)
-{
-    uint32_t brightness_span = (uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX - (uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN;
+        if (mapped < brightness)
+            low = (uint8_t)(mid + 1U);
+        else
+            high = mid;
+    }
 
-    if (ui_value >= RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_UI_MAX)
-        return RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX;
+    candidate = low;
+    if (candidate == 0U)
+        return 0U;
 
-    return (uint16_t)((uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN
-                    + ((((uint32_t)ui_value * brightness_span)
-                      + ((uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_UI_MAX / 2UL))
-                     / (uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_UI_MAX));
+    candidate_brightness = Display_GetBrightnessFromUiValue(candidate);
+    previous = (uint8_t)(candidate - 1U);
+    previous_brightness = Display_GetBrightnessFromUiValue(previous);
+
+    return (((uint32_t)candidate_brightness - (uint32_t)brightness)
+            < ((uint32_t)brightness - (uint32_t)previous_brightness))
+        ? candidate
+        : previous;
 }
 
 static void Display_ApplyConfiguredBacklightBrightnessNow(void)
@@ -2666,6 +2709,12 @@ static void Display_DrawSavingPopup(void)
                                    popup_w,
                                    MAIN_INFO_FONT.height,
                                    MAIN_SAVING_POPUP_BG_COLOUR);
+    Display_MenuRowComposeString32(0U,
+                                   0U,
+                                   MAIN_SAVING_POPUP_TEXT,
+                                   MAIN_INFO_FONT,
+                                   MAIN_SAVING_POPUP_TEXT_COLOUR,
+                                   MAIN_SAVING_POPUP_BG_COLOUR);
     Display_MenuRowComposeFillRect(0U,
                                    0U,
                                    popup_w,
@@ -2686,12 +2735,6 @@ static void Display_DrawSavingPopup(void)
                                    1U,
                                    MAIN_INFO_FONT.height,
                                    BLACK);
-    Display_MenuRowComposeString32(0U,
-                                   0U,
-                                   MAIN_SAVING_POPUP_TEXT,
-                                   MAIN_INFO_FONT,
-                                   MAIN_SAVING_POPUP_TEXT_COLOUR,
-                                   MAIN_SAVING_POPUP_BG_COLOUR);
     Display_ComposeBlit(popup_x,
                         popup_y,
                         popup_w,
@@ -2713,7 +2756,56 @@ void Display_HideSavingPopup(const Preset_t *preset)
 
     if (menu_mode_active)
     {
-        Display_MenuRefresh();
+        uint16_t popup_w = (uint16_t)(strlen(MAIN_SAVING_POPUP_TEXT) * MAIN_INFO_FONT.width);
+        uint16_t popup_x = (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
+        uint16_t popup_y = main_info_row_y[MAIN_SAVING_POPUP_ROW_INDEX];
+        uint16_t popup_bottom = (uint16_t)(popup_y + MAIN_INFO_FONT.height);
+        uint16_t clear_y = popup_y;
+
+        /* Restore only the obscured menu rows, then clear the small strip of
+         * popup area that sits below the last row cell and would otherwise be
+         * left behind. This avoids the full-body menu redraw that flickers. */
+        Display_MenuRefreshBodyOnly();
+
+        for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
+        {
+            uint16_t row_y = menu_row_y[row_index];
+            uint16_t row_bottom = (uint16_t)(row_y + MAIN_INFO_FONT_CELL_HEIGHT);
+
+            if (row_bottom <= popup_y || row_y >= popup_bottom)
+                continue;
+
+            if (clear_y < row_y)
+            {
+                uint16_t clear_h = (uint16_t)(row_y - clear_y);
+
+                DisplayCompose_Clear(popup_w,
+                                     clear_h,
+                                     DISPLAY_BG_COLOUR);
+                Display_ComposeBlit(popup_x,
+                                    clear_y,
+                                    popup_w,
+                                    clear_h);
+            }
+
+            clear_y = (row_bottom < popup_bottom) ? row_bottom : popup_bottom;
+            if (clear_y >= popup_bottom)
+                break;
+        }
+
+        if (clear_y < popup_bottom)
+        {
+            uint16_t clear_h = (uint16_t)(popup_bottom - clear_y);
+
+            DisplayCompose_Clear(popup_w,
+                                 clear_h,
+                                 DISPLAY_BG_COLOUR);
+            Display_ComposeBlit(popup_x,
+                                clear_y,
+                                popup_w,
+                                clear_h);
+        }
+
         return;
     }
 
@@ -4498,6 +4590,12 @@ static void Display_MenuRedrawCurrentPageRows(void)
 
 static void Display_MenuRedrawCurrentItem(void)
 {
+    if (menu_text_edit_field != DISPLAY_MENU_TEXT_FIELD_NONE)
+    {
+        Display_DrawMenuPageItem(menu_page, Display_GetMenuSelectionIndexForPage(menu_page));
+        return;
+    }
+
     if (menu_page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON
      || menu_page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES
      || menu_page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES)
