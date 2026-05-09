@@ -102,14 +102,14 @@ static const RuntimeConfigDevice_t runtime_config_blank_device = {
 
 static const RuntimeConfig_t runtime_config_defaults = {
     .banks = {
-        RUNTIME_CONFIG_BANK_ENTRY("[Strain I]"),
-        RUNTIME_CONFIG_BANK_ENTRY("[Strain II]"),
-        RUNTIME_CONFIG_BANK_ENTRY("[Strain III]"),
-        RUNTIME_CONFIG_BANK_ENTRY("[Strain IV]"),
-        RUNTIME_CONFIG_BANK_ENTRY("[Strain V]"),
-        RUNTIME_CONFIG_BANK_ENTRY("[Strain VI]"),
-        RUNTIME_CONFIG_BANK_ENTRY("[Strain VII]"),
-        RUNTIME_CONFIG_BANK_ENTRY("[Strain VIII]"),
+        RUNTIME_CONFIG_BANK_ENTRY("Bank 1"),
+        RUNTIME_CONFIG_BANK_ENTRY("Bank 2"),
+        RUNTIME_CONFIG_BANK_ENTRY("Bank 3"),
+        RUNTIME_CONFIG_BANK_ENTRY("Bank 4"),
+        RUNTIME_CONFIG_BANK_ENTRY("Bank 5"),
+        RUNTIME_CONFIG_BANK_ENTRY("Bank 6"),
+        RUNTIME_CONFIG_BANK_ENTRY("Bank 7"),
+        RUNTIME_CONFIG_BANK_ENTRY("Bank 8"),
     },
     .devices = {
         RUNTIME_CONFIG_DEVICE_ENTRY("", 1U, 60U, 127U, 60U, 0U, 35U, 64U, 35U),
@@ -340,6 +340,16 @@ RuntimeConfigBank_t *RuntimeConfig_GetMutableBank(uint8_t bank_index)
         return NULL;
 
     return &runtime_config_store.banks[bank_index];
+}
+
+void RuntimeConfig_ResetBankToDefaults(uint8_t bank_index)
+{
+    RuntimeConfig_EnsureInitialized();
+
+    if (bank_index >= PRESET_BANK_COUNT)
+        return;
+
+    runtime_config_store.banks[bank_index] = runtime_config_defaults.banks[bank_index];
 }
 
 const RuntimeConfigFunctionButton_t *RuntimeConfig_GetFunctionButton(uint8_t bank_index)

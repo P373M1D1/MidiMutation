@@ -924,6 +924,21 @@ void UART4_IRQHandler(void)
         midi_output_service_tx();
 }
 
+void Midi_SendPresetCCs(const Preset_t *preset)
+{
+    if (!preset) return;
+
+    for (uint8_t i = 0U; i < PRESET_CC_SLOT_COUNT; i++)
+    {
+        const PresetCCSlot_t *cc = &preset->cc[i];
+
+        if (cc->channel == PRESET_CC_CHANNEL_UNUSED || cc->cc_number == PRESET_CC_NUMBER_UNUSED || cc->value == PRESET_CC_VALUE_UNUSED)
+            continue;
+
+        MIDI_SendCC(cc->channel, cc->cc_number, cc->value);
+    }
+}
+
 void Midi_LoadPreset(const Preset_t *preset)
 {
     if (!preset) return;
@@ -939,13 +954,5 @@ void Midi_LoadPreset(const Preset_t *preset)
         MIDI_SendProgramChange(dev->channel, preset->prg[i].program);
     }
 
-    for (uint8_t i = 0U; i < PRESET_CC_SLOT_COUNT; i++)
-    {
-        const PresetCCSlot_t *cc = &preset->cc[i];
-
-        if (cc->channel == PRESET_CC_CHANNEL_UNUSED || cc->cc_number == PRESET_CC_NUMBER_UNUSED || cc->value == PRESET_CC_VALUE_UNUSED)
-            continue;
-
-        MIDI_SendCC(cc->channel, cc->cc_number, cc->value);
-    }
+    Midi_SendPresetCCs(preset);
 }

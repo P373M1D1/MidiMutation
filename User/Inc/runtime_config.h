@@ -83,6 +83,7 @@ RuntimeConfig_t *RuntimeConfig_GetMutable(void);
 
 const RuntimeConfigBank_t *RuntimeConfig_GetBank(uint8_t bank_index);
 RuntimeConfigBank_t *RuntimeConfig_GetMutableBank(uint8_t bank_index);
+void RuntimeConfig_ResetBankToDefaults(uint8_t bank_index);
 
 const RuntimeConfigFunctionButton_t *RuntimeConfig_GetFunctionButton(uint8_t bank_index);
 RuntimeConfigFunctionButton_t *RuntimeConfig_GetMutableFunctionButton(uint8_t bank_index);

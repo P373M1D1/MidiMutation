@@ -182,6 +182,8 @@ static uint8_t Bank_StepUpWithSpillover(void);
 static uint8_t PresetEdit_Enter(void);
 static void PresetEdit_Exit(void);
 static uint8_t PresetEdit_ApplyDelta(int8_t delta);
+static uint8_t PresetEdit_SendCurrentPreset(void);
+static uint8_t PresetEdit_ResetCurrentPresetToDefaults(void);
 static uint8_t PresetEdit_CurrentPresetIsEditable(void);
 /* USER CODE END PFP */
 
@@ -424,6 +426,9 @@ static uint8_t PresetEdit_ApplyDelta(int8_t delta)
                                           127U,
                                           delta);
 
+  case DISPLAY_PRESET_EDIT_FIELD_INIT:
+    return 0U;
+
   default:
     return 0U;
   }
@@ -458,6 +463,43 @@ static void PresetEdit_Exit(void)
     Presets_SaveIfDirty();
     Display_HideSavingPopup(current_preset);
   }
+}
+
+static uint8_t PresetEdit_SendCurrentPreset(void)
+{
+  const Preset_t *preset;
+
+  if (!Display_PresetEditIsActive())
+    return 0U;
+
+  if (!PresetEdit_CurrentPresetIsEditable())
+  {
+    PresetEdit_Exit();
+    return 1U;
+  }
+
+  preset = Presets_Get(active_preset_index);
+  if (!preset)
+    return 0U;
+
+  Midi_LoadPreset(preset);
+  return 1U;
+}
+
+static uint8_t PresetEdit_ResetCurrentPresetToDefaults(void)
+{
+  if (!Display_PresetEditIsActive())
+    return 0U;
+
+  if (!PresetEdit_CurrentPresetIsEditable())
+  {
+    PresetEdit_Exit();
+    return 0U;
+  }
+
+  Presets_ResetPresetToDefaults(active_preset_index);
+  Presets_MarkDirty();
+  return 1U;
 }
 
 /* ENC3 press behaves like popping a small edit stack: leave per-character name
@@ -1215,6 +1257,20 @@ static void EncoderCheck_ProcessPending(void)
     return;
   }
 
+  if ((press_mask & 0x02U) && Display_PresetEditIsActive())
+  {
+    if (Display_PresetInitConfirmIsActive())
+    {
+      Display_PresetInitConfirmExit();
+      if (PresetEdit_ResetCurrentPresetToDefaults())
+        Display_RefreshPresetEditMode(active_preset, g_bpm);
+      return;
+    }
+
+    PresetEdit_SendCurrentPreset();
+    return;
+  }
+
   if ((press_mask & 0x02U) && !Display_PresetEditIsActive())
   {
     Menu_Enter();
@@ -1223,6 +1279,12 @@ static void EncoderCheck_ProcessPending(void)
 
   if ((press_mask & 0x04U) && Display_PresetEditIsActive())
   {
+    if (Display_PresetInitConfirmIsActive())
+    {
+      Display_PresetInitConfirmExit();
+      return;
+    }
+
     PresetEdit_BackOutOneLevel();
     return;
   }
@@ -1239,6 +1301,9 @@ static void EncoderCheck_ProcessPending(void)
   }
   else if ((press_mask & 0x01U) && Display_PresetEditIsActive() && !Display_PresetNameEditIsActive())
   {
+    if (Display_PresetInitConfirmIsActive())
+      return;
+
     DisplayPresetEditField_t field = Display_PresetEditGetField();
 
     if (field.type == DISPLAY_PRESET_EDIT_FIELD_NAME)
@@ -1247,6 +1312,8 @@ static void EncoderCheck_ProcessPending(void)
       if (active_preset)
         Display_PresetEditRefreshCurrentField(active_preset);
     }
+    else if (field.type == DISPLAY_PRESET_EDIT_FIELD_INIT)
+      Display_PresetInitConfirmEnter();
   }
 }
 
@@ -1401,6 +1468,9 @@ static void Rotary1_ProcessPending(void)
         PresetEdit_Exit();
         return;
       }
+
+      if (Display_PresetInitConfirmIsActive())
+        return;
 
       if (Display_PresetNameEditIsActive())
       {
@@ -1651,6 +1721,9 @@ static void TempoEncoder_ProcessPending(void)
       PresetEdit_Exit();
       return;
     }
+
+    if (Display_PresetInitConfirmIsActive())
+      return;
 
     if (PresetEdit_ApplyDelta(pending_delta))
     {

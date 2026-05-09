@@ -105,6 +105,11 @@ const Preset_t *Presets_Get(uint8_t index);
 Preset_t *Presets_GetMutable(uint8_t index);
 
 /**
+ * @brief  Reset the preset at @p index back to its compiled default data.
+ */
+void Presets_ResetPresetToDefaults(uint8_t index);
+
+/**
  * @brief  Mark the runtime preset store dirty after an edit.
  */
 void Presets_MarkDirty(void);

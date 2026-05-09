@@ -163,6 +163,12 @@ MidiTransportEvent_t MidiTransportConsumeEvent(void);
  */
 void Midi_LoadPreset(const Preset_t *preset);
 
+/**
+ * @brief  Send all valid CC messages from a preset.
+ *         Skips any CC slot with an unused channel, number, or value.
+ */
+void Midi_SendPresetCCs(const Preset_t *preset);
+
 #ifdef __cplusplus
 }
 #endif

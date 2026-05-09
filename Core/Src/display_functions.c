@@ -172,7 +172,10 @@ void Display_BL_FadeOut(void)
 #define MAIN_INFO_CC_CHANNEL_PREFIX    "CH: "              // label shown ahead of the CC channel value
 #define MAIN_INFO_CC_NUMBER_PREFIX     " CC: "             // label shown ahead of the CC number value
 #define MAIN_INFO_CC_VALUE_PREFIX      " Value: "          // label shown ahead of the CC value
-#define MAIN_INFO_EDIT_FIELD_COUNT     (1U + PRESET_DEVICE_SLOTS + PRESET_RELAY_COUNT + (PRESET_CC_SLOT_COUNT * 3U)) // number of editable fields in preset edit mode, including the preset name
+#define MAIN_INFO_PRESET_INIT_ROW_INDEX (PRESET_DEVICE_SLOTS + PRESET_CC_SLOT_COUNT) // left-column row index of the preset reset action beneath the CC rows
+#define MAIN_INFO_PRESET_INIT_TEXT     "Initialise Preset" // action label shown after the CC rows in preset edit mode
+#define MAIN_INFO_PRESET_INIT_CONFIRM_TEXT "INITIALISE PRESET?" // confirmation prompt shown after selecting the preset reset action
+#define MAIN_INFO_EDIT_FIELD_COUNT     (1U + PRESET_DEVICE_SLOTS + PRESET_RELAY_COUNT + (PRESET_CC_SLOT_COUNT * 3U) + 1U) // number of editable fields in preset edit mode, including the preset name and preset reset action
 #define MAIN_INFO_SHARED_PAD_CHARS     2U                   // extra chars cleared when special-function text shrinks
 #define MAIN_UNUSED_PROGRAM            0xFFU                // sentinel meaning no MIDI program is assigned to that slot
 #define MAIN_EMPTY_RIGHT_INFO_TEXT     "                "   // blank filler used to clear an unused right-side row
@@ -221,7 +224,7 @@ void Display_BL_FadeOut(void)
 #define MENU_ROOT_ITEM_COUNT            3U                   // number of top-level entries currently shown in the menu shell
 #define MENU_VISIBLE_ROW_COUNT          4U                   // number of menu rows visible at one time in the current shell layout
 #define MENU_GLOBAL_ITEM_COUNT          4U                   // number of editable global-setting rows currently implemented
-#define MENU_BANK_EDIT_ITEM_COUNT       4U                   // number of items on the bank edit page
+#define MENU_BANK_EDIT_ITEM_COUNT       5U                   // number of items on the bank edit page
 #define MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT 3U              // number of editable text rows before the compare table starts
 #define MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT // first logical row index of the compare table
 #define MENU_FUNCTION_BUTTON_CC_FIRST_INDEX (MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX + RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT) // first logical row index of the CC compare section
@@ -245,6 +248,7 @@ typedef enum {
     DISPLAY_MENU_PAGE_ROOT = 0,
     DISPLAY_MENU_PAGE_BANKS,
     DISPLAY_MENU_PAGE_BANK_EDIT,
+    DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM,
     DISPLAY_MENU_PAGE_FUNCTION_BUTTON,
     DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES,
     DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES,
@@ -283,6 +287,7 @@ static uint8_t preset_name_edit_active = 0U;
 static uint8_t preset_name_edit_cursor_index = 0U;
 static uint8_t saving_popup_visible = 0U;
 static uint8_t menu_mode_active = 0U;
+static uint8_t preset_init_confirm_active = 0U;
 static uint8_t menu_root_selection_index = 0U;
 static uint8_t menu_bank_selection_index = 0U;
 static uint8_t menu_active_bank_index = 0U;
@@ -625,6 +630,12 @@ static DisplayPresetEditField_t Display_GetPresetEditFieldForCursor(uint8_t curs
     }
 
     cursor_index = (uint8_t)(cursor_index - PRESET_RELAY_COUNT);
+    if (cursor_index >= (PRESET_CC_SLOT_COUNT * 3U))
+    {
+        field.type = DISPLAY_PRESET_EDIT_FIELD_INIT;
+        return field;
+    }
+
     field.itemIndex = (uint8_t)(cursor_index / 3U);
 
     switch (cursor_index % 3U)
@@ -664,6 +675,9 @@ static uint8_t Display_GetPresetEditScrollFirstSlot(uint8_t cursor_index)
             ? (uint8_t)(PRESET_DEVICE_SLOTS - MAIN_INFO_ROW_COUNT)
             : 0U;
     }
+
+    if (field.type == DISPLAY_PRESET_EDIT_FIELD_INIT)
+        return (uint8_t)((PRESET_DEVICE_SLOTS + PRESET_CC_SLOT_COUNT + 1U) - MAIN_INFO_ROW_COUNT);
 
     return (uint8_t)((PRESET_DEVICE_SLOTS - (MAIN_INFO_ROW_COUNT - 1U)) + field.itemIndex);
 }
@@ -859,7 +873,7 @@ static uint8_t Display_GetMainInfoProgramScrollMax(void)
 
 static uint8_t Display_GetMainInfoScrollMax(void)
 {
-    uint8_t total_rows = (uint8_t)(PRESET_DEVICE_SLOTS + PRESET_CC_SLOT_COUNT);
+    uint8_t total_rows = (uint8_t)(PRESET_DEVICE_SLOTS + PRESET_CC_SLOT_COUNT + 1U);
 
     return (total_rows > MAIN_INFO_ROW_COUNT)
         ? (uint8_t)(total_rows - MAIN_INFO_ROW_COUNT)
@@ -907,7 +921,8 @@ static const char *Display_GetFootbarLabel(uint8_t section_index)
 {
     if (menu_mode_active)
     {
-        if (menu_page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM)
+        if (menu_page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM
+         || menu_page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM)
         {
             switch (section_index)
             {
@@ -937,6 +952,21 @@ static const char *Display_GetFootbarLabel(uint8_t section_index)
 
     if (preset_edit_mode_active)
     {
+        if (preset_init_confirm_active)
+        {
+            switch (section_index)
+            {
+            case 0U:
+                return MAIN_FOOTBAR_CONFIRM_LEFT_TEXT;
+            case 1U:
+                return MAIN_FOOTBAR_CONFIRM_CENTER_TEXT;
+            case 2U:
+                return MAIN_FOOTBAR_CONFIRM_RIGHT_TEXT;
+            default:
+                return "";
+            }
+        }
+
         switch (section_index)
         {
         case 0U:
@@ -1050,7 +1080,7 @@ static uint8_t Display_GetModeHeaderWidthChars(const char *text)
 {
     size_t text_len = strlen(text);
 
-    if (menu_mode_active)
+    if (menu_mode_active || preset_init_confirm_active)
     {
         uint8_t width_chars = (uint8_t)(text_len + MAIN_MODE_HEADER_MENU_PAD_CHARS);
 
@@ -1072,6 +1102,8 @@ static const char *Display_GetMenuHeaderTextForPage(DisplayMenuPage_t page, char
     case DISPLAY_MENU_PAGE_BANK_EDIT:
         (void)snprintf(buffer, buffer_size, "BANK %u", (uint8_t)(menu_active_bank_index + 1U));
         return buffer;
+    case DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM:
+        return "CONFIRM";
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON:
         return "FUNC BTN";
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES:
@@ -1094,12 +1126,14 @@ static const char *Display_GetMenuHeaderTextForPage(DisplayMenuPage_t page, char
 
 static uint8_t Display_MenuPageUsesConfirmFootbar(DisplayMenuPage_t page)
 {
-    return (page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM) ? 1U : 0U;
+    return (page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM
+         || page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM) ? 1U : 0U;
 }
 
 static uint8_t Display_MenuPageUsesFreeformBody(DisplayMenuPage_t page)
 {
-    return (page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM) ? 1U : 0U;
+    return (page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM
+         || page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM) ? 1U : 0U;
 }
 
 static uint8_t Display_MenuHeaderChanged(DisplayMenuPage_t previous_page, DisplayMenuPage_t current_page)
@@ -1149,6 +1183,9 @@ static const char *Display_GetCurrentHeaderText(void)
 
     if (menu_mode_active)
         return Display_GetMenuHeaderTextForPage(menu_page, menu_header_text, sizeof(menu_header_text));
+
+    if (preset_init_confirm_active)
+        return "CONFIRM";
 
     return preset_edit_mode_active ? "EDIT" : "LIVE";
 }
@@ -1819,10 +1856,9 @@ static void Display_DrawMenuTextSegment32(uint16_t x,
                         MAIN_INFO_FONT.height);
 }
 
-static void Display_DrawMenuCenteredBadgeRow(uint16_t row_y,
-                                             const char *text,
-                                             uint16_t foreground,
-                                             uint16_t background)
+static void Display_ComposeCenteredBadgeRow(const char *text,
+                                            uint16_t foreground,
+                                            uint16_t background)
 {
     char badge_text[32];
     size_t badge_length;
@@ -1845,7 +1881,37 @@ static void Display_DrawMenuCenteredBadgeRow(uint16_t row_y,
                                         badge_text,
                                         foreground,
                                         background);
+}
+
+static void Display_DrawMenuCenteredBadgeRow(uint16_t row_y,
+                                             const char *text,
+                                             uint16_t foreground,
+                                             uint16_t background)
+{
+    if (!text || text[0] == '\0')
+        return;
+
+    Display_ComposeCenteredBadgeRow(text, foreground, background);
     Display_MenuRowComposeBlit(row_y);
+}
+
+static void Display_DrawCurrentBankNameLine(void)
+{
+    Display_WriteCenteredPaddedText32(MAIN_BANK_TEXT_Y,
+                                      Presets_GetBankName(current_bank),
+                                      MAIN_BANK_TEXT_CHARS,
+                                      MAIN_BANK_FONT,
+                                      MAIN_BANK_COLOUR);
+}
+
+static void Display_DrawPresetInitConfirmPrompt(void)
+{
+    Display_WriteCenteredPaddedText32WithBackground(MAIN_BANK_TEXT_Y,
+                                                    MAIN_INFO_PRESET_INIT_CONFIRM_TEXT,
+                                                    MAIN_BANK_TEXT_CHARS,
+                                                    MAIN_BANK_FONT,
+                                                    RED,
+                                                    DISPLAY_BG_COLOUR);
 }
 
 static void Display_DrawMenuRowSelectionOnly(uint16_t row_y,
@@ -2661,8 +2727,10 @@ static void Display_DrawMainInfoLeftRow(const Preset_t *preset,
 
     if (info_index < PRESET_DEVICE_SLOTS)
         Display_DrawMainInfoProgramRow(preset, info_index, row_y);
-    else
+    else if (info_index < MAIN_INFO_PRESET_INIT_ROW_INDEX)
         Display_DrawMainInfoCcRow(preset, (uint8_t)(info_index - PRESET_DEVICE_SLOTS), row_y);
+    else if (info_index == MAIN_INFO_PRESET_INIT_ROW_INDEX)
+        Display_ComposeCenteredBadgeRow(MAIN_INFO_PRESET_INIT_TEXT, BLACK, RED);
 }
 
 static void Display_DrawMainInfoComposedRow(const Preset_t *preset, uint8_t row_index)
@@ -2966,6 +3034,9 @@ static void Display_FormatBankEditValue(uint8_t item_index, char *buffer, size_t
     case 3U:
         (void)snprintf(buffer, buffer_size, "%2u bars", bank->midi_clock_bar_count);
         break;
+    case 4U:
+        buffer[0] = '\0';
+        break;
     default:
         buffer[0] = '\0';
         break;
@@ -2984,26 +3055,20 @@ static void Display_DrawMenuBankCounterValueUpdate(uint16_t row_y,
 
 static void Display_DrawMenuBankEdit(void)
 {
-    for (uint8_t index = 0U; index < MENU_VISIBLE_ROW_COUNT; ++index)
-    {
-        if (index < MENU_BANK_EDIT_ITEM_COUNT)
-        {
-            static const char * const menu_bank_edit_labels[MENU_BANK_EDIT_ITEM_COUNT] = {
-                "Bank Name",
-                "Wet / Dry",
-                "Function Button",
-                "Counter",
-            };
-            char value_text[24];
+    uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_BANK_EDIT_ITEM_COUNT,
+                                                                   menu_bank_edit_selection_index);
 
-            Display_FormatBankEditValue(index, value_text, sizeof(value_text));
-            Display_DrawMenuRow(menu_row_y[index],
-                                menu_bank_edit_labels[index],
-                                value_text,
-                                (index == menu_bank_edit_selection_index) ? 1U : 0U);
+    for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
+    {
+        uint8_t item_index = (uint8_t)(first_visible_index + row_index);
+
+        if (item_index >= MENU_BANK_EDIT_ITEM_COUNT)
+        {
+            Display_ClearStandardMenuRow(row_index);
+            continue;
         }
-        else
-            Display_ClearStandardMenuRow(index);
+
+        Display_DrawMenuBankEditItem(item_index);
     }
 }
 
@@ -3014,7 +3079,11 @@ static void Display_DrawMenuBankEditItem(uint8_t item_index)
         "Wet / Dry",
         "Function Button",
         "Counter",
+        "Initialise Bank",
     };
+    uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_BANK_EDIT_ITEM_COUNT,
+                                                                   menu_bank_edit_selection_index);
+    uint8_t row_index;
     const RuntimeConfigBank_t *bank = RuntimeConfig_GetBank(menu_active_bank_index);
     char value_text[24];
 
@@ -3024,20 +3093,51 @@ static void Display_DrawMenuBankEditItem(uint8_t item_index)
         return;
     }
 
+    if (item_index < first_visible_index || item_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
+        return;
+
+    row_index = (uint8_t)(item_index - first_visible_index);
+
     if (item_index == 0U && menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_BANK_NAME)
     {
-        Display_DrawMenuTextEditRow(menu_row_y[item_index],
+        Display_DrawMenuTextEditRow(menu_row_y[row_index],
                                     menu_bank_edit_labels[item_index],
                                     bank ? bank->name : "",
                                     RUNTIME_CONFIG_BANK_NAME_LENGTH);
         return;
     }
 
+    if (item_index == 4U)
+    {
+        Display_DrawMenuCenteredBadgeRow(menu_row_y[row_index],
+                                         menu_bank_edit_labels[item_index],
+                                         BLACK,
+                                         RED);
+        return;
+    }
+
     Display_FormatBankEditValue(item_index, value_text, sizeof(value_text));
-    Display_DrawMenuRow(menu_row_y[item_index],
+    Display_DrawMenuRow(menu_row_y[row_index],
                         menu_bank_edit_labels[item_index],
                         value_text,
                         (item_index == menu_bank_edit_selection_index) ? 1U : 0U);
+}
+
+static void Display_DrawMenuBankInitConfirm(void)
+{
+    char confirm_text[24];
+
+    (void)snprintf(confirm_text,
+                   sizeof(confirm_text),
+                   "INITIALISE BANK %u?",
+                   (uint8_t)(menu_active_bank_index + 1U));
+
+    Display_WriteCenteredPaddedText32WithBackground(MAIN_BANK_TEXT_Y,
+                                                    confirm_text,
+                                                    MAIN_BANK_TEXT_CHARS,
+                                                    MAIN_BANK_FONT,
+                                                    RED,
+                                                    DISPLAY_BG_COLOUR);
 }
 
 static void Display_FormatFunctionButtonValue(uint8_t item_index, char *buffer, size_t buffer_size)
@@ -4052,13 +4152,28 @@ static void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item
             "Wet / Dry",
             "Function Button",
             "Counter",
+            "Initialise Bank",
         };
+        uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_BANK_EDIT_ITEM_COUNT,
+                                                                       menu_bank_edit_selection_index);
+        uint8_t row_index;
 
-        if (item_index >= MENU_BANK_EDIT_ITEM_COUNT || item_index >= MENU_VISIBLE_ROW_COUNT)
+        if (item_index < first_visible_index || item_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
             return;
 
+        row_index = (uint8_t)(item_index - first_visible_index);
+
+        if (item_index == 4U)
+        {
+            Display_DrawMenuCenteredBadgeRow(menu_row_y[row_index],
+                                             menu_bank_edit_labels[item_index],
+                                             BLACK,
+                                             RED);
+            return;
+        }
+
         Display_FormatBankEditValue(item_index, value_text, sizeof(value_text));
-        Display_DrawMenuRowValueOnly(menu_row_y[item_index],
+        Display_DrawMenuRowValueOnly(menu_row_y[row_index],
                                      menu_bank_edit_labels[item_index],
                                      value_text,
                                      selected);
@@ -4222,6 +4337,9 @@ static void Display_DrawCurrentMenuPageBody(void)
     case DISPLAY_MENU_PAGE_BANK_EDIT:
         Display_DrawMenuBankEdit();
         break;
+    case DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM:
+        Display_DrawMenuBankInitConfirm();
+        break;
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON:
         Display_DrawMenuFunctionButton();
         break;
@@ -4279,6 +4397,8 @@ static uint8_t Display_GetMenuFirstVisibleIndexForPage(DisplayMenuPage_t page, u
     {
     case DISPLAY_MENU_PAGE_BANKS:
         return Display_GetMenuFirstVisibleIndex(PRESET_BANK_COUNT, selection_index);
+    case DISPLAY_MENU_PAGE_BANK_EDIT:
+        return Display_GetMenuFirstVisibleIndex(MENU_BANK_EDIT_ITEM_COUNT, selection_index);
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON:
         return Display_GetMenuFirstVisibleIndex(MENU_FUNCTION_BUTTON_ITEM_COUNT, selection_index);
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES:
@@ -4306,7 +4426,6 @@ static uint8_t Display_GetMenuVisibleRowIndex(DisplayMenuPage_t page,
     switch (page)
     {
     case DISPLAY_MENU_PAGE_ROOT:
-    case DISPLAY_MENU_PAGE_BANK_EDIT:
     case DISPLAY_MENU_PAGE_GLOBAL:
         if (item_index >= MENU_VISIBLE_ROW_COUNT)
             return 0U;
@@ -4315,6 +4434,7 @@ static uint8_t Display_GetMenuVisibleRowIndex(DisplayMenuPage_t page,
         return 1U;
 
     case DISPLAY_MENU_PAGE_BANKS:
+    case DISPLAY_MENU_PAGE_BANK_EDIT:
     case DISPLAY_MENU_PAGE_DEVICES:
     case DISPLAY_MENU_PAGE_DEVICE_EDIT:
         if (item_index < first_visible_index || item_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
@@ -4626,15 +4746,24 @@ static void Display_RedrawMenuCurrentValueItem(DisplayMenuPage_t page, uint8_t i
             "Wet / Dry",
             "Function Button",
             "Counter",
+            "Initialise Bank",
         };
+        uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_BANK_EDIT_ITEM_COUNT,
+                                                                       menu_bank_edit_selection_index);
+        uint8_t row_index;
         const RuntimeConfigBank_t *bank = RuntimeConfig_GetBank(menu_active_bank_index);
 
         if (item_index >= MENU_BANK_EDIT_ITEM_COUNT)
             return;
 
+        if (item_index < first_visible_index || item_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
+            return;
+
+        row_index = (uint8_t)(item_index - first_visible_index);
+
         if (item_index == 0U && menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_BANK_NAME)
         {
-            Display_DrawMenuTextEditRow(menu_row_y[item_index],
+            Display_DrawMenuTextEditRow(menu_row_y[row_index],
                                         menu_bank_edit_labels[item_index],
                                         bank ? bank->name : "",
                                         RUNTIME_CONFIG_BANK_NAME_LENGTH);
@@ -4643,9 +4772,18 @@ static void Display_RedrawMenuCurrentValueItem(DisplayMenuPage_t page, uint8_t i
 
         if (item_index == 3U && bank)
         {
-            Display_DrawMenuBankCounterValueUpdate(menu_row_y[item_index],
+            Display_DrawMenuBankCounterValueUpdate(menu_row_y[row_index],
                                                    menu_bank_edit_labels[item_index],
                                                    bank->midi_clock_bar_count);
+            return;
+        }
+
+        if (item_index == 4U)
+        {
+            Display_DrawMenuCenteredBadgeRow(menu_row_y[row_index],
+                                             menu_bank_edit_labels[item_index],
+                                             BLACK,
+                                             RED);
             return;
         }
         break;
@@ -5006,6 +5144,20 @@ void Display_MenuHome(void)
     if (!menu_mode_active)
         return;
 
+    if (menu_page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM)
+    {
+        Display_ResetFunctionButtonMessageEditor();
+        menu_device_cc_field_index = 0U;
+        menu_device_cc_field_edit_active = 0U;
+        menu_text_edit_field = DISPLAY_MENU_TEXT_FIELD_NONE;
+        menu_text_edit_cursor_index = 0U;
+        RuntimeConfig_ResetBankToDefaults(menu_active_bank_index);
+        RuntimeConfig_MarkDirty();
+        menu_page = DISPLAY_MENU_PAGE_BANK_EDIT;
+        Display_MenuRefresh();
+        return;
+    }
+
     if (menu_page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM)
     {
         device = RuntimeConfig_GetMutableDevice(menu_active_device_index);
@@ -5221,6 +5373,12 @@ uint8_t Display_MenuActivate(void)
             menu_function_button_selection_index = 0U;
             menu_page = DISPLAY_MENU_PAGE_FUNCTION_BUTTON;
         }
+        else if (menu_bank_edit_selection_index == 4U)
+        {
+            menu_page = DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM;
+            Display_MenuRefresh();
+            return 1U;
+        }
         else
             return 0U;
         break;
@@ -5276,6 +5434,10 @@ uint8_t Display_MenuBack(void)
         break;
     case DISPLAY_MENU_PAGE_BANK_EDIT:
         menu_page = DISPLAY_MENU_PAGE_BANKS;
+        Display_MenuRefresh();
+        return 1U;
+    case DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM:
+        menu_page = DISPLAY_MENU_PAGE_BANK_EDIT;
         Display_MenuRefresh();
         return 1U;
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON:
@@ -5516,6 +5678,7 @@ uint8_t Display_MainInfoScrollAndRefresh(const Preset_t *preset, int8_t delta)
 void Display_PresetEditEnter(void)
 {
     preset_edit_mode_active = 1U;
+    preset_init_confirm_active = 0U;
     preset_edit_cursor_index = 0U;
     preset_name_edit_active = 0U;
     preset_name_edit_cursor_index = 0U;
@@ -5526,10 +5689,12 @@ void Display_PresetEditEnter(void)
 void Display_PresetEditExit(void)
 {
     preset_edit_mode_active = 0U;
+    preset_init_confirm_active = 0U;
     preset_edit_cursor_index = 0U;
     preset_name_edit_active = 0U;
     preset_name_edit_cursor_index = 0U;
     main_info_first_slot = 0U;
+    Display_DrawCurrentBankNameLine();
     Display_DrawFootbar();
 }
 
@@ -5542,7 +5707,7 @@ void Display_PresetNameEditEnter(void)
 {
     DisplayPresetEditField_t field = Display_PresetEditGetField();
 
-    if (!preset_edit_mode_active || field.type != DISPLAY_PRESET_EDIT_FIELD_NAME)
+    if (!preset_edit_mode_active || preset_init_confirm_active || field.type != DISPLAY_PRESET_EDIT_FIELD_NAME)
         return;
 
     preset_name_edit_active = 1U;
@@ -5594,7 +5759,7 @@ uint8_t Display_PresetEditMoveCursor(int8_t delta)
 {
     int16_t next_cursor;
 
-    if (!preset_edit_mode_active || delta == 0)
+    if (!preset_edit_mode_active || preset_init_confirm_active || delta == 0)
         return 0U;
 
     next_cursor = (int16_t)preset_edit_cursor_index + (int16_t)delta;
@@ -5667,6 +5832,13 @@ uint8_t Display_PresetEditMoveCursorAndRefresh(const Preset_t *preset, int8_t de
             && (PRESET_DEVICE_SLOTS + previous_field.itemIndex) < (uint8_t)(previous_first_slot + MAIN_INFO_ROW_COUNT))
             Display_DrawMainInfoComposedRow(preset,
                                             (uint8_t)((PRESET_DEVICE_SLOTS + previous_field.itemIndex) - previous_first_slot));
+        break;
+
+    case DISPLAY_PRESET_EDIT_FIELD_INIT:
+        if (MAIN_INFO_PRESET_INIT_ROW_INDEX >= previous_first_slot
+            && MAIN_INFO_PRESET_INIT_ROW_INDEX < (uint8_t)(previous_first_slot + MAIN_INFO_ROW_COUNT))
+            Display_DrawMainInfoComposedRow(preset,
+                                            (uint8_t)(MAIN_INFO_PRESET_INIT_ROW_INDEX - previous_first_slot));
         break;
 
     default:
@@ -5744,9 +5916,47 @@ void Display_PresetEditRefreshCurrentField(const Preset_t *preset)
         Display_DrawMainInfoComposedRow(preset, row_index);
         return;
 
+    case DISPLAY_PRESET_EDIT_FIELD_INIT:
+        if (MAIN_INFO_PRESET_INIT_ROW_INDEX < main_info_first_slot)
+            return;
+
+        row_index = (uint8_t)(MAIN_INFO_PRESET_INIT_ROW_INDEX - main_info_first_slot);
+        if (row_index >= MAIN_INFO_ROW_COUNT)
+            return;
+
+        Display_DrawMainInfoComposedRow(preset, row_index);
+        return;
+
     default:
         return;
     }
+}
+
+void Display_PresetInitConfirmEnter(void)
+{
+    if (!preset_edit_mode_active || preset_init_confirm_active)
+        return;
+
+    preset_init_confirm_active = 1U;
+    Display_DrawFootbar();
+    Display_DrawMainModeHeader();
+    Display_DrawPresetInitConfirmPrompt();
+}
+
+void Display_PresetInitConfirmExit(void)
+{
+    if (!preset_init_confirm_active)
+        return;
+
+    preset_init_confirm_active = 0U;
+    Display_DrawFootbar();
+    Display_DrawMainModeHeader();
+    Display_DrawCurrentBankNameLine();
+}
+
+uint8_t Display_PresetInitConfirmIsActive(void)
+{
+    return preset_init_confirm_active;
 }
 
 /* ?????? Display_DrawMainScreen ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
@@ -5781,11 +5991,7 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
     Display_UpdateBPM(bpm);
     Display_DrawMainModeHeader();
     Display_DrawPresetName(p);
-    Display_WriteCenteredPaddedText32(MAIN_BANK_TEXT_Y,
-                                      Presets_GetBankName(current_bank),
-                                      MAIN_BANK_TEXT_CHARS,
-                                      MAIN_BANK_FONT,
-                                      MAIN_BANK_COLOUR);
+    Display_DrawCurrentBankNameLine();
     Display_DrawMainInfoRows(p);
 }
 

@@ -21,6 +21,7 @@ typedef enum {
 	DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL,
 	DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER,
 	DISPLAY_PRESET_EDIT_FIELD_CC_VALUE,
+	DISPLAY_PRESET_EDIT_FIELD_INIT,
 } DisplayPresetEditFieldType_t;
 
 typedef struct {
@@ -50,6 +51,9 @@ void Display_PresetNameEditExit(void);
 uint8_t Display_PresetNameEditIsActive(void);
 uint8_t Display_PresetNameEditMoveCursor(const Preset_t *p, int8_t delta);
 uint8_t Display_PresetNameEditGetCursorIndex(void);
+void Display_PresetInitConfirmEnter(void);
+void Display_PresetInitConfirmExit(void);
+uint8_t Display_PresetInitConfirmIsActive(void);
 uint8_t Display_PresetEditMoveCursor(int8_t delta);
 uint8_t Display_PresetEditMoveCursorAndRefresh(const Preset_t *p, int8_t delta);
 DisplayPresetEditField_t Display_PresetEditGetField(void);

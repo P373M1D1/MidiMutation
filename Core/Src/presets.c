@@ -1210,6 +1210,21 @@ Preset_t *Presets_GetMutable(uint8_t index)
     return &preset_store[index];
 }
 
+void Presets_ResetPresetToDefaults(uint8_t index)
+{
+    uint8_t bank_index;
+    uint8_t preset_index;
+
+    Presets_EnsureRuntimeStore();
+
+    if (index >= PRESET_COUNT)
+        return;
+
+    bank_index = (uint8_t)(index / PRESETS_PER_BANK);
+    preset_index = (uint8_t)(index % PRESETS_PER_BANK);
+    preset_store[index] = preset_table[bank_index][preset_index];
+}
+
 void Presets_MarkDirty(void)
 {
     Presets_EnsureRuntimeStore();
