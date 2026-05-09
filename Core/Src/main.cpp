@@ -65,6 +65,8 @@
 #define MIDI_OUTPUT_TX_GPIO_PORT       GPIOD /* GPIO port for the dedicated MIDI output TX pin */
 #define MIDI_OUTPUT_TX_PIN             GPIO_PIN_1 /* GPIO pin number for the dedicated MIDI output TX pin */
 #define MIDI_OUTPUT_TX_AF              GPIO_AF11_UART4 /* alternate-function selection for the dedicated MIDI output TX pin */
+#define MIDI_OUTPUT_UART_IRQ_PREEMPT_PRIORITY 1U /* keep UART4 TXE service ahead of clock-discipline and input IRQ work */
+#define MIDI_OUTPUT_UART_IRQ_SUBPRIORITY     0U /* no secondary offset needed for the dedicated MIDI output IRQ */
 
 #define TIM6_TICK_HZ                  100000U /* target counter frequency used for internal MIDI clock timing */
 #define TIM6_PRESCALER_DIVISOR           960U /* timer prescaler divisor used to derive TIM6_TICK_HZ */
@@ -318,6 +320,7 @@ static uint8_t PresetEdit_AdjustNameCharacter(Preset_t *preset, int8_t delta)
 static uint8_t PresetEdit_AdjustProgramValue(Preset_t *preset, uint8_t slot, int8_t delta)
 {
   const MidiDevice_t *device;
+  uint8_t previous_program;
   uint8_t max_program;
 
   if (!preset || slot >= PRESET_DEVICE_SLOTS)
@@ -326,11 +329,25 @@ static uint8_t PresetEdit_AdjustProgramValue(Preset_t *preset, uint8_t slot, int
   device = MidiDevices_Get(slot);
   max_program = device ? device->max_preset : 127U;
 
-  return PresetEdit_AdjustSentinelValue(&preset->prg[slot].program,
-                                        PRESET_PROGRAM_NONE,
-                                        0U,
-                                        max_program,
-                                        delta);
+  previous_program = preset->prg[slot].program;
+
+  if (!PresetEdit_AdjustSentinelValue(&preset->prg[slot].program,
+                                      PRESET_PROGRAM_NONE,
+                                      0U,
+                                      max_program,
+                                      delta))
+  {
+    return 0U;
+  }
+
+  if (preset->prg[slot].program != previous_program
+   && preset->prg[slot].program != PRESET_PROGRAM_NONE
+   && device != NULL)
+  {
+    MIDI_SendProgramChange(device->channel, preset->prg[slot].program);
+  }
+
+  return 1U;
 }
 
 /* All edit-mode value changes funnel through here. The per-character name
@@ -612,7 +629,9 @@ int main(void)
     Encoder2_ProcessPending();
     TempoEncoder_ProcessPending();
     EncoderCheck_ProcessPending();
+    MidiOutputSchedulerService();
     BPM_Service();
+    MidiClockDiagnosticService();
     Button_ProcessPendingEvents();
     /* USER CODE BEGIN 3 */
   }
@@ -799,6 +818,12 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(ST7796_DC_GPIO_Port,  ST7796_DC_Pin,  GPIO_PIN_SET);   /* DC high = data */
   HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_RESET);
 
+  /* Configure the Nucleo user button as a second falling-edge random trigger. */
+  GPIO_InitStruct.Pin = USER_Btn_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(USER_Btn_GPIO_Port, &GPIO_InitStruct);
+
 
   /*Configure GPIO pin : PG15 tap tempo footswitch (active-low, falling edge = press) */
   GPIO_InitStruct.Pin = TAP_Pin;
@@ -936,6 +961,9 @@ static void MX_MIDI_Output_UART_Init(void)
   {
     Error_Handler();
   }
+
+  HAL_NVIC_SetPriority(UART4_IRQn, MIDI_OUTPUT_UART_IRQ_PREEMPT_PRIORITY, MIDI_OUTPUT_UART_IRQ_SUBPRIORITY);
+  HAL_NVIC_EnableIRQ(UART4_IRQn);
 }
 
 // OWN EDIT: Using TIM2 for MIDI clock pulse instead of HAL(getTick) because HAL tick is too coarse (1 ms) for accurate BPM measurement at higher tempos.
@@ -1717,7 +1745,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     return;
   }
 
-  /* TAP is handled immediately here; the other footswitches are latched on
+  /* TAP is handled immediately here; the other buttons are latched on
    * EXTI and finished later in Button_ProcessPendingEvents(). */
   if (GPIO_Pin != TAP_Pin)
   {

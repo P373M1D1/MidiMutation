@@ -139,6 +139,18 @@ uint8_t MidiClockIsExternalSignalPresent(void);
 uint8_t MidiClockGetBarBeat(uint8_t *bar, uint8_t *beat);
 
 /**
+ * @brief  Re-arm the UART4 message scheduler once a safe gap opens between
+ *         outgoing MIDI clock bytes.
+ */
+void MidiOutputSchedulerService(void);
+
+/**
+ * @brief  Emit a once-per-second clock diagnostic summary on the debug UART.
+ *         Intended for loopback testing with UART4 MIDI OUT patched into MIDI IN.
+ */
+void MidiClockDiagnosticService(void);
+
+/**
  * @brief  Return and clear the last latched transport event.
  * @retval MIDI_TRANSPORT_EVENT_NONE if no new Start/Continue/Stop arrived
  *         since the previous call.

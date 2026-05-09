@@ -1,6 +1,8 @@
 #ifndef LED_FUNCTIONS_H
 #define LED_FUNCTIONS_H /* include guard for LED helper declarations */
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -28,6 +30,12 @@ void LED_MidiClockPulse(void);
  *         Call on MIDI transport start.
  */
 void LED_MidiInPulse(void);
+
+/**
+ * @brief  Service LED timeout expirations from a timebase/IRQ context.
+ * @param  now  Current HAL tick value in milliseconds.
+ */
+void LED_TickUpdate(uint32_t now);
 
 /**
  * @brief  Poll both LED timers and turn off when their periods expire.

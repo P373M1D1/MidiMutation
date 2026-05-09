@@ -203,6 +203,7 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
+  LED_TickUpdate(HAL_GetTick());
 
   /* USER CODE END SysTick_IRQn 1 */
 }
@@ -257,6 +258,7 @@ void EXTI9_5_IRQHandler(void)
 
 void EXTI15_10_IRQHandler(void)
 {
+  HAL_GPIO_EXTI_IRQHandler(USER_Btn_Pin);
   HAL_GPIO_EXTI_IRQHandler(PRESET_BTN4_Pin);
   HAL_GPIO_EXTI_IRQHandler(PRESET_BTN5_Pin);
   HAL_GPIO_EXTI_IRQHandler(ENC1_SW_Pin);

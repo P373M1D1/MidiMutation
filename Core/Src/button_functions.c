@@ -52,6 +52,10 @@ static uint8_t Button_ReadPresetPressed(uint8_t index)
 
 static int8_t Button_TryResolveIndex(uint16_t gpio_pin)
 {
+    if (gpio_pin == USER_Btn_Pin) {
+        return (int8_t)RANDOM_BUTTON_INDEX;
+    }
+
     for (uint8_t i = 0U; i < FOOTSWITCH_COUNT; ++i) {
         if (preset_button_pins[i] == gpio_pin) {
             return (int8_t)i;
