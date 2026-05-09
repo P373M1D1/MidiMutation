@@ -8,7 +8,6 @@
 /* Internal tick targets – 0 means LED is already off */
 static volatile uint32_t beat_off_tick  = 0U;  /* LD1 green – tap tempo beat */
 static volatile uint32_t flash_off_tick = 0U;  /* LD2 blue  – Flash write    */
-static volatile uint32_t midi_off_tick  = 0U;  /* LD3 red   – MIDI clock     */
 static volatile uint32_t midi_in_off_tick = 0U; /* PF15      – MIDI in start  */
 
 /* -------------------------------------------------------------------------- */
@@ -39,8 +38,7 @@ void LED_FlashPulse(void)
 
 void LED_MidiClockPulse(void)
 {
-    HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
-    midi_off_tick = HAL_GetTick() + LED_PULSE_MS;
+    LED_BeatPulse();
 }
 
 void LED_MidiInPulse(void)
@@ -68,12 +66,6 @@ void LED_Update(void)
     {
         flash_off_tick = 0U;
         HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
-    }
-
-    if (midi_off_tick && now >= midi_off_tick)
-    {
-        midi_off_tick = 0U;
-        HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
     }
 
     if (midi_in_off_tick && now >= midi_in_off_tick)

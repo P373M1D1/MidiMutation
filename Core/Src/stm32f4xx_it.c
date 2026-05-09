@@ -228,7 +228,7 @@ void TIM6_DAC_IRQHandler(void)
   if (TIM6->SR & TIM_SR_UIF)
   {
     TIM6->SR = ~TIM_SR_UIF;
-    if (MidiClockHandleInternalPulse())
+    if (MidiClockHandleInternalPulse() && !MidiClockIsExternalSignalPresent())
       LED_BeatPulse();
   }
   if (DAC->SR & (DAC_SR_DMAUDR1 | DAC_SR_DMAUDR2))

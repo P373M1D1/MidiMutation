@@ -744,10 +744,12 @@ static void Display_UpdateTransportBarBeat(void)
     uint8_t beat;
     uint8_t external_signal_present;
     uint8_t sync_lost;
+    uint8_t stop_latched;
     char next_text[5];
 
     external_signal_present = MidiClockIsExternalSignalPresent();
     sync_lost = MidiClockIsSyncLost();
+    stop_latched = MidiTransportStopLatched();
 
     if (MidiClockGetBarBeat(&bar, &beat))
     {
@@ -772,7 +774,7 @@ static void Display_UpdateTransportBarBeat(void)
             next_text[3] = '\0';
         }
     }
-    else if (external_signal_present || sync_lost)
+    else if (external_signal_present || sync_lost || stop_latched)
     {
         strcpy(next_text, "-.-");
     }

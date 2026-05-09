@@ -79,6 +79,7 @@ static volatile uint8_t   midi_barbeat_bar = 1U;
 static volatile uint8_t   midi_barbeat_beat = 1U;
 static volatile uint8_t   midi_clock_sync_lost = 0U;
 static volatile uint8_t   midi_transport_running = 0U;
+static volatile uint8_t   midi_transport_stop_latched = 0U;
 static volatile MidiTransportEvent_t midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
 static uint8_t            midi_input_expect_timecode_data = 0U;
 static void               midi_clock_reset_sync(void);
@@ -148,6 +149,7 @@ void MidiInitInput(void)
     __HAL_UART_ENABLE_IT(&midi_input_uart, UART_IT_ERR);
     __HAL_UART_DISABLE_IT(&midi_input_uart, UART_IT_TXE);
     midi_clock_reset_sync();
+    midi_transport_stop_latched = 0U;
 }
 
 static uint8_t midi_channel_is_valid(uint8_t channel)
@@ -374,24 +376,22 @@ static uint8_t midi_input_is_sync_byte(uint8_t byte)
 
 void MidiReceive(uint8_t byte)
 {
+    uint32_t interval_us = 0U;
+
     /* This path accepts only sync-related bytes for timing/transport state.
      * Other MIDI content is still soft-thru forwarded by the USART2 IRQ path. */
     if (!midi_input_is_sync_byte(byte))
         return;
-
-    if (byte == MIDI_REALTIME_CLOCK)
-    {
-        /* Clock-only policy on the smart MIDI OUT: forward external clock
-         * pulses there, but keep Start/Continue/Stop local to sync tracking. */
-        midi_output_send_realtime_byte(byte);
-    }
 
     if (byte == MIDI_REALTIME_START)
     {
         /* Start also acts as a fresh sync anchor: clear any stale averaging
          * history and treat the next clock pulse as the new first sample. */
         LED_MidiClockPulse(); // Immediately blink the red LED for the first beat
+        midi_internal_clock_pulse_count = 0U;
+        MidiClockOutputResetPhase();
         midi_transport_running = 1U;
+        midi_transport_stop_latched = 0U;
         midi_transport_event = MIDI_TRANSPORT_EVENT_START;
         LED_MidiInPulse();
         midi_clock_reset_sync();
@@ -405,7 +405,10 @@ void MidiReceive(uint8_t byte)
         /* Continue resumes external transport but does not trust any old pulse
          * spacing history, so clock averaging restarts from scratch here too. */
         LED_MidiClockPulse();
+        midi_internal_clock_pulse_count = 0U;
+        MidiClockOutputResetPhase();
         midi_transport_running = 1U;
+        midi_transport_stop_latched = 0U;
         midi_transport_event = MIDI_TRANSPORT_EVENT_CONTINUE;
         LED_MidiInPulse();
         midi_clock_reset_sync();
@@ -418,6 +421,7 @@ void MidiReceive(uint8_t byte)
         /* Stop is authoritative: transport is no longer running, so clear all
          * external-clock state immediately instead of waiting for a timeout. */
         midi_transport_running = 0U;
+        midi_transport_stop_latched = 1U;
         midi_transport_event = MIDI_TRANSPORT_EVENT_STOP;
         midi_clock_reset_sync();
         return;
@@ -437,14 +441,19 @@ void MidiReceive(uint8_t byte)
         midi_clock_last_pulse_us = now;
         midi_clock_external_activity_timeout_us =
             (uint32_t)MIDI_CLOCK_LOST_TIMEOUT_MIN_MS * MIDI_CLOCK_US_PER_MS;
+        MidiClockOutputResetPhase();
         return;
     }
 
-    if (midi_clock_last_pulse_us != 0U && now != midi_clock_last_pulse_us)
+    if (midi_clock_last_pulse_us == 0U)
+    {
+        MidiClockOutputResetPhase();
+    }
+    else if (now != midi_clock_last_pulse_us)
     {
         /* TIM2 is a free-running 32-bit microsecond counter; handle natural
          * wrap-around so the interval logic never depends on resetting TIM2. */
-        uint32_t interval_us = (now >= midi_clock_last_pulse_us)
+        interval_us = (now >= midi_clock_last_pulse_us)
             ? (now - midi_clock_last_pulse_us)
             : (MIDI_TIMER_WRAP_VALUE - midi_clock_last_pulse_us + now + 1U);
 
@@ -481,6 +490,8 @@ void MidiReceive(uint8_t byte)
                 midi_clock_external_bpm_valid = 0U;
             }
         }
+
+        MidiClockOutputTrackExternalPulse(interval_us);
     }
     midi_clock_last_pulse_us = now;
     midi_clock_external_activity_timeout_us =
@@ -517,10 +528,9 @@ void MidiReceive(uint8_t byte)
 
 uint8_t MidiClockHandleInternalPulse(void)
 {
-    /* Internal clock is suppressed whenever an external source is currently
-     * active so the smart MIDI output never emits competing clock streams. */
-    if (!midi_clock_external_is_active())
-        midi_output_send_realtime_byte(MIDI_REALTIME_CLOCK);
+    /* TIM6 is the only smart-output clock source. External sync disciplines
+     * this timer, but outgoing F8 bytes always leave from the timer path. */
+    midi_output_send_realtime_byte(MIDI_REALTIME_CLOCK);
 
     midi_internal_clock_pulse_count++;
     if (midi_internal_clock_pulse_count < MIDI_CLOCK_PULSES_PER_QUARTER_NOTE)
@@ -542,9 +552,15 @@ uint8_t MidiClockIsSyncLost(void)
     return midi_clock_sync_lost;
 }
 
+uint8_t MidiTransportStopLatched(void)
+{
+    return midi_transport_stop_latched;
+}
+
 void MidiClockUseInternalTempo(void)
 {
     midi_transport_running = 0U;
+    midi_transport_stop_latched = 0U;
     midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
     midi_internal_clock_pulse_count = 0U;
     midi_clock_reset_sync();
@@ -565,7 +581,7 @@ uint8_t MidiClockGetExternalBpmX10(uint16_t *bpm_x10)
 {
     midi_clock_update_sync_state();
 
-    if (!bpm_x10 || !midi_transport_running || !midi_clock_external_bpm_valid)
+    if (!bpm_x10 || !midi_clock_external_bpm_valid || !midi_clock_external_is_active())
         return 0U;
 
     *bpm_x10 = midi_clock_external_bpm_x10;

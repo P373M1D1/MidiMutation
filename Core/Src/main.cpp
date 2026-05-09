@@ -66,8 +66,8 @@
 #define MIDI_OUTPUT_TX_PIN             GPIO_PIN_1 /* GPIO pin number for the dedicated MIDI output TX pin */
 #define MIDI_OUTPUT_TX_AF              GPIO_AF11_UART4 /* alternate-function selection for the dedicated MIDI output TX pin */
 
-#define TIM6_TICK_HZ                   10000U /* target counter frequency used for internal MIDI clock timing */
-#define TIM6_PRESCALER_DIVISOR          9600U /* timer prescaler divisor used to derive TIM6_TICK_HZ */
+#define TIM6_TICK_HZ                  100000U /* target counter frequency used for internal MIDI clock timing */
+#define TIM6_PRESCALER_DIVISOR           960U /* timer prescaler divisor used to derive TIM6_TICK_HZ */
 #define TIM6_COUNTS_PER_MINUTE     (TIM6_TICK_HZ * 60U) /* number of TIM6 ticks that elapse in one minute */
 #define TIM7_TICK_HZ                 1000000U /* shared encoder-sampler timer tick rate */
 #define TIM7_PRESCALER_DIVISOR            96U /* 96 MHz APB1 timer clock divided down to 1 MHz */
@@ -161,6 +161,7 @@ static void MX_USB_OTG_FS_PCD_Init(void);
 /* USER CODE BEGIN PFP */
 static void MX_MIDI_Output_UART_Init(void);
 static uint32_t MidiClockTimerPeriodForBpm(uint16_t bpm);
+static uint32_t MidiClockTimerCountsForPulseIntervalUs(uint32_t pulse_interval_us);
 static void MX_TIM2_Init(void);
 static void MX_TIM6_Init(uint16_t bpm);
 static void MX_TIM7_Init(void);
@@ -972,6 +973,22 @@ static uint32_t MidiClockTimerPeriodForBpm(uint16_t bpm)
   return pulse_counts - 1U;
 }
 
+static uint32_t MidiClockTimerCountsForPulseIntervalUs(uint32_t pulse_interval_us)
+{
+  uint64_t pulse_counts;
+
+  if (pulse_interval_us == 0U)
+    return 1U;
+
+  pulse_counts = (((uint64_t)TIM6_TICK_HZ * (uint64_t)pulse_interval_us) + 500000ULL) / 1000000ULL;
+  if (pulse_counts == 0U)
+    pulse_counts = 1U;
+  else if (pulse_counts > 0x10000ULL)
+    pulse_counts = 0x10000ULL;
+
+  return (uint32_t)pulse_counts;
+}
+
 static void MX_TIM6_Init(uint16_t bpm)
 {
   __HAL_RCC_TIM6_CLK_ENABLE();
@@ -979,12 +996,46 @@ static void MX_TIM6_Init(uint16_t bpm)
   htim6.Init.Prescaler         = TIM6_PRESCALER_DIVISOR - 1U;
   htim6.Init.CounterMode       = TIM_COUNTERMODE_UP;
   htim6.Init.Period            = MidiClockTimerPeriodForBpm(bpm);
-  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
     Error_Handler();
   __HAL_TIM_CLEAR_FLAG(&htim6, TIM_FLAG_UPDATE); /* clear UIF set by UG during init */
   HAL_NVIC_SetPriority(TIM6_DAC_IRQn, 2U, 0U);
   HAL_NVIC_EnableIRQ(TIM6_DAC_IRQn);
+}
+
+extern "C" void MidiClockOutputResetPhase(void)
+{
+  uint32_t primask = __get_PRIMASK();
+
+  __disable_irq();
+  TIM6->CNT = 0U;
+  if (primask == 0U)
+    __enable_irq();
+}
+
+extern "C" void MidiClockOutputTrackExternalPulse(uint32_t interval_us)
+{
+  uint32_t pulse_counts = MidiClockTimerCountsForPulseIntervalUs(interval_us);
+
+  if (interval_us != 0U)
+  {
+    uint64_t denominator = (uint64_t)interval_us * (uint64_t)MIDI_CLOCK_PULSES_PER_QUARTER_NOTE;
+    uint32_t external_bpm = (uint32_t)((60000000ULL + (denominator / 2ULL)) / denominator);
+
+    if (external_bpm >= BPM_MIN && external_bpm <= BPM_MAX)
+      g_bpm = (uint16_t)external_bpm;
+  }
+
+  {
+    uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
+    TIM6->ARR = pulse_counts - 1U;
+    TIM6->CNT = 0U;
+    if (primask == 0U)
+      __enable_irq();
+  }
 }
 
 static void MX_TIM7_Init(void)
@@ -1450,6 +1501,9 @@ static void TempoEncoder_ApplyBpmStep(int8_t step)
 {
   int32_t next_bpm = (int32_t)g_bpm + (int32_t)step;
 
+  if (MidiClockIsExternalSignalPresent())
+    return;
+
   if (next_bpm < (int32_t)BPM_MIN)
     next_bpm = (int32_t)BPM_MIN;
   else if (next_bpm > (int32_t)BPM_MAX)
@@ -1459,8 +1513,8 @@ static void TempoEncoder_ApplyBpmStep(int8_t step)
     return;
 
   g_bpm = (uint16_t)next_bpm;
-  TIM6->CNT = 0U;
   TIM6->ARR = MidiClockTimerPeriodForBpm(g_bpm);
+  TIM6->CNT = 0U;
   bpm_dirty = 1U;
   bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
 }
@@ -1602,7 +1656,7 @@ static void ExternalClockHoldoverMirror_Service(void)
   /* Mirror a stable external tempo into g_bpm so cable loss can fall through
    * to internal clocking without a large tempo jump. This never sets bpm_dirty
    * and never schedules flash writes, so it is runtime-only holdover state. */
-  if (!MidiTransportIsRunning() || !MidiClockGetExternalBpmX10(&external_bpm_x10))
+  if (!MidiClockGetExternalBpmX10(&external_bpm_x10))
   {
     ext_mirror_stable_count = 0U;
     return;
@@ -1632,8 +1686,8 @@ static void ExternalClockHoldoverMirror_Service(void)
     return;
 
   g_bpm = ext_mirror_candidate_bpm;
-  TIM6->CNT = 0U;
   TIM6->ARR = MidiClockTimerPeriodForBpm(g_bpm);
+  TIM6->CNT = 0U;
 }
   
 
@@ -1691,7 +1745,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     }
 
   /* Ignore tap tempo while an external MIDI clock is actively running */
-  if (MidiTransportIsRunning()) {
+  if (MidiClockIsExternalSignalPresent()) {
     return;
   }
 
@@ -1748,8 +1802,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   MidiClockUseInternalTempo();
 
   /* Sync LED to this tap and update blink rate */
-  TIM6->CNT = 0U;
   TIM6->ARR = MidiClockTimerPeriodForBpm((uint16_t)new_bpm);
+  TIM6->CNT = 0U;
   LED_BeatPulse();  /* light on tap-down, in addition to the timer beat */
 
   bpm_dirty     = 1U;

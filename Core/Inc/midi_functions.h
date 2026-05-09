@@ -97,6 +97,12 @@ uint8_t MidiTransportIsRunning(void);
 uint8_t MidiClockIsSyncLost(void);
 
 /**
+ * @brief  Return 1 after an explicit MIDI Stop until Start/Continue or
+ *         switching back to internal tempo clears that transport-stop latch.
+ */
+uint8_t MidiTransportStopLatched(void);
+
+/**
  * @brief  Clear any external MIDI sync state and return to internal tempo.
  */
 void MidiClockUseInternalTempo(void);

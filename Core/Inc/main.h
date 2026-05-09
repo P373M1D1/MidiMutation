@@ -55,6 +55,8 @@ void Error_Handler(void);
 /* USER CODE BEGIN EFP */
 
 void App_EncoderSampleIRQHandler(void);
+void MidiClockOutputResetPhase(void);
+void MidiClockOutputTrackExternalPulse(uint32_t interval_us);
 
 /* USER CODE END EFP */
 
