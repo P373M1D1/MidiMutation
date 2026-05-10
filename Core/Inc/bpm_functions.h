@@ -49,8 +49,8 @@ uint8_t  BPM_Flash_LoadBankIndex(void);
 uint8_t  BPM_Flash_IsValid(void);
 
 /**
- * @brief  Process BPM display update, deferred Flash save, LED update,
- *         and screensaver refresh. Call from the main while(1) loop.
+ * @brief  Process BPM dirty-state and deferred runtime-state save scheduling.
+ *         Call from the main while(1) loop.
  */
 void BPM_Service(void);
 

@@ -72,9 +72,9 @@ typedef struct {
 
 #define RUNTIME_CONFIG_FUNCTION_BUTTON_DEFAULT \
     { \
-        .name = "Vita", \
-        .active_label = "undead", \
-        .inactive_label = "dead", \
+        .name = "SpcBtn", \
+        .active_label = "active", \
+        .inactive_label = "bypass", \
         .active_programs = RUNTIME_CONFIG_PROGRAM_MESSAGE_LIST_EMPTY, \
         .active_cc = RUNTIME_CONFIG_CC_MESSAGE_LIST_EMPTY, \
         .inactive_programs = RUNTIME_CONFIG_PROGRAM_MESSAGE_LIST_EMPTY, \

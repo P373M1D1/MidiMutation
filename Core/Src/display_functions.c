@@ -215,12 +215,12 @@ void Display_BL_FadeOut(void)
 #define MAIN_BANK_FONT                 Font_Consolas15x35   // font for the bank name line
 #define MAIN_BANK_COLOUR               CHARCOAL            // text colour for the bank name line
 #define MAIN_BANK_BG_COLOUR            DISPLAY_BG_COLOUR    // background colour behind the bank name line
-#define MAIN_BANK_WET_DRY_BADGE_TEXT   " W/D "             // badge shown after the bank name when Wet/Dry mode is enabled for that bank
+#define MAIN_BANK_WET_DRY_BADGE_TEXT   "W/D"               // badge shown after the bank name when Wet/Dry mode is enabled for that bank
 #define MAIN_BANK_WET_DRY_COLOUR       WHITE               // text colour for the Wet/Dry badge
-#define MAIN_BANK_WET_DRY_BG_COLOUR    CHARCOAL            // background colour for the Wet/Dry badge
-#define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_NAME       "Vita" // fallback label shown ahead of the special-function-button state
-#define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_ACTIVE_TEXT "undead" // fallback text shown when the special-function button mode is active
-#define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_INACTIVE_TEXT "dead"   // fallback text shown when the special-function button mode is inactive
+#define MAIN_BANK_WET_DRY_BG_COLOUR    BLACK            // background colour for the Wet/Dry badge
+#define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_NAME       "SpcBtn" // fallback label shown ahead of the special-function-button state
+#define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_ACTIVE_TEXT "active" // fallback text shown when the special-function button mode is active
+#define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_INACTIVE_TEXT "bypass"   // fallback text shown when the special-function button mode is inactive
 #define MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_COLOUR     WHITE // text colour for the active special-function-button state
 #define MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_COLOUR   CHARCOAL // text colour for the inactive special-function-button state
 #define MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_BG         DARK_RED // highlight background behind the active special-function-button state
@@ -1312,6 +1312,24 @@ static uint8_t Display_AdjustClampedU8(uint8_t *value, uint8_t min_value, uint8_
         return 0U;
 
     *value = (uint8_t)next_value;
+    return 1U;
+}
+
+static uint8_t Display_AdjustDirectionalU8(uint8_t *value,
+                                           uint8_t negative_value,
+                                           uint8_t positive_value,
+                                           int8_t delta)
+{
+    uint8_t next_value;
+
+    if (!value || delta == 0)
+        return 0U;
+
+    next_value = (delta > 0) ? positive_value : negative_value;
+    if (*value == next_value)
+        return 0U;
+
+    *value = next_value;
     return 1U;
 }
 
@@ -5685,7 +5703,7 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
             changed = Display_AdjustWrappedU8(&bank->wet_dry_enabled, 0U, 1U, delta);
             break;
         case 3U:
-            changed = Display_AdjustWrappedU8(&bank->midi_clock_bar_count,
+            changed = Display_AdjustClampedU8(&bank->midi_clock_bar_count,
                                               RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MIN,
                                               RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX,
                                               delta);
@@ -5759,10 +5777,10 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
         {
             uint8_t sync_style = (uint8_t)global->sync_style;
 
-            changed = Display_AdjustWrappedU8(&sync_style,
-                                              (uint8_t)RUNTIME_CONFIG_SYNC_STYLE_MIDI_CLOCK,
-                                              (uint8_t)RUNTIME_CONFIG_SYNC_STYLE_TAP_TEMPO_CC,
-                                              delta);
+            changed = Display_AdjustDirectionalU8(&sync_style,
+                                                  (uint8_t)RUNTIME_CONFIG_SYNC_STYLE_MIDI_CLOCK,
+                                                  (uint8_t)RUNTIME_CONFIG_SYNC_STYLE_TAP_TEMPO_CC,
+                                                  delta);
             if (changed)
                 global->sync_style = (RuntimeConfigSyncStyle_t)sync_style;
             break;
@@ -6437,7 +6455,8 @@ void Display_LoadingBarClear(void)
  *   Any call to Display_ScreensaverActivity() resets the inactivity timer.
  *
  * Deactivation: the first Display_ScreensaverUpdate() call after
- *   ss_last_activity has been refreshed redraws the main screen and exits.
+ *   ss_last_activity has been refreshed dismisses the screensaver and returns
+ *   a one-shot wake signal so the caller can schedule the main-screen redraw.
  */
 
 static uint32_t screensaver_last_activity_tick = 0U;   /* tick of last user interaction */
@@ -6474,7 +6493,7 @@ void Display_ScreensaverDismiss(void)
  * When inactive: checks if timeout has elapsed and fades the backlight out.
  * When active:   waits for activity and restores the display on wake.
  * ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
-void Display_ScreensaverUpdate(const Preset_t *p, uint16_t bpm)
+uint8_t Display_ScreensaverUpdate(void)
 {
     uint32_t screensaver_timeout_ms = Display_GetConfiguredScreensaverTimeoutMs();
     uint32_t now = HAL_GetTick();
@@ -6488,16 +6507,17 @@ void Display_ScreensaverUpdate(const Preset_t *p, uint16_t bpm)
             main_layout_dirty = 0U;
             Display_BL_FadeOut();
         }
-        return;
+        return 0U;
     }
 
     /* Screensaver is active ??? check for a wake event */
     if (now - screensaver_last_activity_tick < screensaver_timeout_ms)
     {
         /* Activity was recorded since we went to sleep ??? wake up */
-        //Display_ScreensaverDismiss();
-        Display_DrawMainScreen(p, bpm);
-        return;
+        Display_ScreensaverDismiss();
+        return 1U;
     }
+
+    return 0U;
 }
 

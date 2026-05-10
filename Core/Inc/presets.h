@@ -140,8 +140,7 @@ uint8_t Presets_Count(void);
 bool Presets_DeviceProgramIsShared(uint8_t slot, uint8_t program);
 
 /**
- * @brief  Activate preset @p idx: update active state, send MIDI program
- *         changes, and refresh the display.
+ * @brief  Activate preset @p idx: update active state and send its MIDI payload.
  */
 void App_ActivatePreset(uint8_t idx);
 
@@ -149,11 +148,6 @@ void App_ActivatePreset(uint8_t idx);
  * @brief  Activate the random preset.
  */
 void Presets_ActivateRandom(void);
-
-/**
- * @brief  Redraw the current screen after the special-functions state changes.
- */
-void Presets_RedrawActiveDisplay(void);
 
 /**
  * @brief  Activate the mute preset.

@@ -1,4 +1,5 @@
 #include "bpm_functions.h"
+#include "app_event.h"
 #include "display_functions.h"
 #include "led_functions.h"
 #include "midi_functions.h"
@@ -19,7 +20,6 @@ typedef struct {
 extern volatile uint16_t  g_bpm;
 extern volatile uint8_t   bpm_dirty;
 extern volatile uint32_t  bpm_save_tick;
-extern const Preset_t    *active_preset;
 extern uint8_t            active_preset_index;
 extern volatile uint8_t   current_bank;
 
@@ -166,26 +166,36 @@ uint8_t BPM_Flash_IsValid(void)
 
 /* -------------------------------------------------------------------------- */
 
+#if BPM_FLASH_WRITES_ENABLED
+static uint8_t BPM_QueueRuntimeStateSaveRequest(void)
+{
+    AppEvent_t event;
+
+    event.type = APP_EVENT_TYPE_SAVE_REQUEST;
+    event.source = APP_EVENT_SAVE_KIND_RUNTIME_STATE;
+    event.value = 0;
+    event.tick = HAL_GetTick();
+    return AppEvent_Push(&event);
+}
+#endif
+
+/* -------------------------------------------------------------------------- */
+
 void BPM_Service(void)
 {
     if (bpm_dirty)
     {
         bpm_dirty = 0U;
-        Display_UpdateBPM(g_bpm);
         bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
     }
-    else
-    {
-        Display_UpdateBPM(g_bpm);
-    }
+
     if (bpm_save_tick && HAL_GetTick() >= bpm_save_tick)
     {
-        bpm_save_tick = 0U;
 #if BPM_FLASH_WRITES_ENABLED
-        RuntimeState_Flash_Save(g_bpm, active_preset_index, current_bank);
-        LED_FlashPulse();  /* brief blue blink to confirm write */
+        if (BPM_QueueRuntimeStateSaveRequest())
+            bpm_save_tick = 0U;
+#else
+        bpm_save_tick = 0U;
 #endif
     }
-    LED_Update();
-    Display_ScreensaverUpdate(active_preset, g_bpm);
 }

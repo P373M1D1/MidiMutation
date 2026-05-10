@@ -1,4 +1,5 @@
 #include "bpm_functions.h"
+#include "app_event.h"
 #include "button_functions.h"
 #include "main.h"
 #include "presets.h"
@@ -14,19 +15,12 @@ extern const Preset_t    *active_preset;
 #define MUTE_BUTTON_INDEX 10U           /* preset-button slot used for mute / TAP+MUTE bank-up combo */
 #define FOOTSWITCH_DEBOUNCE_MS 20U      /* ignore edges that arrive too soon after the previous edge on the same switch */
 #define BANK_COMBO_WINDOW_MS 400U       /* tap+mute presses inside this window are treated as bank navigation */
-#define BUTTON_EVENT_QUEUE_DEPTH 4U     /* per-switch FIFO depth so short press/release bursts are not collapsed */
 
 /* `preset_button_state` is the foreground view of whether a button is still
  * logically down. For the falling-edge buttons we re-arm this state only once
  * the main loop sees the GPIO released again, which keeps switch bounce from
  * toggling the action twice. */
 static uint8_t preset_button_state[FOOTSWITCH_COUNT] = {0U};
-/* EXTI only records compact per-button events here; the real work happens in
- * Button_ProcessPendingEvents() so the interrupt handler stays short. */
-static volatile uint8_t preset_button_event_queue[FOOTSWITCH_COUNT][BUTTON_EVENT_QUEUE_DEPTH] = {{0U}};
-static volatile uint8_t preset_button_event_read_index[FOOTSWITCH_COUNT] = {0U};
-static volatile uint8_t preset_button_event_write_index[FOOTSWITCH_COUNT] = {0U};
-static volatile uint8_t preset_button_event_count[FOOTSWITCH_COUNT] = {0U};
 static uint32_t preset_button_event_tick[FOOTSWITCH_COUNT] = {0U};
 static uint8_t special_functions_active = 0U;
 static uint8_t mute_activation_pending = 0U;
@@ -50,6 +44,17 @@ static uint8_t Button_ReadPresetPressed(uint8_t index)
     return (HAL_GPIO_ReadPin(PRESET_BTN_GPIO_Port, preset_button_pins[index]) == GPIO_PIN_RESET) ? 1U : 0U;
 }
 
+static void Button_QueueScreensaverWakeEvent(uint32_t now)
+{
+    AppEvent_t event;
+
+    event.type = APP_EVENT_TYPE_SCREENSAVER_WAKE;
+    event.source = APP_EVENT_SOURCE_NONE;
+    event.value = 0;
+    event.tick = now;
+    (void)AppEvent_Push(&event);
+}
+
 static int8_t Button_TryResolveIndex(uint16_t gpio_pin)
 {
     if (gpio_pin == USER_Btn_Pin) {
@@ -67,6 +72,8 @@ static int8_t Button_TryResolveIndex(uint16_t gpio_pin)
 
 static void Button_ProcessPresetEvent(uint8_t index, uint8_t is_pressed, uint32_t now)
 {
+    AppEvent_t event;
+
     if (is_pressed == preset_button_state[index]) {
         return;
     }
@@ -74,34 +81,48 @@ static void Button_ProcessPresetEvent(uint8_t index, uint8_t is_pressed, uint32_
     preset_button_state[index] = is_pressed;
 
     if (is_pressed) {
-        Display_ScreensaverDismiss();
-        Display_ScreensaverActivity();
+        Button_QueueScreensaverWakeEvent(now);
 
         if (index == RANDOM_BUTTON_INDEX) {
-            Presets_ActivateRandom();
+            event.type = APP_EVENT_TYPE_PRESET_ACTIVATE_RANDOM;
+            event.source = APP_EVENT_SOURCE_NONE;
+            event.value = 0;
+            event.tick = now;
+            (void)AppEvent_Push(&event);
         } else if (index == SPECIAL_FUNCTION_BUTTON_INDEX) {
             /* The button module owns the mode bit; presets.c only redraws the
              * active screen so the right-side status text follows that state. */
             if (special_functions_active == 0U) {
                 special_functions_active = 1U;
-                Presets_RedrawActiveDisplay();
             } else {
                 special_functions_active = 0U;
-                Presets_RedrawActiveDisplay();
             }
+
+            event.type = APP_EVENT_TYPE_REDRAW_ACTIVE_DISPLAY;
+            event.source = APP_EVENT_SOURCE_NONE;
+            event.value = 0;
+            event.tick = now;
+            (void)AppEvent_Push(&event);
         } else if (index == MUTE_BUTTON_INDEX) {
             /* Mute is two-stage: a quick tap may combine with TAP for bank up,
              * otherwise the actual mute overlay is armed and committed later. */
             if (Button_HandleMutePress(now)) {
                 Button_CancelTapBankCombo();
-                Display_DrawMainScreen(active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
             }
         } else {
-            App_ActivatePreset(current_bank * PRESETS_PER_BANK + index);
+            event.type = APP_EVENT_TYPE_PRESET_ACTIVATE;
+            event.source = APP_EVENT_SOURCE_NONE;
+            event.value = (int16_t)(current_bank * PRESETS_PER_BANK + index);
+            event.tick = now;
+            (void)AppEvent_Push(&event);
         }
     } else if ((index == MUTE_BUTTON_INDEX) && mute_activation_pending) {
         mute_activation_pending = 0U;
-        Presets_ActivateMute();
+        event.type = APP_EVENT_TYPE_PRESET_ACTIVATE_MUTE;
+        event.source = APP_EVENT_SOURCE_NONE;
+        event.value = 0;
+        event.tick = now;
+        (void)AppEvent_Push(&event);
     }
 }
 
@@ -131,30 +152,36 @@ void Button_ResetSpecialFunctions(void)
 static uint32_t button_last_tap_tick = 0U;
 static uint32_t button_last_mute_tick = 0U;
 
-static uint8_t Button_StepBankDown(void)
+static uint8_t Button_QueueBankStepEvent(int8_t delta, uint32_t now)
 {
-    if (current_bank == 0U) {
-        current_bank = PRESET_BANK_COUNT - 1U;
-    } else {
-        current_bank--;
-    }
+    AppEvent_t event;
 
-    App_ActivatePreset(current_bank * PRESETS_PER_BANK);
+    if (delta == 0)
+        return 0U;
+
+    event.type = APP_EVENT_TYPE_BANK_STEP;
+    event.source = APP_EVENT_BANK_STEP_MODE_FIRST_PRESET;
+    event.value = (int16_t)delta;
+    event.tick = now;
+    (void)AppEvent_Push(&event);
 
     return 1U;
 }
 
-static uint8_t Button_StepBankUp(void)
+static uint8_t Button_StepBankDown(uint32_t now)
 {
-    current_bank = (current_bank + 1U) % PRESET_BANK_COUNT;
-    App_ActivatePreset(current_bank * PRESETS_PER_BANK);
-    return 1U;
+    return Button_QueueBankStepEvent(-1, now);
+}
+
+static uint8_t Button_StepBankUp(uint32_t now)
+{
+    return Button_QueueBankStepEvent(1, now);
 }
 
 uint8_t Button_HandleTapPress(uint32_t now)
 {
     if (Button_IsMuteHeld() || ((now - button_last_mute_tick) < BANK_COMBO_WINDOW_MS)) {
-        Button_StepBankDown();
+        Button_StepBankDown(now);
         return 1U;
     }
 
@@ -167,7 +194,7 @@ uint8_t Button_HandleMutePress(uint32_t now)
     button_last_mute_tick = now;
 
     if (Button_IsTapHeld() || ((now - button_last_tap_tick) < BANK_COMBO_WINDOW_MS)) {
-        Button_StepBankUp();
+        Button_StepBankUp(now);
         return 1U;
     }
 
@@ -182,12 +209,20 @@ void Button_CancelTapBankCombo(void)
     mute_activation_pending = 0U;
 }
 
+void Button_ProcessInterruptEvent(uint8_t index, uint8_t is_pressed, uint32_t now)
+{
+    if (index >= FOOTSWITCH_COUNT)
+        return;
+
+    Button_ProcessPresetEvent(index, is_pressed, now);
+}
+
 void Button_HandleInterrupt(uint16_t gpio_pin)
 {
     int8_t index = Button_TryResolveIndex(gpio_pin);
-    uint8_t queue_index;
     uint32_t now;
     uint8_t is_pressed;
+    AppEvent_t event;
 
     if (index < 0) {
         return;
@@ -209,26 +244,26 @@ void Button_HandleInterrupt(uint16_t gpio_pin)
 
     preset_button_event_tick[(uint8_t)index] = now;
 
-    if (preset_button_event_count[(uint8_t)index] < BUTTON_EVENT_QUEUE_DEPTH) {
-        queue_index = preset_button_event_write_index[(uint8_t)index];
-        preset_button_event_queue[(uint8_t)index][queue_index] = is_pressed;
-        preset_button_event_write_index[(uint8_t)index] = (uint8_t)((queue_index + 1U) % BUTTON_EVENT_QUEUE_DEPTH);
-        preset_button_event_count[(uint8_t)index]++;
-    }
-
-    if ((uint8_t)index == MUTE_BUTTON_INDEX && is_pressed) {
-        button_last_mute_tick = now;
-    }
+    event.type = APP_EVENT_TYPE_FOOTSWITCH_EDGE;
+    event.source = APP_EVENT_SOURCE_FOOTSWITCH((uint8_t)index);
+    event.value = (int16_t)is_pressed;
+    event.tick = now;
+    (void)AppEvent_Push(&event);
 }
 
 void Button_ProcessPendingEvents(void) {
     uint32_t now = HAL_GetTick();
+    AppEvent_t event;
 
     /* If mute was not consumed by the TAP+MUTE bank-up combo inside the combo
      * window, commit it here as a normal mute press. */
     if (mute_activation_pending && ((now - button_last_mute_tick) >= BANK_COMBO_WINDOW_MS)) {
         mute_activation_pending = 0U;
-        Presets_ActivateMute();
+        event.type = APP_EVENT_TYPE_PRESET_ACTIVATE_MUTE;
+        event.source = APP_EVENT_SOURCE_NONE;
+        event.value = 0;
+        event.tick = now;
+        (void)AppEvent_Push(&event);
     }
 
     /* Falling-edge buttons stay logically pressed until the main loop sees
@@ -238,37 +273,6 @@ void Button_ProcessPendingEvents(void) {
             && preset_button_state[i]
             && (Button_ReadPresetPressed(i) == 0U)) {
             preset_button_state[i] = 0U;
-        }
-    }
-
-    for (uint8_t i = 0U; i < FOOTSWITCH_COUNT; ++i) {
-        uint32_t primask;
-        uint8_t queued_events;
-
-        for (;;) {
-            uint8_t is_pressed;
-            uint8_t read_index;
-
-            /* Pop one queued edge with IRQs masked just long enough to keep
-             * the ring-buffer bookkeeping atomic with respect to EXTI. */
-            primask = __get_PRIMASK();
-            __disable_irq();
-            queued_events = preset_button_event_count[i];
-            if (queued_events != 0U) {
-                read_index = preset_button_event_read_index[i];
-                is_pressed = preset_button_event_queue[i][read_index];
-                preset_button_event_read_index[i] = (uint8_t)((read_index + 1U) % BUTTON_EVENT_QUEUE_DEPTH);
-                preset_button_event_count[i] = (uint8_t)(queued_events - 1U);
-            }
-            if (primask == 0U) {
-                __enable_irq();
-            }
-
-            if (queued_events == 0U) {
-                break;
-            }
-
-            Button_ProcessPresetEvent(i, is_pressed, now);
         }
     }
 }

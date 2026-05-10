@@ -1,6 +1,4 @@
 #include "presets.h"
-#include "button_functions.h"
-#include "display_functions.h"
 #include "led_functions.h"
 #include "midi_devices.h"
 #include "midi_functions.h"
@@ -1112,8 +1110,6 @@ static void Presets_EnsureRuntimeStore(void)
         return;
 
     memcpy(preset_store, preset_table, sizeof(preset_store));
-    for (uint8_t index = 0U; index < PRESET_COUNT; ++index)
-        Presets_ApplyFactoryDefaults(&preset_store[index], index);
     Presets_FlashLoadRuntimeStore();
     preset_store_initialized = 1U;
     preset_store_dirty = 0U;
@@ -1167,20 +1163,11 @@ static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index,
     if (!preset)
         return;
 
-    if (Display_PresetEditIsActive() && !update_index)
-        Display_PresetEditExit();
-
-    Button_ResetSpecialFunctions();
-    Display_ScreensaverDismiss();
-    Display_MainInfoScrollReset();
-
     if (update_index)
         active_preset_index = idx;
 
     active_preset = preset;
     Midi_LoadPreset(active_preset);
-    Display_DrawMainScreen(active_preset, g_bpm);
-    Display_ScreensaverActivity();
 
     if (update_index) {
         bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
@@ -1332,14 +1319,6 @@ void Presets_ActivateRandom(void)
     }
 
     App_ActivatePresetData(&random_preset, 0U, 0U);
-}
-
-void Presets_RedrawActiveDisplay(void)
-{
-    /* Special-functions state lives in button_functions.c; presets only need
-     * to redraw the current screen so the right-side status text changes. */
-    if (active_preset)
-        Display_DrawMainScreen(active_preset, g_bpm);
 }
 
 void Presets_ActivateMute(void)

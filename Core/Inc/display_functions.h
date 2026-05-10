@@ -91,8 +91,9 @@ uint8_t Display_ScreensaverIsActive(void);
 void Display_ScreensaverDismiss(void);
 
 /** Call every main-loop iteration. Activates after the inactivity timeout;
- *  fades the backlight out and restores the main screen on the next activity event. */
-void Display_ScreensaverUpdate(const Preset_t *p, uint16_t bpm);
+ *  fades the backlight out and returns 1 once when the next activity should
+ *  wake the main screen so the caller can schedule the redraw. */
+uint8_t Display_ScreensaverUpdate(void);
 
 #ifdef __cplusplus
 }

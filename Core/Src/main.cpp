@@ -33,6 +33,7 @@
 #include "midi_functions.h"
 #include "midi_devices.h"
 #include "presets.h"
+#include "app_event.h"
 #include "runtime_config.h"
 #include <stdio.h>
 #include <string.h>
@@ -74,7 +75,8 @@
 #define TIM7_TICK_HZ                 1000000U /* shared encoder-sampler timer tick rate */
 #define TIM7_PRESCALER_DIVISOR            96U /* 96 MHz APB1 timer clock divided down to 1 MHz */
 #define ENCODER_SAMPLE_HZ              2000U /* shared interrupt rate for encoder quadrature sampling */
-#define ENCODER_CHECK_SERIAL_ENABLED      1U /* set to 0 to disable temporary serial encoder test output */
+#define ENCODER_CHECK_SERIAL_ENABLED      0U /* set to 1 to enable temporary serial encoder test output */
+#define APP_EVENT_DIAGNOSTICS_ENABLED     0U /* set to 1 to enable serial diagnostics for app-event queue drops */
 #define ENCODER_SWITCH_DEBOUNCE_MS       20U /* debounce window for encoder pushbutton test prints */
 
 #define TAP_RESET_INTERVAL_MS       3000U /* gap after which tap-tempo history is discarded as a new tap sequence */
@@ -152,6 +154,13 @@ static volatile int8_t rotary1_pending_steps = 0; /* queued encoder 1 scroll ste
 static volatile uint8_t rotary1_activity_pending = 0U; /* set by encoder 1 IRQ activity so the main loop can wake the UI */
 static uint16_t ext_mirror_candidate_bpm = 0U; /* latest external BPM candidate used by holdover mirroring */
 static uint8_t ext_mirror_stable_count = 0U; /* how many consecutive samples matched ext_mirror_candidate_bpm */
+static uint8_t app_screensaver_wake_event_pending = 0U; /* coalesce repeated wake requests until the handler runs */
+static uint8_t app_screensaver_activity_event_pending = 0U; /* coalesce repeated activity requests until the handler runs */
+static uint8_t app_periodic_ui_service_event_pending = 0U; /* sticky guard so the per-loop UI service request is queued at most once until handled */
+static uint8_t app_preset_activate_event_pending = 0U; /* last queued preset activation wins until the handler runs */
+static uint8_t app_redraw_main_screen_event_pending = 0U; /* coalesce repeated full-screen redraw requests until the handler runs */
+static uint8_t app_save_request_pending_mask = 0U; /* one pending bit per save kind so flash writes are not queued redundantly */
+static uint8_t app_pending_preset_activate_index = 0U; /* payload stored outside the queue so repeated preset turns collapse to one event */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -178,6 +187,35 @@ static void TempoEncoder_Init(void);
 static void TempoEncoder_ProcessPending(void);
 static void TempoEncoder_ApplyBpmStep(int8_t step);
 static void ExternalClockHoldoverMirror_Service(void);
+static void AppEventDiagnosticService(void);
+static const Preset_t *App_GetCurrentDisplayPreset(void);
+static void App_ProcessPendingEvents(void);
+static void App_HandleTapPressEvent(uint32_t now);
+static void App_HandleEncoderPressEvent(uint8_t press_mask);
+static void App_HandleEncoderTurnEvent(uint8_t encoder_source, int8_t delta);
+static void App_PreparePresetActivation(uint8_t exit_preset_edit);
+static void App_HandleBankStepEvent(int8_t delta, uint8_t step_mode);
+static void App_HandlePresetActivateEvent(uint8_t preset_index);
+static void App_HandlePresetActivateRandomEvent(void);
+static void App_HandlePresetActivateMuteEvent(void);
+static void App_HandleScreensaverWakeEvent(void);
+static void App_HandleScreensaverActivityEvent(void);
+static void App_HandlePeriodicUiServiceEvent(void);
+static void App_HandleRedrawActiveDisplayEvent(void);
+static void App_HandleRedrawMainScreenEvent(void);
+static void App_HandleSaveRequestEvent(uint8_t save_kind);
+static void App_QueueEncoderPressEvent(uint8_t press_mask);
+static void App_QueueEncoderTurnEvent(uint8_t encoder_source, int8_t delta);
+static void App_QueueBankStepEvent(int8_t delta, uint8_t step_mode);
+static void App_QueuePresetActivateEvent(uint8_t preset_index);
+static void App_QueueScreensaverWakeEvent(void);
+static void App_QueueScreensaverActivityEvent(void);
+static void App_QueuePeriodicUiServiceEvent(void);
+static void App_QueueRedrawMainScreenEvent(void);
+static void App_QueueSaveRequestEvent(uint8_t save_kind);
+static void Menu_SaveIfDirty(void);
+static uint8_t Menu_BackOutOneLevel(void);
+static uint8_t Menu_Enter(void);
 static uint8_t Bank_StepUpWithSpillover(void);
 static uint8_t PresetEdit_Enter(void);
 static void PresetEdit_Exit(void);
@@ -439,8 +477,7 @@ static uint8_t PresetEdit_Enter(void)
   if (Display_MenuIsActive() || Display_PresetEditIsActive() || !PresetEdit_CurrentPresetIsEditable())
     return 0U;
 
-  Display_ScreensaverDismiss();
-  Display_ScreensaverActivity();
+  App_QueueScreensaverWakeEvent();
   Display_PresetEditEnter();
   Display_RefreshPresetEditMode(active_preset, g_bpm);
   return 1U;
@@ -448,21 +485,15 @@ static uint8_t PresetEdit_Enter(void)
 
 static void PresetEdit_Exit(void)
 {
-  const Preset_t *current_preset = active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK);
-
   if (!Display_PresetEditIsActive())
     return;
 
   Display_PresetEditExit();
-  Display_ScreensaverActivity();
-  Display_RefreshPresetEditMode(current_preset, g_bpm);
+  App_QueueScreensaverActivityEvent();
+  Display_RefreshPresetEditMode(App_GetCurrentDisplayPreset(), g_bpm);
 
   if (Presets_IsDirty())
-  {
-    Display_ShowSavingPopup();
-    Presets_SaveIfDirty();
-    Display_HideSavingPopup(current_preset);
-  }
+    App_QueueSaveRequestEvent(APP_EVENT_SAVE_KIND_PRESETS);
 }
 
 static uint8_t PresetEdit_SendCurrentPreset(void)
@@ -512,7 +543,7 @@ static uint8_t PresetEdit_BackOutOneLevel(void)
   if (Display_PresetNameEditIsActive())
   {
     Display_PresetNameEditExit();
-    Display_ScreensaverActivity();
+    App_QueueScreensaverActivityEvent();
     if (active_preset)
       Display_PresetEditRefreshCurrentField(active_preset);
     return 1U;
@@ -527,12 +558,648 @@ static const Preset_t *App_GetCurrentDisplayPreset(void)
   return active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK);
 }
 
+static uint8_t App_SaveRequestMaskForKind(uint8_t save_kind)
+{
+  switch (save_kind)
+  {
+  case APP_EVENT_SAVE_KIND_RUNTIME_CONFIG:
+    return 0x01U;
+
+  case APP_EVENT_SAVE_KIND_PRESETS:
+    return 0x02U;
+
+  case APP_EVENT_SAVE_KIND_RUNTIME_STATE:
+    return 0x04U;
+
+  default:
+    return 0U;
+  }
+}
+
+static void App_QueueEncoderPressEvent(uint8_t press_mask)
+{
+  AppEvent_t event;
+
+  if (press_mask == 0U)
+    return;
+
+  event.type = APP_EVENT_TYPE_ENCODER_PRESS;
+  event.source = APP_EVENT_SOURCE_NONE;
+  event.value = (int16_t)press_mask;
+  event.tick = HAL_GetTick();
+  (void)AppEvent_Push(&event);
+}
+
+static void App_QueueEncoderTurnEvent(uint8_t encoder_source, int8_t delta)
+{
+  AppEvent_t event;
+
+  if (delta == 0)
+    return;
+
+  event.type = APP_EVENT_TYPE_ENCODER_TURN;
+  event.source = encoder_source;
+  event.value = (int16_t)delta;
+  event.tick = HAL_GetTick();
+  (void)AppEvent_Push(&event);
+}
+
+static void App_QueueBankStepEvent(int8_t delta, uint8_t step_mode)
+{
+  AppEvent_t event;
+
+  if (delta == 0)
+    return;
+
+  event.type = APP_EVENT_TYPE_BANK_STEP;
+  event.source = step_mode;
+  event.value = (int16_t)delta;
+  event.tick = HAL_GetTick();
+  (void)AppEvent_Push(&event);
+}
+
+static void App_QueuePresetActivateEvent(uint8_t preset_index)
+{
+  AppEvent_t event;
+
+  app_pending_preset_activate_index = preset_index;
+  if (app_preset_activate_event_pending)
+    return;
+
+  event.type = APP_EVENT_TYPE_PRESET_ACTIVATE;
+  event.source = APP_EVENT_SOURCE_NONE;
+  event.value = 0;
+  event.tick = HAL_GetTick();
+  if (AppEvent_Push(&event))
+    app_preset_activate_event_pending = 1U;
+}
+
+static void App_QueueScreensaverWakeEvent(void)
+{
+  AppEvent_t event;
+
+  if (app_screensaver_wake_event_pending)
+    return;
+
+  event.type = APP_EVENT_TYPE_SCREENSAVER_WAKE;
+  event.source = APP_EVENT_SOURCE_NONE;
+  event.value = 0;
+  event.tick = HAL_GetTick();
+  if (AppEvent_Push(&event))
+    app_screensaver_wake_event_pending = 1U;
+}
+
+static void App_QueueScreensaverActivityEvent(void)
+{
+  AppEvent_t event;
+
+  if (app_screensaver_wake_event_pending || app_screensaver_activity_event_pending)
+    return;
+
+  event.type = APP_EVENT_TYPE_SCREENSAVER_ACTIVITY;
+  event.source = APP_EVENT_SOURCE_NONE;
+  event.value = 0;
+  event.tick = HAL_GetTick();
+  if (AppEvent_Push(&event))
+    app_screensaver_activity_event_pending = 1U;
+}
+
+static void App_QueuePeriodicUiServiceEvent(void)
+{
+  AppEvent_t event;
+
+  if (app_periodic_ui_service_event_pending)
+    return;
+
+  event.type = APP_EVENT_TYPE_PERIODIC_UI_SERVICE;
+  event.source = APP_EVENT_SOURCE_NONE;
+  event.value = 0;
+  event.tick = HAL_GetTick();
+  if (AppEvent_Push(&event))
+    app_periodic_ui_service_event_pending = 1U;
+}
+
+static void App_QueueRedrawMainScreenEvent(void)
+{
+  AppEvent_t event;
+
+  if (app_redraw_main_screen_event_pending)
+    return;
+
+  event.type = APP_EVENT_TYPE_REDRAW_MAIN_SCREEN;
+  event.source = APP_EVENT_SOURCE_NONE;
+  event.value = 0;
+  event.tick = HAL_GetTick();
+  if (AppEvent_Push(&event))
+    app_redraw_main_screen_event_pending = 1U;
+}
+
+static void App_QueueSaveRequestEvent(uint8_t save_kind)
+{
+  AppEvent_t event;
+  uint8_t pending_mask;
+
+  if (save_kind == 0U)
+    return;
+
+  pending_mask = App_SaveRequestMaskForKind(save_kind);
+  if (pending_mask == 0U || (app_save_request_pending_mask & pending_mask) != 0U)
+    return;
+
+  event.type = APP_EVENT_TYPE_SAVE_REQUEST;
+  event.source = save_kind;
+  event.value = 0;
+  event.tick = HAL_GetTick();
+  if (AppEvent_Push(&event))
+    app_save_request_pending_mask |= pending_mask;
+}
+
+static void App_HandleTapPressEvent(uint32_t now)
+{
+  uint8_t screensaver_was_active = Display_ScreensaverIsActive();
+
+  App_QueueScreensaverWakeEvent();
+
+  if (screensaver_was_active)
+  {
+    /* The first tap after idle should only wake the UI, not also retime BPM. */
+    App_QueueRedrawMainScreenEvent();
+    return;
+  }
+
+  if (Button_HandleTapPress(now))
+  {
+    Button_CancelTapBankCombo();
+    return;
+  }
+
+  if (MidiClockIsExternalSignalPresent())
+    return;
+
+  if (tap_count > 0U)
+  {
+    uint8_t prev = (uint8_t)((tap_head + TAP_BUF_SIZE - 1U) % TAP_BUF_SIZE);
+    uint32_t interval = now - tap_ts[prev];
+
+    if (interval > TAP_RESET_INTERVAL_MS)
+    {
+      tap_count = 0U;
+      tap_head = 0U;
+    }
+    else if (interval < TAP_MIN_INTERVAL_MS)
+    {
+      return;
+    }
+  }
+
+  tap_ts[tap_head] = now;
+  tap_head = (uint8_t)((tap_head + 1U) % TAP_BUF_SIZE);
+  if (tap_count < TAP_BUF_SIZE)
+    tap_count++;
+
+  if (tap_count < TAP_MIN_COUNT)
+    return;
+
+  uint32_t sum = 0U;
+  uint8_t n = tap_count;
+
+  for (uint8_t i = 0U; i < (uint8_t)(n - 1U); i++)
+  {
+    uint8_t a = (uint8_t)((tap_head + TAP_BUF_SIZE - n + i) % TAP_BUF_SIZE);
+    uint8_t b = (uint8_t)((tap_head + TAP_BUF_SIZE - n + i + 1U) % TAP_BUF_SIZE);
+
+    sum += tap_ts[b] - tap_ts[a];
+  }
+
+  uint32_t avg_ms = sum / (uint32_t)(n - 1U);
+  if (avg_ms == 0U)
+    return;
+
+  uint32_t new_bpm = (uint32_t)((60000.0f / (float)avg_ms) + 0.5f);
+  if (new_bpm < BPM_MIN || new_bpm > BPM_MAX)
+    return;
+
+  g_bpm = (uint16_t)new_bpm;
+  MidiClockUseInternalTempo();
+  TIM6->ARR = MidiClockTimerPeriodForBpm((uint16_t)new_bpm);
+  TIM6->CNT = 0U;
+  LED_BeatPulse();
+
+  bpm_dirty = 1U;
+  bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
+}
+
+static void App_HandleEncoderPressEvent(uint8_t press_mask)
+{
+  if (press_mask == 0U)
+    return;
+
+  if (Display_ScreensaverIsActive())
+  {
+    Rotary1_RecordActivity();
+    return;
+  }
+
+  App_QueueScreensaverActivityEvent();
+
+  if ((press_mask & 0x02U) && Display_MenuIsActive())
+  {
+    Display_MenuHome();
+    Menu_SaveIfDirty();
+    return;
+  }
+
+  if ((press_mask & 0x04U) && Display_MenuIsActive())
+  {
+    if (Display_MenuTextEditIsActive())
+    {
+      Display_MenuTextEditExit();
+      return;
+    }
+
+    Menu_BackOutOneLevel();
+    return;
+  }
+
+  if ((press_mask & 0x01U) && Display_MenuIsActive())
+  {
+    Display_MenuActivate();
+    return;
+  }
+
+  if ((press_mask & 0x02U) && Display_PresetEditIsActive())
+  {
+    if (Display_PresetInitConfirmIsActive())
+    {
+      Display_PresetInitConfirmExit();
+      if (PresetEdit_ResetCurrentPresetToDefaults())
+        Display_RefreshPresetEditMode(active_preset, g_bpm);
+      return;
+    }
+
+    PresetEdit_SendCurrentPreset();
+    return;
+  }
+
+  if ((press_mask & 0x02U) && !Display_PresetEditIsActive())
+  {
+    Bank_StepUpWithSpillover();
+    return;
+  }
+
+  if ((press_mask & 0x04U) && Display_PresetEditIsActive())
+  {
+    if (Display_PresetInitConfirmIsActive())
+    {
+      Display_PresetInitConfirmExit();
+      return;
+    }
+
+    PresetEdit_BackOutOneLevel();
+    return;
+  }
+
+  if ((press_mask & 0x04U) && !Display_PresetEditIsActive())
+  {
+    Menu_Enter();
+    return;
+  }
+
+  if ((press_mask & 0x01U) && !Display_PresetEditIsActive())
+  {
+    PresetEdit_Enter();
+  }
+  else if ((press_mask & 0x01U) && Display_PresetEditIsActive() && !Display_PresetNameEditIsActive())
+  {
+    if (Display_PresetInitConfirmIsActive())
+      return;
+
+    DisplayPresetEditField_t field = Display_PresetEditGetField();
+
+    if (field.type == DISPLAY_PRESET_EDIT_FIELD_NAME)
+    {
+      Display_PresetNameEditEnter();
+      if (active_preset)
+        Display_PresetEditRefreshCurrentField(active_preset);
+    }
+    else if (field.type == DISPLAY_PRESET_EDIT_FIELD_INIT)
+      Display_PresetInitConfirmEnter();
+  }
+}
+
+static void App_HandleEncoderTurnEvent(uint8_t encoder_source, int8_t delta)
+{
+  if (delta == 0)
+    return;
+
+  switch (encoder_source)
+  {
+  case APP_EVENT_SOURCE_ENC1:
+    if (Display_MenuIsActive())
+    {
+      if (Display_MenuTextEditIsActive())
+        Display_MenuTextEditMoveCursor(delta);
+      else
+        Display_MenuMoveSelection(delta);
+      return;
+    }
+
+    if (active_preset == NULL)
+      return;
+
+    if (Display_PresetEditIsActive())
+    {
+      if (!PresetEdit_CurrentPresetIsEditable())
+      {
+        PresetEdit_Exit();
+        return;
+      }
+
+      if (Display_PresetInitConfirmIsActive())
+        return;
+
+      if (Display_PresetNameEditIsActive())
+        Display_PresetNameEditMoveCursor(active_preset, delta);
+      else
+        Display_PresetEditMoveCursorAndRefresh(active_preset, delta);
+      return;
+    }
+
+    Display_MainInfoScrollAndRefresh(active_preset, delta);
+    return;
+
+  case APP_EVENT_SOURCE_ENC2:
+    if (Display_MenuIsActive() || Display_PresetEditIsActive())
+      return;
+
+    {
+      int16_t bank_base = (int16_t)(current_bank * PRESETS_PER_BANK);
+      int16_t slot_index = (int16_t)active_preset_index - bank_base;
+      int16_t next_slot = slot_index + (int16_t)delta;
+
+      if (slot_index < 0 || slot_index >= (int16_t)PRESETS_PER_BANK)
+        next_slot = 0;
+
+      while (next_slot < 0)
+        next_slot += (int16_t)PRESETS_PER_BANK;
+
+      while (next_slot >= (int16_t)PRESETS_PER_BANK)
+        next_slot -= (int16_t)PRESETS_PER_BANK;
+
+      App_QueuePresetActivateEvent((uint8_t)(bank_base + next_slot));
+    }
+    return;
+
+  case APP_EVENT_SOURCE_ENC3:
+    if (Display_MenuIsActive())
+    {
+      Display_MenuAdjustValue(delta);
+      return;
+    }
+
+    if (Display_PresetEditIsActive())
+    {
+      if (!PresetEdit_CurrentPresetIsEditable())
+      {
+        PresetEdit_Exit();
+        return;
+      }
+
+      if (Display_PresetInitConfirmIsActive())
+        return;
+
+      if (PresetEdit_ApplyDelta(delta))
+      {
+        Presets_MarkDirty();
+        Display_PresetEditRefreshCurrentField(active_preset);
+      }
+      return;
+    }
+
+    TempoEncoder_ApplyBpmStep(delta);
+    return;
+
+  default:
+    return;
+  }
+}
+
+static void App_HandleBankStepEvent(int8_t delta, uint8_t step_mode)
+{
+  int16_t next_bank;
+  uint8_t preset_slot = 0U;
+
+  if (delta == 0)
+    return;
+
+  if (step_mode == APP_EVENT_BANK_STEP_MODE_ACTIVE_SLOT)
+    preset_slot = (uint8_t)(active_preset_index % PRESETS_PER_BANK);
+
+  next_bank = (int16_t)current_bank + (int16_t)delta;
+  while (next_bank < 0)
+    next_bank += (int16_t)PRESET_BANK_COUNT;
+
+  while (next_bank >= (int16_t)PRESET_BANK_COUNT)
+    next_bank -= (int16_t)PRESET_BANK_COUNT;
+
+  current_bank = (uint8_t)next_bank;
+  App_QueuePresetActivateEvent((uint8_t)(current_bank * PRESETS_PER_BANK + preset_slot));
+}
+
+static void App_PreparePresetActivation(uint8_t exit_preset_edit)
+{
+  if (exit_preset_edit && Display_PresetEditIsActive())
+    Display_PresetEditExit();
+
+  Button_ResetSpecialFunctions();
+  Display_MainInfoScrollReset();
+}
+
+static void App_HandlePresetActivateEvent(uint8_t preset_index)
+{
+  const Preset_t *preset;
+
+  if (app_preset_activate_event_pending)
+  {
+    preset_index = app_pending_preset_activate_index;
+    app_preset_activate_event_pending = 0U;
+  }
+
+  if (preset_index >= Presets_Count())
+    return;
+
+  preset = Presets_Get(preset_index);
+  if (active_preset == preset)
+    return;
+
+  App_PreparePresetActivation(0U);
+  App_ActivatePreset(preset_index);
+  App_QueueRedrawMainScreenEvent();
+}
+
+static void App_HandlePresetActivateRandomEvent(void)
+{
+  App_PreparePresetActivation(1U);
+  Presets_ActivateRandom();
+  App_QueueRedrawMainScreenEvent();
+}
+
+static void App_HandlePresetActivateMuteEvent(void)
+{
+  App_PreparePresetActivation(1U);
+  Presets_ActivateMute();
+  App_QueueRedrawMainScreenEvent();
+}
+
+static void App_HandleScreensaverWakeEvent(void)
+{
+  app_screensaver_wake_event_pending = 0U;
+  app_screensaver_activity_event_pending = 0U;
+  Display_ScreensaverDismiss();
+  Display_ScreensaverActivity();
+}
+
+static void App_HandleScreensaverActivityEvent(void)
+{
+  app_screensaver_activity_event_pending = 0U;
+  Display_ScreensaverActivity();
+}
+
+static void App_HandlePeriodicUiServiceEvent(void)
+{
+  app_periodic_ui_service_event_pending = 0U;
+  Display_UpdateBPM(g_bpm);
+  LED_Update();
+  if (Display_ScreensaverUpdate())
+    App_QueueRedrawMainScreenEvent();
+}
+
+static void App_HandleRedrawActiveDisplayEvent(void)
+{
+  if (active_preset)
+    Display_DrawMainScreen(active_preset, g_bpm);
+}
+
+static void App_HandleRedrawMainScreenEvent(void)
+{
+  app_redraw_main_screen_event_pending = 0U;
+  Display_DrawMainScreen(App_GetCurrentDisplayPreset(), g_bpm);
+}
+
+static void App_HandleSaveRequestEvent(uint8_t save_kind)
+{
+  app_save_request_pending_mask &= (uint8_t)~App_SaveRequestMaskForKind(save_kind);
+
+  switch (save_kind)
+  {
+  case APP_EVENT_SAVE_KIND_RUNTIME_CONFIG:
+    if (!RuntimeConfig_IsDirty())
+      return;
+
+    Display_ShowSavingPopup();
+    RuntimeConfig_SaveIfDirty();
+    Display_HideSavingPopup(App_GetCurrentDisplayPreset());
+    return;
+
+  case APP_EVENT_SAVE_KIND_PRESETS:
+    if (!Presets_IsDirty())
+      return;
+
+    Display_ShowSavingPopup();
+    Presets_SaveIfDirty();
+    Display_HideSavingPopup(App_GetCurrentDisplayPreset());
+    return;
+
+  case APP_EVENT_SAVE_KIND_RUNTIME_STATE:
+#if BPM_FLASH_WRITES_ENABLED
+    RuntimeState_Flash_Save(g_bpm, active_preset_index, current_bank);
+    LED_FlashPulse();
+#endif
+    return;
+
+  default:
+    return;
+  }
+}
+
+static void App_ProcessPendingEvents(void)
+{
+  AppEvent_t event;
+
+  while (AppEvent_Pop(&event))
+  {
+    switch (event.type)
+    {
+    case APP_EVENT_TYPE_TAP_PRESS:
+      App_HandleTapPressEvent(event.tick);
+      break;
+
+    case APP_EVENT_TYPE_ENCODER_PRESS:
+      App_HandleEncoderPressEvent((uint8_t)event.value);
+      break;
+
+    case APP_EVENT_TYPE_ENCODER_TURN:
+      App_HandleEncoderTurnEvent(event.source, (int8_t)event.value);
+      break;
+
+    case APP_EVENT_TYPE_FOOTSWITCH_EDGE:
+      if (APP_EVENT_SOURCE_IS_FOOTSWITCH(event.source))
+      {
+        Button_ProcessInterruptEvent(APP_EVENT_SOURCE_TO_FOOTSWITCH_INDEX(event.source),
+                                     (uint8_t)event.value,
+                                     event.tick);
+      }
+      break;
+
+    case APP_EVENT_TYPE_BANK_STEP:
+      App_HandleBankStepEvent((int8_t)event.value, event.source);
+      break;
+
+    case APP_EVENT_TYPE_PRESET_ACTIVATE:
+      App_HandlePresetActivateEvent((uint8_t)event.value);
+      break;
+
+    case APP_EVENT_TYPE_PRESET_ACTIVATE_RANDOM:
+      App_HandlePresetActivateRandomEvent();
+      break;
+
+    case APP_EVENT_TYPE_PRESET_ACTIVATE_MUTE:
+      App_HandlePresetActivateMuteEvent();
+      break;
+
+    case APP_EVENT_TYPE_SCREENSAVER_WAKE:
+      App_HandleScreensaverWakeEvent();
+      break;
+
+    case APP_EVENT_TYPE_SCREENSAVER_ACTIVITY:
+      App_HandleScreensaverActivityEvent();
+      break;
+
+    case APP_EVENT_TYPE_PERIODIC_UI_SERVICE:
+      App_HandlePeriodicUiServiceEvent();
+      break;
+
+    case APP_EVENT_TYPE_REDRAW_ACTIVE_DISPLAY:
+      App_HandleRedrawActiveDisplayEvent();
+      break;
+
+    case APP_EVENT_TYPE_REDRAW_MAIN_SCREEN:
+      App_HandleRedrawMainScreenEvent();
+      break;
+
+    case APP_EVENT_TYPE_SAVE_REQUEST:
+      App_HandleSaveRequestEvent(event.source);
+      break;
+
+    default:
+      break;
+    }
+  }
+}
+
 static uint8_t Bank_StepUpWithSpillover(void)
 {
-  uint8_t preset_slot = (uint8_t)(active_preset_index % PRESETS_PER_BANK);
-
-  current_bank = (uint8_t)((current_bank + 1U) % PRESET_BANK_COUNT);
-  App_ActivatePreset((uint8_t)(current_bank * PRESETS_PER_BANK + preset_slot));
+  App_QueueBankStepEvent(1, APP_EVENT_BANK_STEP_MODE_ACTIVE_SLOT);
   return 1U;
 }
 
@@ -541,9 +1208,7 @@ static void Menu_SaveIfDirty(void)
   if (!RuntimeConfig_IsDirty())
     return;
 
-  Display_ShowSavingPopup();
-  RuntimeConfig_SaveIfDirty();
-  Display_HideSavingPopup(App_GetCurrentDisplayPreset());
+  App_QueueSaveRequestEvent(APP_EVENT_SAVE_KIND_RUNTIME_CONFIG);
 }
 
 static uint8_t Menu_BackOutOneLevel(void)
@@ -555,12 +1220,12 @@ static uint8_t Menu_BackOutOneLevel(void)
 
   sub_editor_active = Display_MenuSubEditorIsActive();
   Display_MenuBack();
-  Display_ScreensaverActivity();
+  App_QueueScreensaverActivityEvent();
   if (!sub_editor_active)
     Menu_SaveIfDirty();
 
   if (!Display_MenuIsActive())
-    Display_DrawMainScreen(App_GetCurrentDisplayPreset(), g_bpm);
+    App_QueueRedrawMainScreenEvent();
 
   return 1U;
 }
@@ -570,8 +1235,7 @@ static uint8_t Menu_Enter(void)
   if (Display_MenuIsActive() || Display_PresetEditIsActive())
     return 0U;
 
-  Display_ScreensaverDismiss();
-  Display_ScreensaverActivity();
+  App_QueueScreensaverWakeEvent();
   Display_MenuEnter();
   return 1U;
 }
@@ -614,6 +1278,7 @@ int main(void)
   /* Bring peripherals up in an order that avoids display flash and ensures
    * MIDI timing is already running before the UI starts querying it. */
   RuntimeConfig_Init();
+  AppEvent_Init();
   Display_BL_Init();
   MidiInitInput();
   MX_MIDI_Output_UART_Init();
@@ -646,6 +1311,7 @@ int main(void)
   MX_TIM6_Init(g_bpm);
   HAL_TIM_Base_Start_IT(&htim6);
   App_ActivatePreset(active_preset_index);
+  Display_DrawMainScreen(App_GetCurrentDisplayPreset(), g_bpm);
   bpm_save_tick = 0U;
   Display_ScreensaverActivity();  /* seed inactivity timer from boot */
   Rotary1_Init();
@@ -671,8 +1337,12 @@ int main(void)
     Encoder2_ProcessPending();
     TempoEncoder_ProcessPending();
     EncoderCheck_ProcessPending();
+    App_ProcessPendingEvents();
     MidiOutputSchedulerService();
+    App_QueuePeriodicUiServiceEvent();
     BPM_Service();
+    App_ProcessPendingEvents();
+    AppEventDiagnosticService();
     MidiClockDiagnosticService();
     Button_ProcessPendingEvents();
     /* USER CODE BEGIN 3 */
@@ -1146,6 +1816,23 @@ static void EncoderCheck_LogTurn(uint8_t encoder_index, int8_t delta)
 #endif
 }
 
+static void AppEventDiagnosticService(void)
+{
+#if APP_EVENT_DIAGNOSTICS_ENABLED
+  static uint32_t last_reported_dropped_count = 0U;
+  uint32_t dropped_count = AppEvent_GetDroppedCount();
+
+  if (dropped_count <= last_reported_dropped_count)
+    return;
+
+  printf("APPQDIAG dropped=+%lu total=%lu cap=%u\r\n",
+         (unsigned long)(dropped_count - last_reported_dropped_count),
+         (unsigned long)dropped_count,
+         (unsigned)APP_EVENT_QUEUE_CAPACITY);
+  last_reported_dropped_count = dropped_count;
+#endif
+}
+
 static void EncoderCheck_QueueButtonPress(uint8_t encoder_index)
 {
   uint8_t event_index = (uint8_t)(encoder_index - 1U);
@@ -1221,100 +1908,7 @@ static void EncoderCheck_ProcessPending(void)
   (void)press_mask;
 #endif
 
-  if (press_mask == 0U)
-    return;
-
-  if (Display_ScreensaverIsActive())
-  {
-    Rotary1_RecordActivity();
-    return;
-  }
-
-  Display_ScreensaverActivity();
-
-  if ((press_mask & 0x02U) && Display_MenuIsActive())
-  {
-    Display_MenuHome();
-    Menu_SaveIfDirty();
-    return;
-  }
-
-  if ((press_mask & 0x04U) && Display_MenuIsActive())
-  {
-    if (Display_MenuTextEditIsActive())
-    {
-      Display_MenuTextEditExit();
-      return;
-    }
-
-    Menu_BackOutOneLevel();
-    return;
-  }
-
-  if ((press_mask & 0x01U) && Display_MenuIsActive())
-  {
-    Display_MenuActivate();
-    return;
-  }
-
-  if ((press_mask & 0x02U) && Display_PresetEditIsActive())
-  {
-    if (Display_PresetInitConfirmIsActive())
-    {
-      Display_PresetInitConfirmExit();
-      if (PresetEdit_ResetCurrentPresetToDefaults())
-        Display_RefreshPresetEditMode(active_preset, g_bpm);
-      return;
-    }
-
-    PresetEdit_SendCurrentPreset();
-    return;
-  }
-
-  if ((press_mask & 0x02U) && !Display_PresetEditIsActive())
-  {
-    Bank_StepUpWithSpillover();
-    return;
-  }
-
-  if ((press_mask & 0x04U) && Display_PresetEditIsActive())
-  {
-    if (Display_PresetInitConfirmIsActive())
-    {
-      Display_PresetInitConfirmExit();
-      return;
-    }
-
-    PresetEdit_BackOutOneLevel();
-    return;
-  }
-
-  if ((press_mask & 0x04U) && !Display_PresetEditIsActive())
-  {
-    Menu_Enter();
-    return;
-  }
-
-  if ((press_mask & 0x01U) && !Display_PresetEditIsActive())
-  {
-    PresetEdit_Enter();
-  }
-  else if ((press_mask & 0x01U) && Display_PresetEditIsActive() && !Display_PresetNameEditIsActive())
-  {
-    if (Display_PresetInitConfirmIsActive())
-      return;
-
-    DisplayPresetEditField_t field = Display_PresetEditGetField();
-
-    if (field.type == DISPLAY_PRESET_EDIT_FIELD_NAME)
-    {
-      Display_PresetNameEditEnter();
-      if (active_preset)
-        Display_PresetEditRefreshCurrentField(active_preset);
-    }
-    else if (field.type == DISPLAY_PRESET_EDIT_FIELD_INIT)
-      Display_PresetInitConfirmEnter();
-  }
+  App_QueueEncoderPressEvent(press_mask);
 }
 
 static uint8_t Encoder_ReadState(GPIO_TypeDef *clk_gpio_port, uint16_t clk_gpio_pin,
@@ -1361,6 +1955,110 @@ static int8_t Encoder_AccumulateTransition(int8_t transition_accum, int8_t trans
   return (int8_t)(transition_accum + transition_delta);
 }
 
+static void Encoder_AddPendingDelta(volatile int8_t *pending_delta, int8_t delta)
+{
+  int16_t next_delta;
+
+  if (!pending_delta || delta == 0)
+    return;
+
+  next_delta = (int16_t)(*pending_delta) + (int16_t)delta;
+  if (next_delta > INT8_MAX)
+    next_delta = INT8_MAX;
+  else if (next_delta < INT8_MIN)
+    next_delta = INT8_MIN;
+
+  *pending_delta = (int8_t)next_delta;
+}
+
+static void Encoder_SampleSimple(GPIO_TypeDef *clk_gpio_port,
+                                 uint16_t clk_gpio_pin,
+                                 GPIO_TypeDef *dt_gpio_port,
+                                 uint16_t dt_gpio_pin,
+                                 uint8_t *last_state,
+                                 int8_t *transition_accum,
+                                 volatile int8_t *pending_steps,
+                                 volatile uint8_t *activity_pending,
+                                 uint8_t transitions_per_step,
+                                 int8_t step_sign)
+{
+  uint8_t current_state;
+  int8_t transition_delta;
+
+  if (!last_state || !transition_accum || !pending_steps || !activity_pending)
+    return;
+
+  current_state = Encoder_ReadState(clk_gpio_port, clk_gpio_pin,
+                                    dt_gpio_port, dt_gpio_pin);
+  if (current_state == *last_state)
+    return;
+
+  *activity_pending = 1U;
+  transition_delta = Encoder_TransitionDelta(*last_state, current_state);
+  *transition_accum = Encoder_AccumulateTransition(*transition_accum, transition_delta);
+  *last_state = current_state;
+
+  if (*transition_accum >= (int8_t)transitions_per_step)
+  {
+    Encoder_AddPendingDelta(pending_steps, step_sign);
+    *transition_accum = 0;
+  }
+  else if (*transition_accum <= -(int8_t)transitions_per_step)
+  {
+    Encoder_AddPendingDelta(pending_steps, (int8_t)-step_sign);
+    *transition_accum = 0;
+  }
+}
+
+static int8_t TempoEncoder_ResolveStepMagnitude(uint32_t step_interval_ms)
+{
+  if (step_interval_ms <= TEMPO_ENCODER_ACCEL_VFAST_MS)
+    return TEMPO_ENCODER_STEP_VFAST;
+  if (step_interval_ms <= TEMPO_ENCODER_ACCEL_FAST_MS)
+    return TEMPO_ENCODER_STEP_FAST;
+  if (step_interval_ms <= TEMPO_ENCODER_ACCEL_MID_MS)
+    return TEMPO_ENCODER_STEP_MID;
+
+  return 1;
+}
+
+static void Encoder_ProcessPendingMotion(volatile uint8_t *activity_pending_flag,
+                                         volatile int8_t *pending_delta_flag,
+                                         uint8_t encoder_index,
+                                         uint8_t event_source)
+{
+  uint32_t primask;
+  uint8_t activity_pending;
+  int8_t pending_delta;
+
+  if (!activity_pending_flag || !pending_delta_flag)
+    return;
+
+  primask = __get_PRIMASK();
+  __disable_irq();
+  activity_pending = *activity_pending_flag;
+  pending_delta = *pending_delta_flag;
+  *activity_pending_flag = 0U;
+  *pending_delta_flag = 0;
+  if (primask == 0U)
+    __enable_irq();
+
+  if (pending_delta != 0)
+    EncoderCheck_LogTurn(encoder_index, pending_delta);
+
+  if (!activity_pending && (pending_delta == 0))
+    return;
+
+  if (Display_ScreensaverIsActive())
+  {
+    Rotary1_RecordActivity();
+    return;
+  }
+
+  App_QueueScreensaverActivityEvent();
+  App_QueueEncoderTurnEvent(event_source, pending_delta);
+}
+
 static void Rotary1_Init(void)
 {
   rotary1_last_state = Encoder_ReadState(ENC1_CLK_GPIO_Port, ENC1_CLK_Pin,
@@ -1372,118 +2070,36 @@ static void Rotary1_Init(void)
 
 static void Rotary1_SampleInterrupt(void)
 {
-  uint8_t current_state = Encoder_ReadState(ENC1_CLK_GPIO_Port, ENC1_CLK_Pin,
-                                            ENC1_DT_GPIO_Port, ENC1_DT_Pin);
-  int8_t transition_delta;
-  int16_t queued_steps;
-
-  if (current_state == rotary1_last_state)
-    return;
-
-  rotary1_activity_pending = 1U;
-  transition_delta = Encoder_TransitionDelta(rotary1_last_state, current_state);
-  rotary1_transition_accum = Encoder_AccumulateTransition(rotary1_transition_accum, transition_delta);
-  rotary1_last_state = current_state;
-
-  if (rotary1_transition_accum >= ROTARY1_SCROLL_TRANSITIONS_PER_STEP)
-  {
-    queued_steps = (int16_t)rotary1_pending_steps - (int16_t)ROTARY1_SCROLL_DIRECTION_SIGN;
-
-    if (queued_steps > INT8_MAX)
-      queued_steps = INT8_MAX;
-    rotary1_pending_steps = (int8_t)queued_steps;
-    rotary1_transition_accum = 0;
-  }
-  else if (rotary1_transition_accum <= -ROTARY1_SCROLL_TRANSITIONS_PER_STEP)
-  {
-    queued_steps = (int16_t)rotary1_pending_steps + (int16_t)ROTARY1_SCROLL_DIRECTION_SIGN;
-
-    if (queued_steps < INT8_MIN)
-      queued_steps = INT8_MIN;
-    rotary1_pending_steps = (int8_t)queued_steps;
-    rotary1_transition_accum = 0;
-  }
+  Encoder_SampleSimple(ENC1_CLK_GPIO_Port,
+                       ENC1_CLK_Pin,
+                       ENC1_DT_GPIO_Port,
+                       ENC1_DT_Pin,
+                       &rotary1_last_state,
+                       &rotary1_transition_accum,
+                       &rotary1_pending_steps,
+                       &rotary1_activity_pending,
+                       ROTARY1_SCROLL_TRANSITIONS_PER_STEP,
+                       (int8_t)-ROTARY1_SCROLL_DIRECTION_SIGN);
 }
 
 static void Rotary1_RecordActivity(void)
 {
   uint8_t screensaver_was_active = Display_ScreensaverIsActive();
 
-  Display_ScreensaverDismiss();
-  Display_ScreensaverActivity();
+  App_QueueScreensaverWakeEvent();
 
   if (screensaver_was_active)
   {
-    Display_DrawMainScreen(active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
+    App_QueueRedrawMainScreenEvent();
   }
 }
 
 static void Rotary1_ProcessPending(void)
 {
-  uint32_t primask;
-  uint8_t activity_pending;
-  int8_t pending_steps;
-
-  primask = __get_PRIMASK();
-  __disable_irq();
-  activity_pending = rotary1_activity_pending;
-  pending_steps = rotary1_pending_steps;
-  rotary1_activity_pending = 0U;
-  rotary1_pending_steps = 0;
-  if (primask == 0U)
-    __enable_irq();
-
-  if (pending_steps != 0)
-    EncoderCheck_LogTurn(1U, pending_steps);
-
-  if (!activity_pending && (pending_steps == 0))
-    return;
-
-  if (Display_ScreensaverIsActive())
-  {
-    Rotary1_RecordActivity();
-    return;
-  }
-
-  Display_ScreensaverActivity();
-
-  if (Display_MenuIsActive())
-  {
-    if (pending_steps != 0)
-    {
-      if (Display_MenuTextEditIsActive())
-        Display_MenuTextEditMoveCursor(pending_steps);
-      else
-        Display_MenuMoveSelection(pending_steps);
-    }
-    return;
-  }
-
-  if (pending_steps != 0 && active_preset != NULL)
-  {
-    if (Display_PresetEditIsActive())
-    {
-      if (!PresetEdit_CurrentPresetIsEditable())
-      {
-        PresetEdit_Exit();
-        return;
-      }
-
-      if (Display_PresetInitConfirmIsActive())
-        return;
-
-      if (Display_PresetNameEditIsActive())
-      {
-        Display_PresetNameEditMoveCursor(active_preset, pending_steps);
-      }
-      else
-      {
-        Display_PresetEditMoveCursorAndRefresh(active_preset, pending_steps);
-      }
-    }
-    else
-      Display_MainInfoScrollAndRefresh(active_preset, pending_steps);
-  }
+  Encoder_ProcessPendingMotion(&rotary1_activity_pending,
+                               &rotary1_pending_steps,
+                               1U,
+                               APP_EVENT_SOURCE_ENC1);
 }
 
 static void Encoder2_Init(void)
@@ -1497,36 +2113,16 @@ static void Encoder2_Init(void)
 
 static void Encoder2_SampleInterrupt(void)
 {
-  uint8_t current_state = Encoder_ReadState(ENC2_CLK_GPIO_Port, ENC2_CLK_Pin,
-                                            ENC2_DT_GPIO_Port, ENC2_DT_Pin);
-  int8_t transition_delta;
-
-  if (current_state == encoder2_last_state)
-    return;
-
-  encoder2_activity_pending = 1U;
-  transition_delta = Encoder_TransitionDelta(encoder2_last_state, current_state);
-  encoder2_transition_accum = Encoder_AccumulateTransition(encoder2_transition_accum, transition_delta);
-  encoder2_last_state = current_state;
-
-  if (encoder2_transition_accum >= ROTARY1_SCROLL_TRANSITIONS_PER_STEP)
-  {
-    int16_t queued_steps = (int16_t)encoder2_pending_steps + 1;
-
-    if (queued_steps > INT8_MAX)
-      queued_steps = INT8_MAX;
-    encoder2_pending_steps = (int8_t)queued_steps;
-    encoder2_transition_accum = 0;
-  }
-  else if (encoder2_transition_accum <= -ROTARY1_SCROLL_TRANSITIONS_PER_STEP)
-  {
-    int16_t queued_steps = (int16_t)encoder2_pending_steps - 1;
-
-    if (queued_steps < INT8_MIN)
-      queued_steps = INT8_MIN;
-    encoder2_pending_steps = (int8_t)queued_steps;
-    encoder2_transition_accum = 0;
-  }
+  Encoder_SampleSimple(ENC2_CLK_GPIO_Port,
+                       ENC2_CLK_Pin,
+                       ENC2_DT_GPIO_Port,
+                       ENC2_DT_Pin,
+                       &encoder2_last_state,
+                       &encoder2_transition_accum,
+                       &encoder2_pending_steps,
+                       &encoder2_activity_pending,
+                       ROTARY1_SCROLL_TRANSITIONS_PER_STEP,
+                       1);
 }
 
 /* In LIVE mode ENC2 turns through presets within the current bank, while its
@@ -1535,56 +2131,10 @@ static void Encoder2_SampleInterrupt(void)
  * navigation/value edits. */
 static void Encoder2_ProcessPending(void)
 {
-  uint32_t primask;
-  uint8_t activity_pending;
-  int8_t pending_steps;
-
-  primask = __get_PRIMASK();
-  __disable_irq();
-  activity_pending = encoder2_activity_pending;
-  pending_steps = encoder2_pending_steps;
-  encoder2_activity_pending = 0U;
-  encoder2_pending_steps = 0;
-  if (primask == 0U)
-    __enable_irq();
-
-  if (pending_steps != 0)
-    EncoderCheck_LogTurn(2U, pending_steps);
-
-  if (!activity_pending && (pending_steps == 0))
-    return;
-
-  if (Display_ScreensaverIsActive())
-  {
-    Rotary1_RecordActivity();
-    return;
-  }
-
-  Display_ScreensaverActivity();
-
-  if (Display_MenuIsActive())
-    return;
-
-  if (Display_PresetEditIsActive())
-    return;
-
-  if (pending_steps != 0)
-  {
-    int16_t bank_base = (int16_t)(current_bank * PRESETS_PER_BANK);
-    int16_t slot_index = (int16_t)active_preset_index - bank_base;
-    int16_t next_slot = slot_index + (int16_t)pending_steps;
-
-    if (slot_index < 0 || slot_index >= (int16_t)PRESETS_PER_BANK)
-      next_slot = 0;
-
-    while (next_slot < 0)
-      next_slot += (int16_t)PRESETS_PER_BANK;
-
-    while (next_slot >= (int16_t)PRESETS_PER_BANK)
-      next_slot -= (int16_t)PRESETS_PER_BANK;
-
-    App_ActivatePreset((uint8_t)(bank_base + next_slot));
-  }
+  Encoder_ProcessPendingMotion(&encoder2_activity_pending,
+                               &encoder2_pending_steps,
+                               2U,
+                               APP_EVENT_SOURCE_ENC2);
 }
 
 static void TempoEncoder_Init(void)
@@ -1637,43 +2187,21 @@ static void TempoEncoder_SampleInterrupt(void)
   {
     uint32_t now = HAL_GetTick();
     uint32_t step_interval_ms = (tempo_encoder_last_step_tick == 0U) ? UINT32_MAX : (now - tempo_encoder_last_step_tick);
-    int8_t step_size = (int8_t)TEMPO_ENCODER_DIRECTION_SIGN;
-    int16_t pending_delta;
-
-    if (step_interval_ms <= TEMPO_ENCODER_ACCEL_VFAST_MS)
-      step_size = (int8_t)(TEMPO_ENCODER_DIRECTION_SIGN * TEMPO_ENCODER_STEP_VFAST);
-    else if (step_interval_ms <= TEMPO_ENCODER_ACCEL_FAST_MS)
-      step_size = (int8_t)(TEMPO_ENCODER_DIRECTION_SIGN * TEMPO_ENCODER_STEP_FAST);
-    else if (step_interval_ms <= TEMPO_ENCODER_ACCEL_MID_MS)
-      step_size = (int8_t)(TEMPO_ENCODER_DIRECTION_SIGN * TEMPO_ENCODER_STEP_MID);
+    int8_t step_size = (int8_t)(TEMPO_ENCODER_DIRECTION_SIGN * TempoEncoder_ResolveStepMagnitude(step_interval_ms));
 
     tempo_encoder_transition_accum = 0;
     tempo_encoder_last_step_tick = now;
-    pending_delta = (int16_t)tempo_encoder_pending_delta + (int16_t)step_size;
-    if (pending_delta > INT8_MAX)
-      pending_delta = INT8_MAX;
-    tempo_encoder_pending_delta = (int8_t)pending_delta;
+    Encoder_AddPendingDelta(&tempo_encoder_pending_delta, step_size);
   }
   else if (tempo_encoder_transition_accum <= -TEMPO_ENCODER_TRANSITIONS_PER_STEP)
   {
     uint32_t now = HAL_GetTick();
     uint32_t step_interval_ms = (tempo_encoder_last_step_tick == 0U) ? UINT32_MAX : (now - tempo_encoder_last_step_tick);
-    int8_t step_size = (int8_t)(-TEMPO_ENCODER_DIRECTION_SIGN);
-    int16_t pending_delta;
-
-    if (step_interval_ms <= TEMPO_ENCODER_ACCEL_VFAST_MS)
-      step_size = (int8_t)(-TEMPO_ENCODER_DIRECTION_SIGN * TEMPO_ENCODER_STEP_VFAST);
-    else if (step_interval_ms <= TEMPO_ENCODER_ACCEL_FAST_MS)
-      step_size = (int8_t)(-TEMPO_ENCODER_DIRECTION_SIGN * TEMPO_ENCODER_STEP_FAST);
-    else if (step_interval_ms <= TEMPO_ENCODER_ACCEL_MID_MS)
-      step_size = (int8_t)(-TEMPO_ENCODER_DIRECTION_SIGN * TEMPO_ENCODER_STEP_MID);
+    int8_t step_size = (int8_t)(-TEMPO_ENCODER_DIRECTION_SIGN * TempoEncoder_ResolveStepMagnitude(step_interval_ms));
 
     tempo_encoder_transition_accum = 0;
     tempo_encoder_last_step_tick = now;
-    pending_delta = (int16_t)tempo_encoder_pending_delta + (int16_t)step_size;
-    if (pending_delta < INT8_MIN)
-      pending_delta = INT8_MIN;
-    tempo_encoder_pending_delta = (int8_t)pending_delta;
+    Encoder_AddPendingDelta(&tempo_encoder_pending_delta, step_size);
   }
 }
 
@@ -1683,61 +2211,10 @@ static void TempoEncoder_SampleInterrupt(void)
  * change a field and exit with the same encoder while ENC1 continues to own selection. */
 static void TempoEncoder_ProcessPending(void)
 {
-  uint32_t primask;
-  uint8_t activity_pending;
-  int8_t pending_delta;
-
-  primask = __get_PRIMASK();
-  __disable_irq();
-  activity_pending = tempo_encoder_activity_pending;
-  pending_delta = tempo_encoder_pending_delta;
-  tempo_encoder_activity_pending = 0U;
-  tempo_encoder_pending_delta = 0;
-  if (primask == 0U)
-    __enable_irq();
-
-  if (pending_delta != 0)
-    EncoderCheck_LogTurn(3U, pending_delta);
-
-  if (!activity_pending && (pending_delta == 0))
-    return;
-
-  if (Display_ScreensaverIsActive())
-  {
-    Rotary1_RecordActivity();
-    return;
-  }
-
-  Display_ScreensaverActivity();
-
-  if (Display_MenuIsActive())
-  {
-    if (pending_delta != 0)
-      Display_MenuAdjustValue(pending_delta);
-    return;
-  }
-
-  if (Display_PresetEditIsActive())
-  {
-    if (!PresetEdit_CurrentPresetIsEditable())
-    {
-      PresetEdit_Exit();
-      return;
-    }
-
-    if (Display_PresetInitConfirmIsActive())
-      return;
-
-    if (PresetEdit_ApplyDelta(pending_delta))
-    {
-      Presets_MarkDirty();
-      Display_PresetEditRefreshCurrentField(active_preset);
-    }
-    return;
-  }
-
-  if (pending_delta != 0)
-    TempoEncoder_ApplyBpmStep(pending_delta);
+  Encoder_ProcessPendingMotion(&tempo_encoder_activity_pending,
+                               &tempo_encoder_pending_delta,
+                               3U,
+                               APP_EVENT_SOURCE_ENC3);
 }
 
 extern "C" void App_EncoderSampleIRQHandler(void)
@@ -1821,97 +2298,22 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     return;
   }
 
-  /* TAP is handled immediately here; the other buttons are latched on
-   * EXTI and finished later in Button_ProcessPendingEvents(). */
+  /* TAP now publishes an app event so tempo calculation stays in the
+   * foreground. The other buttons still use their existing deferred path. */
   if (GPIO_Pin != TAP_Pin)
   {
     Button_HandleInterrupt(GPIO_Pin);
     return;
   }
 
-  uint8_t screensaver_was_active = Display_ScreensaverIsActive();
-  uint32_t now = HAL_GetTick();
+  AppEvent_t tap_event = {
+    APP_EVENT_TYPE_TAP_PRESS,
+    APP_EVENT_SOURCE_TAP,
+    0,
+    HAL_GetTick()
+  };
 
-    Display_ScreensaverDismiss();
-    Display_ScreensaverActivity();  /* any tap = user activity */
-
-    if (screensaver_was_active)
-    {
-      /* The first tap after idle should only wake the UI, not also retime BPM. */
-      Display_DrawMainScreen(active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
-      return;
-    }
-
-    if (Button_HandleTapPress(now)) {
-      Button_CancelTapBankCombo();
-      Display_DrawMainScreen(Presets_Get(current_bank * PRESETS_PER_BANK), g_bpm);
-      return;
-    }
-
-  /* Ignore tap tempo while an external MIDI clock is actively running */
-  if (MidiClockIsExternalSignalPresent()) {
-    return;
-  }
-
-  if (tap_count > 0U)
-  {
-    uint8_t  prev     = (uint8_t)((tap_head + TAP_BUF_SIZE - 1U) % TAP_BUF_SIZE);
-    uint32_t interval = now - tap_ts[prev];
-
-    if (interval > TAP_RESET_INTERVAL_MS)          /* too slow ??? reset */
-    {
-      tap_count = 0U;
-      tap_head  = 0U;
-    }
-    else if (interval < TAP_MIN_INTERVAL_MS)      /* too fast / bounce ??? ignore */
-    {
-      return;
-    }
-  }
-
-  /* Record tap */
-  tap_ts[tap_head] = now;
-  tap_head = (uint8_t)((tap_head + 1U) % TAP_BUF_SIZE);
-  if (tap_count < TAP_BUF_SIZE) tap_count++;
-
-  if (tap_count < TAP_MIN_COUNT) {
-    return; /* need at least two taps */
-  }
-
-  /* Average all consecutive intervals in the circular buffer so tap tempo is
-   * less twitchy than using only the most recent gap. */
-  uint32_t sum = 0U;
-  uint8_t  n   = tap_count;
-  for (uint8_t i = 0U; i < n - 1U; i++)
-  {
-    uint8_t a = (uint8_t)((tap_head + TAP_BUF_SIZE - n + i)      % TAP_BUF_SIZE);
-    uint8_t b = (uint8_t)((tap_head + TAP_BUF_SIZE - n + i + 1U) % TAP_BUF_SIZE);
-    sum += tap_ts[b] - tap_ts[a];
-  }
-  uint32_t avg_ms = sum / (uint32_t)(n - 1U);
-  if (avg_ms == 0U) {
-    return;
-  }
-
-  //uint32_t new_bpm = 60000U / avg_ms;
-  uint32_t new_bpm = (uint32_t)((60000.0f / (float)avg_ms) + 0.5f);
-  if (new_bpm < BPM_MIN || new_bpm > BPM_MAX) {
-    return;
-  }
-
-  g_bpm = (uint16_t)new_bpm;
-
-  /* Tapping takes us back to internal tempo ??? clear any external sync state
-   * so Display_UpdateBPM doesn't stay stuck on "EXT SYNC LOST". */
-  MidiClockUseInternalTempo();
-
-  /* Sync LED to this tap and update blink rate */
-  TIM6->ARR = MidiClockTimerPeriodForBpm((uint16_t)new_bpm);
-  TIM6->CNT = 0U;
-  LED_BeatPulse();  /* light on tap-down, in addition to the timer beat */
-
-  bpm_dirty     = 1U;
-  bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS; /* re-arm save timer */
+  (void)AppEvent_Push(&tap_event);
 }
 
 /* USER CODE END 4 */
