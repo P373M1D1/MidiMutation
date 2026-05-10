@@ -39,16 +39,16 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PD5         | USART2_TX (AF7) — Morpho CN11                         | MIDI Thru — soft-thru copy of MIDI In |
 | PD6         | USART2_RX (AF7) — Morpho CN11                         | MIDI In (opto-isolated input) |
 | **Rotary Encoders — practical 3-controller plan**                                             |
-| PG11        | GPIO input pull-up, sampled from TIM7 IRQ            | Encoder 1 — A channel (scroll encoder, active in firmware) |
-| PG12        | GPIO input pull-up, sampled from TIM7 IRQ            | Encoder 1 — B channel (scroll encoder, active in firmware) |
-| PB4         | GPIO input pull-up, sampled from TIM7 IRQ — Morpho CN10 | Encoder 2 — A channel (middle encoder, interrupt-driven, function still unassigned) |
-| PB5         | GPIO input pull-up, sampled from TIM7 IRQ — Morpho CN10 | Encoder 2 — B channel (middle encoder, interrupt-driven, function still unassigned) |
-| PD12        | GPIO input pull-up, sampled from TIM7 IRQ — Morpho CN11 | Encoder 3 tempo — CLK (A) (active in firmware) |
-| PD13        | GPIO input pull-up, sampled from TIM7 IRQ — Morpho CN11 | Encoder 3 tempo — DT (B) (active in firmware) |
+| PG11        | GPIO input pull-up, sampled from TIM7 IRQ            | Encoder 1 — A channel (main-info scroll in LIVE, row/cursor navigation in MENU and preset edit) |
+| PG12        | GPIO input pull-up, sampled from TIM7 IRQ            | Encoder 1 — B channel (main-info scroll in LIVE, row/cursor navigation in MENU and preset edit) |
+| PB4         | GPIO input pull-up, sampled from TIM7 IRQ — Morpho CN10 | Encoder 2 — A channel (preset select within current bank in LIVE) |
+| PB5         | GPIO input pull-up, sampled from TIM7 IRQ — Morpho CN10 | Encoder 2 — B channel (preset select within current bank in LIVE) |
+| PD12        | GPIO input pull-up, sampled from TIM7 IRQ — Morpho CN11 | Encoder 3 — CLK (A) (tempo in LIVE, value edit in MENU and preset edit) |
+| PD13        | GPIO input pull-up, sampled from TIM7 IRQ — Morpho CN11 | Encoder 3 — DT (B) (tempo in LIVE, value edit in MENU and preset edit) |
 | **Encoder push buttons**                                                                       |
-| PG14        | GPIO input pull-up, EXTI14 (EXTI15_10_IRQn)          | Encoder 1 switch (wired and interrupt-routed; action not yet assigned) |
-| PD4         | GPIO input pull-up, EXTI4 (EXTI4_IRQn)               | Encoder 2 switch (interrupt-routed; action not yet assigned) |
-| PD3         | GPIO input pull-up, EXTI3 (EXTI3_IRQn)               | Encoder 3 switch (interrupt-routed; action not yet assigned) |
+| PG14        | GPIO input pull-up, EXTI14 (EXTI15_10_IRQn)          | Encoder 1 switch (enter preset edit in LIVE; activate/select in MENU) |
+| PD4         | GPIO input pull-up, EXTI4 (EXTI4_IRQn)               | Encoder 2 switch (next bank in LIVE; HOME in MENU; resend/confirm action in preset edit) |
+| PD3         | GPIO input pull-up, EXTI3 (EXTI3_IRQn)               | Encoder 3 switch (enter MENU from LIVE; BACK/exit in MENU and preset edit) |
 | PD1         | Reassigned to UART4_TX (AF11)                        | Not available for an encoder switch |
 | **Pushbutton LEDs — GPIO output**                                                             |
 | PF0         | Button 1  LED output                                  | Pushbutton 1 LED              |
@@ -101,9 +101,9 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 
 > **EXTI4 / EXTI3 ownership:** PD4 now carries Encoder 2 switch on `EXTI4_IRQn`, and PD3 carries Encoder 3 switch on `EXTI3_IRQn`.
 
-> **Encoder push buttons status:** All three encoder switches are now configured with pull-ups and routed through interrupts. Their presses currently wake or mark UI activity, but no encoder-switch-specific application action is assigned yet.
+> **Encoder push buttons status:** All three encoder switches are configured with pull-ups and routed through interrupts. Their actions are now mode-dependent in firmware: ENC1 enters/activates, ENC2 is bank/HOME/confirm, and ENC3 is MENU/BACK depending on whether the unit is in LIVE, MENU, or preset edit.
 
-> **Encoder input mode:** All three encoder A/B pairs are decoded from the shared `TIM7` interrupt sampler. Encoder 1 now uses a lighter single-CLK-edge decoder inside that sampler because `EXTI11`/`EXTI12` are already consumed by Buttons 4 and 5 on `PE11`/`PE12`. The numbered buttons and encoder switches still use direct GPIO EXTI interrupts.
+> **Encoder input mode:** All three encoder A/B pairs are decoded from the shared `TIM7` interrupt sampler using the same transition-accumulator quadrature approach. The numbered preset buttons still use direct GPIO EXTI interrupts; encoder switch presses are edge-latched on EXTI and debounced/queued from the shared sampler path.
 
 ---
 
@@ -115,3 +115,20 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PLL M / N / P / Q     | 8 / 384 / 4 / 8                  |
 | SYSCLK                | 96 MHz                           |
 | APB1 timer clock      | 96 MHz (TIM6 — BPM tick)         |
+
+## Timer Overview
+
+These timers are used internally by the firmware. They do not currently consume any external timer-channel pins for PWM, capture, or compare output.
+
+| Timer | Clocking | IRQ | Current use |
+|-------|----------|-----|-------------|
+| `TIM2` | 96 MHz APB1 timer clock prescaled to 1 MHz (`1 us` per count) | None | Free-running 32-bit microsecond counter used by MIDI clock receive/measure logic in [Core/Src/midi_functions.c](Core/Src/midi_functions.c). This replaces coarse `HAL_GetTick()` timing for external MIDI clock interval measurement and timeout tracking. |
+| `TIM6` | 96 MHz APB1 timer clock prescaled to 100 kHz (`10 us` per count) | `TIM6_DAC_IRQn` | Internal MIDI clock output scheduler. `ARR` is set for one MIDI clock pulse at `24 PPQN`, the ISR emits outgoing MIDI clock bytes, and the beat LED is pulsed once per quarter note. External sync can retune this timer by rewriting `ARR`/`CNT`, but the smart MIDI clock output still runs from the `TIM6` path. |
+| `TIM7` | 96 MHz APB1 timer clock prescaled to 1 MHz, period set for `2000 Hz` sampling | `TIM7_IRQn` | Shared encoder sampler. The IRQ polls all three encoder A/B pairs plus the debounced encoder switches, then queues foreground actions for live mode, menu navigation, preset edit, and tempo changes. |
+
+### Notes
+
+- `TIM2` is started as a base timer only; no timer interrupt is enabled for it.
+- `TIM6` and `TIM7` are the two active firmware timer interrupts.
+- The encoder pushbuttons themselves still use GPIO EXTI lines; `TIM7` is only the shared sampling timebase for the rotary A/B signals and switch debounce.
+- Timer-related alternate-function pins such as `PE9 -> TIM1_CH1` remain unused in the current firmware pinout.

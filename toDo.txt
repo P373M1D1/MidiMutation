@@ -5,6 +5,11 @@ Change: Move PA_4 initialisation back to main.cpp
 
 Bug: Random Preset button needs debouncing. Can be pressed multiple times so flag won't work. (others can't ba activated mutliple times)
 
+HUGE CHANGE: EVENT DRIVEN ARCHITECTURE!! 
+HUGE CHANGE: DUAL IMAGE ATOMIC PERSISTENCE
+
+ADD: 
+
 Add: FX Mute function while in EDIT mode to A/B wet / dry sound
 Add: ENC1. Enter / Send function -  maybe it suffices to add note in documentation
 Add: Use level CC to "bypass" Wet / Dry Bank presets
@@ -13,8 +18,24 @@ Add: LEDs
 Add: Copy Midi out (UART4) to two more UART TX
 Add another special Functuion button
 Add. Caps to reduce voltage spikes in Midi channel comms
-Add: make init device middle centered and give it red highlight colour
-Add: small black outline for "saving" popup so it stands out against white BG
-Add: disable Tempo Led when not in LIVE mode
 Add: Preset names must also include numbers. So far, we only have upper case and lower case letters to choose from. "A-Z,a-z,0-9, " same we do with device and bank naming 
 Add:  W/D Black on charcoal badge after bank name if bank is Wet / dry 
+
+CHATGPT review: 
+
+What I Would Prioritize Next
+
+Priority order I’d personally choose:
+
+atomic persistence redesign
+event-driven internal architecture
+generalized MIDI routing layer
+structured diagnostics/logging
+clock robustness improvements
+snapshot/scenes system
+TRS MIDI integration
+USB MIDI
+setlist/song mode
+editor/librarian support
+
+You already have a strong foundation. The biggest challenge now is preventing the firmware architecture from becoming rigid as the feature set expands.

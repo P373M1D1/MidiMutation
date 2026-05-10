@@ -140,8 +140,8 @@ void Display_BL_FadeOut(void)
 #define MAIN_FOOTBAR_SECTION_COUNT     3U                    // footer is conceptually split into three unlabeled regions
 #define MAIN_FOOTBAR_SECTION_WIDTH     (ST7796_WIDTH / MAIN_FOOTBAR_SECTION_COUNT) // width of one footer region
 #define MAIN_FOOTBAR_LEFT_TEXT         "SCROLL / EDIT"              // label for the left footer region during normal operation
-#define MAIN_FOOTBAR_CENTER_TEXT       "MENU"               // label for the middle footer region during normal operation
-#define MAIN_FOOTBAR_RIGHT_TEXT        "TEMPO"               // label for the right footer region during normal operation
+#define MAIN_FOOTBAR_CENTER_TEXT       "PRESET / BANK"               // label for the middle footer region during normal operation
+#define MAIN_FOOTBAR_RIGHT_TEXT        "TEMPO / MENU"               // label for the right footer region during normal operation
 #define MAIN_FOOTBAR_EDIT_LEFT_TEXT    "SELECT / ENTER"                    // label for the left footer region while preset edit mode is active
 #define MAIN_FOOTBAR_EDIT_CENTER_TEXT  "SEND"                      // label for the middle footer region while preset edit mode is active
 #define MAIN_FOOTBAR_EDIT_RIGHT_TEXT   "VALUE / EXIT"              // label for the right footer region while preset edit mode is active
@@ -173,8 +173,14 @@ void Display_BL_FadeOut(void)
 #define MAIN_INFO_CC_NUMBER_PREFIX     " CC: "             // label shown ahead of the CC number value
 #define MAIN_INFO_CC_VALUE_PREFIX      " Value: "          // label shown ahead of the CC value
 #define MAIN_INFO_PRESET_INIT_ROW_INDEX (PRESET_DEVICE_SLOTS + PRESET_CC_SLOT_COUNT) // left-column row index of the preset reset action beneath the CC rows
-#define MAIN_INFO_PRESET_INIT_TEXT     "Initialise Preset" // action label shown after the CC rows in preset edit mode
-#define MAIN_INFO_PRESET_INIT_CONFIRM_TEXT "INITIALISE PRESET?" // confirmation prompt shown after selecting the preset reset action
+#define MAIN_INFO_PRESET_INIT_TEXT     "INIT PRESET"      // action label shown after the CC rows in preset edit mode
+#define MAIN_INFO_PRESET_INIT_CONFIRM_TEXT "INIT PRESET?" // confirmation prompt shown after selecting the preset reset action
+#define MENU_BANK_INIT_TEXT            "INIT BANK"        // bank-reset badge label used across the BANK edit page redraw paths
+#define MENU_BANK_INIT_CONFIRM_FORMAT  "INIT BANK %u?"    // confirmation prompt shown after selecting the bank reset action
+#define MENU_DEVICE_INIT_TEXT          "INIT DEVICE"      // device-reset badge label used across the DEVICE edit page redraw paths
+#define MENU_DEVICE_INIT_CONFIRM_FORMAT "INIT DEVICE %u?" // confirmation prompt shown after selecting the device reset action
+#define MENU_ROOT_FACTORY_RESET_TEXT   "Factory Reset"    // destructive action label reused on the GLOBAL page to restore presets and runtime config to compiled defaults
+#define MENU_FACTORY_RESET_CONFIRM_TEXT "FACTORY RESET?"  // confirmation prompt shown before restoring the full factory image
 #define MAIN_INFO_EDIT_FIELD_COUNT     (1U + PRESET_DEVICE_SLOTS + PRESET_RELAY_COUNT + (PRESET_CC_SLOT_COUNT * 3U) + 1U) // number of editable fields in preset edit mode, including the preset name and preset reset action
 #define MAIN_INFO_SHARED_PAD_CHARS     2U                   // extra chars cleared when special-function text shrinks
 #define MAIN_UNUSED_PROGRAM            0xFFU                // sentinel meaning no MIDI program is assigned to that slot
@@ -209,6 +215,9 @@ void Display_BL_FadeOut(void)
 #define MAIN_BANK_FONT                 Font_Consolas15x35   // font for the bank name line
 #define MAIN_BANK_COLOUR               CHARCOAL            // text colour for the bank name line
 #define MAIN_BANK_BG_COLOUR            DISPLAY_BG_COLOUR    // background colour behind the bank name line
+#define MAIN_BANK_WET_DRY_BADGE_TEXT   " W/D "             // badge shown after the bank name when Wet/Dry mode is enabled for that bank
+#define MAIN_BANK_WET_DRY_COLOUR       WHITE               // text colour for the Wet/Dry badge
+#define MAIN_BANK_WET_DRY_BG_COLOUR    CHARCOAL            // background colour for the Wet/Dry badge
 #define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_NAME       "Vita" // fallback label shown ahead of the special-function-button state
 #define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_ACTIVE_TEXT "undead" // fallback text shown when the special-function button mode is active
 #define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_INACTIVE_TEXT "dead"   // fallback text shown when the special-function button mode is inactive
@@ -223,7 +232,7 @@ void Display_BL_FadeOut(void)
 
 #define MENU_ROOT_ITEM_COUNT            3U                   // number of top-level entries currently shown in the menu shell
 #define MENU_VISIBLE_ROW_COUNT          4U                   // number of menu rows visible at one time in the current shell layout
-#define MENU_GLOBAL_ITEM_COUNT          4U                   // number of editable global-setting rows currently implemented
+#define MENU_GLOBAL_ITEM_COUNT          5U                   // number of GLOBAL rows, including the factory-reset action
 #define MENU_BANK_EDIT_ITEM_COUNT       5U                   // number of items on the bank edit page
 #define MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT 3U              // number of editable text rows before the compare table starts
 #define MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT // first logical row index of the compare table
@@ -255,6 +264,7 @@ typedef enum {
     DISPLAY_MENU_PAGE_DEVICES,
     DISPLAY_MENU_PAGE_DEVICE_EDIT,
     DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM,
+    DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM,
     DISPLAY_MENU_PAGE_GLOBAL,
 } DisplayMenuPage_t;
 
@@ -922,7 +932,8 @@ static const char *Display_GetFootbarLabel(uint8_t section_index)
     if (menu_mode_active)
     {
         if (menu_page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM
-         || menu_page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM)
+         || menu_page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM
+         || menu_page == DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM)
         {
             switch (section_index)
             {
@@ -1062,20 +1073,6 @@ static void Display_WriteCenteredPaddedText32WithBackground(uint16_t y,
                         font.height);
 }
 
-static void Display_WriteCenteredPaddedText32(uint16_t y,
-                                              const char *text,
-                                              uint8_t width_chars,
-                                              FontDef32 font,
-                                              uint16_t colour)
-{
-    Display_WriteCenteredPaddedText32WithBackground(y,
-                                                    text,
-                                                    width_chars,
-                                                    font,
-                                                    colour,
-                                                    DISPLAY_BG_COLOUR);
-}
-
 static uint8_t Display_GetModeHeaderWidthChars(const char *text)
 {
     size_t text_len = strlen(text);
@@ -1116,6 +1113,8 @@ static const char *Display_GetMenuHeaderTextForPage(DisplayMenuPage_t page, char
         return buffer;
     case DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM:
         return "CONFIRM";
+    case DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM:
+        return "CONFIRM";
     case DISPLAY_MENU_PAGE_GLOBAL:
         return "GLOBAL";
     case DISPLAY_MENU_PAGE_ROOT:
@@ -1127,13 +1126,15 @@ static const char *Display_GetMenuHeaderTextForPage(DisplayMenuPage_t page, char
 static uint8_t Display_MenuPageUsesConfirmFootbar(DisplayMenuPage_t page)
 {
     return (page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM
-         || page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM) ? 1U : 0U;
+         || page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM
+         || page == DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM) ? 1U : 0U;
 }
 
 static uint8_t Display_MenuPageUsesFreeformBody(DisplayMenuPage_t page)
 {
     return (page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM
-         || page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM) ? 1U : 0U;
+         || page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM
+         || page == DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM) ? 1U : 0U;
 }
 
 static uint8_t Display_MenuHeaderChanged(DisplayMenuPage_t previous_page, DisplayMenuPage_t current_page)
@@ -1897,11 +1898,70 @@ static void Display_DrawMenuCenteredBadgeRow(uint16_t row_y,
 
 static void Display_DrawCurrentBankNameLine(void)
 {
-    Display_WriteCenteredPaddedText32(MAIN_BANK_TEXT_Y,
-                                      Presets_GetBankName(current_bank),
-                                      MAIN_BANK_TEXT_CHARS,
-                                      MAIN_BANK_FONT,
-                                      MAIN_BANK_COLOUR);
+    const char *bank_name = Presets_GetBankName(current_bank);
+    const RuntimeConfigBank_t *bank = RuntimeConfig_GetBank(current_bank);
+    uint16_t group_width;
+    uint16_t badge_x;
+    uint16_t draw_x;
+    uint16_t badge_width;
+    uint16_t gap_width = MAIN_BANK_FONT.width;
+    size_t bank_name_length;
+
+    if (!bank_name)
+        bank_name = "";
+
+    bank_name_length = strnlen(bank_name, MAIN_BANK_TEXT_CHARS);
+    group_width = (uint16_t)(bank_name_length * MAIN_BANK_FONT.width);
+    badge_width = 0U;
+
+    if (bank && bank->wet_dry_enabled)
+    {
+        badge_width = (uint16_t)(strlen(MAIN_BANK_WET_DRY_BADGE_TEXT) * MAIN_BANK_FONT.width);
+        group_width = (uint16_t)(group_width + gap_width + badge_width);
+    }
+
+    DisplayCompose_Clear(ST7796_WIDTH,
+                         MAIN_BANK_FONT.height,
+                         MAIN_BANK_BG_COLOUR);
+
+    if (group_width > ST7796_WIDTH)
+        group_width = ST7796_WIDTH;
+
+    draw_x = (uint16_t)((ST7796_WIDTH - group_width) / 2U);
+
+    Display_ComposeString32(ST7796_WIDTH,
+                            MAIN_BANK_FONT.height,
+                            draw_x,
+                            0U,
+                            bank_name,
+                            MAIN_BANK_FONT,
+                            MAIN_BANK_COLOUR,
+                            MAIN_BANK_BG_COLOUR);
+
+    if (badge_width > 0U)
+    {
+        badge_x = (uint16_t)(draw_x + (bank_name_length * MAIN_BANK_FONT.width) + gap_width);
+        Display_ComposeFillRect(ST7796_WIDTH,
+                                MAIN_BANK_FONT.height,
+                                badge_x,
+                                0U,
+                                badge_width,
+                                MAIN_BANK_FONT.height,
+                                MAIN_BANK_WET_DRY_BG_COLOUR);
+        Display_ComposeString32(ST7796_WIDTH,
+                                MAIN_BANK_FONT.height,
+                                badge_x,
+                                0U,
+                                MAIN_BANK_WET_DRY_BADGE_TEXT,
+                                MAIN_BANK_FONT,
+                                MAIN_BANK_WET_DRY_COLOUR,
+                                MAIN_BANK_WET_DRY_BG_COLOUR);
+    }
+
+    Display_ComposeBlit(0U,
+                        MAIN_BANK_TEXT_Y,
+                        ST7796_WIDTH,
+                        MAIN_BANK_FONT.height);
 }
 
 static void Display_DrawPresetInitConfirmPrompt(void)
@@ -3079,7 +3139,7 @@ static void Display_DrawMenuBankEditItem(uint8_t item_index)
         "Wet / Dry",
         "Function Button",
         "Counter",
-        "Initialise Bank",
+        MENU_BANK_INIT_TEXT,
     };
     uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_BANK_EDIT_ITEM_COUNT,
                                                                    menu_bank_edit_selection_index);
@@ -3129,7 +3189,7 @@ static void Display_DrawMenuBankInitConfirm(void)
 
     (void)snprintf(confirm_text,
                    sizeof(confirm_text),
-                   "INITIALISE BANK %u?",
+                   MENU_BANK_INIT_CONFIRM_FORMAT,
                    (uint8_t)(menu_active_bank_index + 1U));
 
     Display_WriteCenteredPaddedText32WithBackground(MAIN_BANK_TEXT_Y,
@@ -3602,6 +3662,34 @@ static void Display_FormatMenuDeviceLabel(uint8_t device_index, char *buffer, si
     (void)snprintf(buffer, buffer_size, MENU_DEVICE_LABEL_PREFIX "%u", (uint8_t)(device_index + 1U));
 }
 
+static const char *Display_GetMenuDeviceEditLabel(uint8_t item_index,
+                                                  char *buffer,
+                                                  size_t buffer_size)
+{
+    static const char * const menu_device_edit_labels[MENU_DEVICE_EDIT_ITEM_COUNT] = {
+        "Name",
+        "Max Preset",
+        "Channel",
+        "Active CC",
+        "Bypass CC",
+        "Level CC",
+        "Tap-SW CC",
+        MENU_DEVICE_INIT_TEXT,
+    };
+
+    if (!buffer || buffer_size == 0U || item_index >= MENU_DEVICE_EDIT_ITEM_COUNT)
+        return "";
+
+    if (item_index == 0U)
+    {
+        Display_FormatMenuDeviceLabel(menu_active_device_index, buffer, buffer_size);
+        return buffer;
+    }
+
+    (void)snprintf(buffer, buffer_size, "%s", menu_device_edit_labels[item_index]);
+    return buffer;
+}
+
 static void Display_FormatMenuDeviceListValue(const RuntimeConfigDevice_t *device,
                                               char *buffer,
                                               size_t buffer_size)
@@ -3726,10 +3814,25 @@ static MidiCC_t *Display_GetDeviceCcForMenuItem(RuntimeConfigDevice_t *device, u
 
 static void Display_ResetActiveDeviceToUnusedDefaults(RuntimeConfigDevice_t *device)
 {
+    static const char * const default_device_names[MIDI_DEVICE_COUNT] = {
+        "Dev1",
+        "Dev2",
+        "Dev3",
+        "Dev4",
+        "Dev5",
+        "Dev6",
+        "Dev7",
+        "Dev8",
+    };
+
     if (!device)
         return;
 
     memset(device->name, 0, sizeof(device->name));
+    if (menu_active_device_index < MIDI_DEVICE_COUNT)
+        memcpy(device->name,
+               default_device_names[menu_active_device_index],
+               sizeof(device->name) - 1U);
     device->channel = (uint8_t)(menu_active_device_index + 1U);
     device->active.cc = PRESET_CC_NUMBER_UNUSED;
     device->active.value = 0U;
@@ -3857,20 +3960,11 @@ static void Display_DrawMenuDeviceEdit(void)
 
 static void Display_DrawMenuDeviceEditItem(uint8_t item_index)
 {
-    static const char * const menu_device_edit_labels[MENU_DEVICE_EDIT_ITEM_COUNT] = {
-        "Name",
-        "Max Preset",
-        "Channel",
-        "Active CC",
-        "Bypass CC",
-        "Level CC",
-        "Tap-SW CC",
-        "Init Device",
-    };
     uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_DEVICE_EDIT_ITEM_COUNT,
                                                                    menu_device_edit_selection_index);
     uint8_t row_index;
     uint8_t row_selected;
+    char label_text[16];
     char value_text[20];
     const RuntimeConfigDevice_t *device = RuntimeConfig_GetDevice(menu_active_device_index);
 
@@ -3887,7 +3981,7 @@ static void Display_DrawMenuDeviceEditItem(uint8_t item_index)
     if (item_index == 0U && menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_DEVICE_NAME)
     {
         Display_DrawMenuTextEditRow(menu_row_y[row_index],
-                                    menu_device_edit_labels[item_index],
+                                    Display_GetMenuDeviceEditLabel(item_index, label_text, sizeof(label_text)),
                                     device ? device->name : "",
                                     RUNTIME_CONFIG_DEVICE_NAME_LENGTH);
         return;
@@ -3896,7 +3990,7 @@ static void Display_DrawMenuDeviceEditItem(uint8_t item_index)
     if (item_index >= 3U && item_index <= 6U && item_index == menu_device_edit_selection_index)
     {
         Display_DrawMenuDeviceCcEditRow(menu_row_y[row_index],
-                                        menu_device_edit_labels[item_index],
+                                        Display_GetMenuDeviceEditLabel(item_index, label_text, sizeof(label_text)),
                                         Display_GetSelectedDeviceCc((RuntimeConfigDevice_t *)device));
         return;
     }
@@ -3904,7 +3998,7 @@ static void Display_DrawMenuDeviceEditItem(uint8_t item_index)
     if (item_index == 7U)
     {
         Display_DrawMenuCenteredBadgeRow(menu_row_y[row_index],
-                                         menu_device_edit_labels[item_index],
+                                         Display_GetMenuDeviceEditLabel(item_index, label_text, sizeof(label_text)),
                                          BLACK,
                                          RED);
         return;
@@ -3913,7 +4007,7 @@ static void Display_DrawMenuDeviceEditItem(uint8_t item_index)
     Display_FormatDeviceEditValue(item_index, value_text, sizeof(value_text));
 
     Display_DrawMenuRow(menu_row_y[row_index],
-                        menu_device_edit_labels[item_index],
+                        Display_GetMenuDeviceEditLabel(item_index, label_text, sizeof(label_text)),
                         value_text,
                         row_selected);
 }
@@ -3924,7 +4018,7 @@ static void Display_DrawMenuDeviceInitConfirm(void)
 
     (void)snprintf(confirm_text,
                    sizeof(confirm_text),
-                   "INIT DEVICE %u?",
+                   MENU_DEVICE_INIT_CONFIRM_FORMAT,
                    (uint8_t)(menu_active_device_index + 1U));
 
     Display_WriteCenteredPaddedText32WithBackground(MAIN_BANK_TEXT_Y,
@@ -3933,6 +4027,27 @@ static void Display_DrawMenuDeviceInitConfirm(void)
                                                     MAIN_BANK_FONT,
                                                     RED,
                                                     DISPLAY_BG_COLOUR);
+}
+
+static void Display_DrawMenuFactoryResetConfirm(void)
+{
+    Display_WriteCenteredPaddedText32WithBackground(MAIN_BANK_TEXT_Y,
+                                                    MENU_FACTORY_RESET_CONFIRM_TEXT,
+                                                    MAIN_BANK_TEXT_CHARS,
+                                                    MAIN_BANK_FONT,
+                                                    RED,
+                                                    DISPLAY_BG_COLOUR);
+}
+
+static void Display_RestoreFactorySettings(void)
+{
+    RuntimeConfig_ResetToDefaults();
+
+    for (uint8_t preset_index = 0U; preset_index < PRESET_COUNT; ++preset_index)
+        Presets_ResetPresetToDefaults(preset_index);
+
+    RuntimeConfig_MarkDirty();
+    Presets_MarkDirty();
 }
 
 static void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buffer_size)
@@ -3962,6 +4077,9 @@ static void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size
                        "%u",
                        Display_GetGlobalBrightnessUiValue(global->backlight_brightness));
         break;
+    case 4U:
+        buffer[0] = '\0';
+        break;
     default:
         buffer[0] = '\0';
         break;
@@ -3970,12 +4088,17 @@ static void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size
 
 static void Display_DrawMenuGlobal(void)
 {
-    for (uint8_t index = 0U; index < MENU_VISIBLE_ROW_COUNT; ++index)
+    uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_GLOBAL_ITEM_COUNT,
+                                                                   menu_global_selection_index);
+
+    for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
     {
-        if (index < MENU_GLOBAL_ITEM_COUNT)
-            Display_DrawMenuGlobalItem(index);
+        uint8_t item_index = (uint8_t)(first_visible_index + row_index);
+
+        if (item_index < MENU_GLOBAL_ITEM_COUNT)
+            Display_DrawMenuGlobalItem(item_index);
         else
-            Display_ClearStandardMenuRow(index);
+            Display_ClearStandardMenuRow(row_index);
     }
 }
 
@@ -3986,17 +4109,29 @@ static void Display_DrawMenuGlobalItem(uint8_t item_index)
         "Screen Saver",
         "Sync Style",
         "Brightness",
+        MENU_ROOT_FACTORY_RESET_TEXT,
     };
+    uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_GLOBAL_ITEM_COUNT,
+                                                                   menu_global_selection_index);
+    uint8_t row_index;
     char value_text[20];
 
-    if (item_index >= MENU_GLOBAL_ITEM_COUNT)
+    if (item_index < first_visible_index || item_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
+        return;
+
+    row_index = (uint8_t)(item_index - first_visible_index);
+
+    if (item_index == 4U)
     {
-        Display_ClearStandardMenuRow(item_index);
+        Display_DrawMenuCenteredBadgeRow(menu_row_y[row_index],
+                                         menu_global_labels[item_index],
+                                         BLACK,
+                                         RED);
         return;
     }
 
     Display_FormatGlobalMenuValue(item_index, value_text, sizeof(value_text));
-    Display_DrawMenuRow(menu_row_y[item_index],
+    Display_DrawMenuRow(menu_row_y[row_index],
                         menu_global_labels[item_index],
                         value_text,
                         (item_index == menu_global_selection_index) ? 1U : 0U);
@@ -4152,7 +4287,7 @@ static void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item
             "Wet / Dry",
             "Function Button",
             "Counter",
-            "Initialise Bank",
+            MENU_BANK_INIT_TEXT,
         };
         uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_BANK_EDIT_ITEM_COUNT,
                                                                        menu_bank_edit_selection_index);
@@ -4254,20 +4389,11 @@ static void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item
 
     case DISPLAY_MENU_PAGE_DEVICE_EDIT:
     {
-        static const char * const menu_device_edit_labels[MENU_DEVICE_EDIT_ITEM_COUNT] = {
-            "Name",
-            "Max Preset",
-            "Channel",
-            "Active CC",
-            "Bypass CC",
-            "Level CC",
-            "Tap-SW CC",
-            "Init Device",
-        };
         uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_DEVICE_EDIT_ITEM_COUNT,
                                                                        menu_device_edit_selection_index);
         uint8_t row_index;
         uint8_t highlight_row = selected;
+        char label_text[16];
         const RuntimeConfigDevice_t *device = RuntimeConfig_GetDevice(menu_active_device_index);
 
         if (item_index < first_visible_index || item_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
@@ -4280,7 +4406,7 @@ static void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item
         if (selected && item_index >= 3U && item_index <= 6U)
         {
             Display_DrawMenuDeviceCcEditRow(menu_row_y[row_index],
-                                            menu_device_edit_labels[item_index],
+                                            Display_GetMenuDeviceEditLabel(item_index, label_text, sizeof(label_text)),
                                             Display_GetDeviceCcForMenuItem((RuntimeConfigDevice_t *)device, item_index));
             return;
         }
@@ -4288,7 +4414,7 @@ static void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item
         if (item_index == 7U)
         {
             Display_DrawMenuCenteredBadgeRow(menu_row_y[row_index],
-                                             menu_device_edit_labels[item_index],
+                                             Display_GetMenuDeviceEditLabel(item_index, label_text, sizeof(label_text)),
                                              BLACK,
                                              RED);
             return;
@@ -4296,7 +4422,7 @@ static void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item
 
         Display_FormatDeviceEditValue(item_index, value_text, sizeof(value_text));
         Display_DrawMenuRowValueOnly(menu_row_y[row_index],
-                                     menu_device_edit_labels[item_index],
+                                     Display_GetMenuDeviceEditLabel(item_index, label_text, sizeof(label_text)),
                                      value_text,
                                      highlight_row);
         return;
@@ -4309,13 +4435,28 @@ static void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item
             "Screen Saver",
             "Sync Style",
             "Brightness",
+            MENU_ROOT_FACTORY_RESET_TEXT,
         };
+        uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_GLOBAL_ITEM_COUNT,
+                                                                       menu_global_selection_index);
+        uint8_t row_index;
 
-        if (item_index >= MENU_GLOBAL_ITEM_COUNT || item_index >= MENU_VISIBLE_ROW_COUNT)
+        if (item_index < first_visible_index || item_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
             return;
 
+        row_index = (uint8_t)(item_index - first_visible_index);
+
+        if (item_index == 4U)
+        {
+            Display_DrawMenuCenteredBadgeRow(menu_row_y[row_index],
+                                             menu_global_labels[item_index],
+                                             BLACK,
+                                             RED);
+            return;
+        }
+
         Display_FormatGlobalMenuValue(item_index, value_text, sizeof(value_text));
-        Display_DrawMenuRowValueOnly(menu_row_y[item_index],
+        Display_DrawMenuRowValueOnly(menu_row_y[row_index],
                                      menu_global_labels[item_index],
                                      value_text,
                                      selected);
@@ -4356,6 +4497,9 @@ static void Display_DrawCurrentMenuPageBody(void)
     case DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM:
         Display_DrawMenuDeviceInitConfirm();
         break;
+    case DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM:
+        Display_DrawMenuFactoryResetConfirm();
+        break;
     case DISPLAY_MENU_PAGE_GLOBAL:
         Display_DrawMenuGlobal();
         break;
@@ -4395,6 +4539,8 @@ static uint8_t Display_GetMenuFirstVisibleIndexForPage(DisplayMenuPage_t page, u
 {
     switch (page)
     {
+    case DISPLAY_MENU_PAGE_GLOBAL:
+        return Display_GetMenuFirstVisibleIndex(MENU_GLOBAL_ITEM_COUNT, selection_index);
     case DISPLAY_MENU_PAGE_BANKS:
         return Display_GetMenuFirstVisibleIndex(PRESET_BANK_COUNT, selection_index);
     case DISPLAY_MENU_PAGE_BANK_EDIT:
@@ -4426,13 +4572,13 @@ static uint8_t Display_GetMenuVisibleRowIndex(DisplayMenuPage_t page,
     switch (page)
     {
     case DISPLAY_MENU_PAGE_ROOT:
-    case DISPLAY_MENU_PAGE_GLOBAL:
         if (item_index >= MENU_VISIBLE_ROW_COUNT)
             return 0U;
 
         *row_index = item_index;
         return 1U;
 
+    case DISPLAY_MENU_PAGE_GLOBAL:
     case DISPLAY_MENU_PAGE_BANKS:
     case DISPLAY_MENU_PAGE_BANK_EDIT:
     case DISPLAY_MENU_PAGE_DEVICES:
@@ -4746,7 +4892,7 @@ static void Display_RedrawMenuCurrentValueItem(DisplayMenuPage_t page, uint8_t i
             "Wet / Dry",
             "Function Button",
             "Counter",
-            "Initialise Bank",
+            MENU_BANK_INIT_TEXT,
         };
         uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_BANK_EDIT_ITEM_COUNT,
                                                                        menu_bank_edit_selection_index);
@@ -4837,20 +4983,11 @@ static void Display_RedrawMenuCurrentValueItem(DisplayMenuPage_t page, uint8_t i
 
     case DISPLAY_MENU_PAGE_DEVICE_EDIT:
     {
-        static const char * const menu_device_edit_labels[MENU_DEVICE_EDIT_ITEM_COUNT] = {
-            "Name",
-            "Max Preset",
-            "Channel",
-            "Active CC",
-            "Bypass CC",
-            "Level CC",
-            "Tap-SW CC",
-            "Init Device",
-        };
         const RuntimeConfigDevice_t *device = RuntimeConfig_GetDevice(menu_active_device_index);
         uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_DEVICE_EDIT_ITEM_COUNT,
                                                                        item_index);
         uint8_t row_index;
+        char label_text[16];
 
         if (item_index < first_visible_index || item_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
             return;
@@ -4859,7 +4996,7 @@ static void Display_RedrawMenuCurrentValueItem(DisplayMenuPage_t page, uint8_t i
         {
             row_index = (uint8_t)(item_index - first_visible_index);
             Display_DrawMenuTextEditRow(menu_row_y[row_index],
-                                        menu_device_edit_labels[item_index],
+                                        Display_GetMenuDeviceEditLabel(item_index, label_text, sizeof(label_text)),
                                         device ? device->name : "",
                                         RUNTIME_CONFIG_DEVICE_NAME_LENGTH);
             return;
@@ -5178,6 +5315,20 @@ void Display_MenuHome(void)
         return;
     }
 
+    if (menu_page == DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM)
+    {
+        Display_ResetFunctionButtonMessageEditor();
+        menu_device_cc_field_index = 0U;
+        menu_device_cc_field_edit_active = 0U;
+        menu_text_edit_field = DISPLAY_MENU_TEXT_FIELD_NONE;
+        menu_text_edit_cursor_index = 0U;
+        Display_RestoreFactorySettings();
+        menu_global_selection_index = 4U;
+        menu_page = DISPLAY_MENU_PAGE_GLOBAL;
+        Display_MenuRefresh();
+        return;
+    }
+
     menu_text_edit_field = DISPLAY_MENU_TEXT_FIELD_NONE;
     menu_text_edit_cursor_index = 0U;
     Display_ResetFunctionButtonMessageEditor();
@@ -5354,6 +5505,15 @@ uint8_t Display_MenuActivate(void)
             return 0U;
         }
         break;
+    case DISPLAY_MENU_PAGE_GLOBAL:
+        if (menu_global_selection_index == 4U)
+        {
+            menu_page = DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM;
+            Display_MenuRefresh();
+            return 1U;
+        }
+
+        return 0U;
     case DISPLAY_MENU_PAGE_BANKS:
         menu_active_bank_index = menu_bank_selection_index;
         menu_bank_edit_selection_index = 0U;
@@ -5457,6 +5617,11 @@ uint8_t Display_MenuBack(void)
         return 1U;
     case DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM:
         menu_page = DISPLAY_MENU_PAGE_DEVICE_EDIT;
+        Display_MenuRefresh();
+        return 1U;
+    case DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM:
+        menu_global_selection_index = 4U;
+        menu_page = DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return 1U;
     case DISPLAY_MENU_PAGE_DEVICES:

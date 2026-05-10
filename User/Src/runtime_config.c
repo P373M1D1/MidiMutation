@@ -6,7 +6,7 @@
 #define RUNTIME_CONFIG_INVALID_BANK_NAME                "(bank?)"
 #define RUNTIME_CONFIG_GLOBAL_STARTUP_DELAY_DEFAULT     1U
 #define RUNTIME_CONFIG_GLOBAL_SCREENSAVER_MIN_DEFAULT   10U
-#define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_DEFAULT        2095U
+#define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_DEFAULT        RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX
 
 #define RUNTIME_CONFIG_PROGRAM_MESSAGE_UNUSED \
     { .channel = PRESET_CC_CHANNEL_UNUSED, .program = PRESET_PROGRAM_NONE }
@@ -24,6 +24,7 @@
     { .cc = PRESET_CC_NUMBER_UNUSED, .value = 0U }
 
 #define RUNTIME_CONFIG_DEVICE_NAME_LENGTH_LEGACY_V2   4U
+#define RUNTIME_CONFIG_DEVICE_NAME_LENGTH_LEGACY_V4   8U
 
 typedef struct {
     char name[RUNTIME_CONFIG_BANK_NAME_LENGTH + 1U];
@@ -42,6 +43,16 @@ typedef struct {
 } RuntimeConfigDeviceLegacyV2_t;
 
 typedef struct {
+    char name[RUNTIME_CONFIG_DEVICE_NAME_LENGTH_LEGACY_V4 + 1U];
+    uint8_t channel;
+    MidiCC_t active;
+    MidiCC_t bypass;
+    MidiCC_t level;
+    MidiCC_t tap_tempo;
+    uint8_t max_preset;
+} RuntimeConfigDeviceLegacyV4_t;
+
+typedef struct {
     RuntimeConfigBankLegacyV2_t banks[PRESET_BANK_COUNT];
     RuntimeConfigDeviceLegacyV2_t devices[MIDI_DEVICE_COUNT];
     RuntimeConfigGlobal_t global;
@@ -52,6 +63,12 @@ typedef struct {
     RuntimeConfigDeviceLegacyV2_t devices[MIDI_DEVICE_COUNT];
     RuntimeConfigGlobal_t global;
 } RuntimeConfigLegacyV3_t;
+
+typedef struct {
+    RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
+    RuntimeConfigDeviceLegacyV4_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigGlobal_t global;
+} RuntimeConfigLegacyV4_t;
 
 #define RUNTIME_CONFIG_FUNCTION_BUTTON_DEFAULT \
     { \
@@ -112,14 +129,14 @@ static const RuntimeConfig_t runtime_config_defaults = {
         RUNTIME_CONFIG_BANK_ENTRY("Bank 8"),
     },
     .devices = {
-        RUNTIME_CONFIG_DEVICE_ENTRY("", 1U, 60U, 127U, 60U, 0U, 35U, 64U, 35U),
-        RUNTIME_CONFIG_DEVICE_ENTRY("", 2U, 60U, 127U, 60U, 0U, 35U, 64U, 35U),
-        RUNTIME_CONFIG_DEVICE_ENTRY("", 3U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, 127U),
-        RUNTIME_CONFIG_DEVICE_ENTRY("", 4U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, 127U),
-        RUNTIME_CONFIG_DEVICE_ENTRY("", 5U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, 127U),
-        RUNTIME_CONFIG_DEVICE_ENTRY("", 6U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, 127U),
-        RUNTIME_CONFIG_DEVICE_ENTRY("", 7U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, 127U),
-        RUNTIME_CONFIG_DEVICE_ENTRY("", 8U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, 127U),
+        RUNTIME_CONFIG_DEVICE_ENTRY("Dev1", 1U, 60U, 127U, 60U, 0U, 35U, 64U, 35U),
+        RUNTIME_CONFIG_DEVICE_ENTRY("Dev2", 2U, 60U, 127U, 60U, 0U, 35U, 64U, 35U),
+        RUNTIME_CONFIG_DEVICE_ENTRY("Dev3", 3U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, 127U),
+        RUNTIME_CONFIG_DEVICE_ENTRY("Dev4", 4U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, 127U),
+        RUNTIME_CONFIG_DEVICE_ENTRY("Dev5", 5U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, 127U),
+        RUNTIME_CONFIG_DEVICE_ENTRY("Dev6", 6U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, 127U),
+        RUNTIME_CONFIG_DEVICE_ENTRY("Dev7", 7U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, 127U),
+        RUNTIME_CONFIG_DEVICE_ENTRY("Dev8", 8U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, PRESET_CC_NUMBER_UNUSED, 0U, 127U),
     },
     .global = {
         .startup_delay_seconds = RUNTIME_CONFIG_GLOBAL_STARTUP_DELAY_DEFAULT,
@@ -149,9 +166,46 @@ static void RuntimeConfig_CopyLegacyDevice(RuntimeConfigDevice_t *destination,
     destination->max_preset = source->max_preset;
 }
 
+static void RuntimeConfig_CopyLegacyDeviceV4(RuntimeConfigDevice_t *destination,
+                                             const RuntimeConfigDeviceLegacyV4_t *source)
+{
+    size_t copy_size;
+    size_t source_name_length;
+
+    if (!destination || !source)
+        return;
+
+    memset(destination->name, 0, sizeof(destination->name));
+    if (strncmp(source->name, "Device ", 7U) == 0
+     && source->name[7] >= '1'
+     && source->name[7] <= '8'
+     && source->name[8] == '\0')
+    {
+        destination->name[0] = 'D';
+        destination->name[1] = 'e';
+        destination->name[2] = 'v';
+        destination->name[3] = source->name[7];
+    }
+    else
+    {
+        source_name_length = strnlen(source->name, sizeof(source->name));
+        copy_size = (source_name_length < (sizeof(destination->name) - 1U))
+            ? source_name_length
+            : (sizeof(destination->name) - 1U);
+        memcpy(destination->name, source->name, copy_size);
+    }
+    destination->channel = source->channel;
+    destination->active = source->active;
+    destination->bypass = source->bypass;
+    destination->level = source->level;
+    destination->tap_tempo = source->tap_tempo;
+    destination->max_preset = source->max_preset;
+}
+
 static uint8_t RuntimeConfig_FlashHeaderV2HasSupportedConfigSize(uint32_t config_size)
 {
     return (config_size == sizeof(RuntimeConfig_t)
+         || config_size == sizeof(RuntimeConfigLegacyV4_t)
          || config_size == sizeof(RuntimeConfigLegacyV3_t)
          || config_size == sizeof(RuntimeConfigLegacyV2_t)) ? 1U : 0U;
 }
@@ -225,6 +279,22 @@ static void RuntimeConfig_ApplyLegacyV3Snapshot(const RuntimeConfigLegacyV3_t *l
     runtime_config_store.global = legacy_store->global;
 }
 
+static void RuntimeConfig_ApplyLegacyV4Snapshot(const RuntimeConfigLegacyV4_t *legacy_store)
+{
+    if (!legacy_store)
+        return;
+
+    memcpy(runtime_config_store.banks,
+           legacy_store->banks,
+           sizeof(runtime_config_store.banks));
+
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDeviceV4(&runtime_config_store.devices[device_index],
+                                         &legacy_store->devices[device_index]);
+
+    runtime_config_store.global = legacy_store->global;
+}
+
 static uint32_t RuntimeConfig_FlashChecksum(const uint8_t *data, size_t size)
 {
     uint32_t hash = 2166136261UL;
@@ -276,6 +346,13 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
 
     if (header->config_size == sizeof(runtime_config_store))
         memcpy(&runtime_config_store, config_payload, sizeof(runtime_config_store));
+    else if (header->config_size == sizeof(RuntimeConfigLegacyV4_t))
+    {
+        RuntimeConfigLegacyV4_t legacy_store;
+
+        memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+        RuntimeConfig_ApplyLegacyV4Snapshot(&legacy_store);
+    }
     else if (header->config_size == sizeof(RuntimeConfigLegacyV3_t))
     {
         RuntimeConfigLegacyV3_t legacy_store;

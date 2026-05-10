@@ -1273,7 +1273,7 @@ static void EncoderCheck_ProcessPending(void)
 
   if ((press_mask & 0x02U) && !Display_PresetEditIsActive())
   {
-    Menu_Enter();
+    Bank_StepUpWithSpillover();
     return;
   }
 
@@ -1291,7 +1291,7 @@ static void EncoderCheck_ProcessPending(void)
 
   if ((press_mask & 0x04U) && !Display_PresetEditIsActive())
   {
-    Bank_StepUpWithSpillover();
+    Menu_Enter();
     return;
   }
 
@@ -1529,8 +1529,10 @@ static void Encoder2_SampleInterrupt(void)
   }
 }
 
-/* ENC2 scrolls the active preset on the main screen, but stays out of menu and
- * preset-edit flows where the other encoders already own navigation/value edits. */
+/* In LIVE mode ENC2 turns through presets within the current bank, while its
+ * press action is handled separately in EncoderCheck_ProcessPending() to step banks.
+ * It stays out of menu and preset-edit flows where the other encoders already own
+ * navigation/value edits. */
 static void Encoder2_ProcessPending(void)
 {
   uint32_t primask;
@@ -1675,9 +1677,10 @@ static void TempoEncoder_SampleInterrupt(void)
   }
 }
 
-/* ENC3 keeps its live-mode tempo role, but becomes the active value knob in
- * preset edit mode so the right hand can change a field and exit with the same
- * encoder while ENC1 continues to own selection. */
+/* ENC3 keeps its live-mode tempo role, while its press action is handled
+ * separately in EncoderCheck_ProcessPending() to enter MENU from LIVE.
+ * It becomes the active value knob in preset edit mode so the right hand can
+ * change a field and exit with the same encoder while ENC1 continues to own selection. */
 static void TempoEncoder_ProcessPending(void)
 {
   uint32_t primask;

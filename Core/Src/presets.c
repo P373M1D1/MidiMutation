@@ -1066,12 +1066,54 @@ done:
     return saved;
 }
 
+static void Presets_ApplyFactoryDefaults(Preset_t *preset, uint8_t index)
+{
+    static const char * const preset_default_names[PRESETS_PER_BANK] = {
+        "Preset 1",
+        "Preset 2",
+        "Preset 3",
+        "Preset 4",
+        "Preset 5",
+        "Preset 6",
+        "Preset 7",
+        "Preset 8",
+    };
+    uint8_t preset_index;
+    size_t name_length;
+
+    if (!preset || index >= PRESET_COUNT)
+        return;
+
+    for (uint8_t slot = 0U; slot < PRESET_DEVICE_SLOTS; ++slot)
+        preset->prg[slot].program = PRESET_PROGRAM_NONE;
+
+    for (uint8_t cc_index = 0U; cc_index < PRESET_CC_SLOT_COUNT; ++cc_index)
+    {
+        preset->cc[cc_index].channel = PRESET_CC_CHANNEL_UNUSED;
+        preset->cc[cc_index].cc_number = PRESET_CC_NUMBER_UNUSED;
+        preset->cc[cc_index].value = PRESET_CC_VALUE_UNUSED;
+    }
+
+    for (uint8_t relay_index = 0U; relay_index < PRESET_RELAY_COUNT; ++relay_index)
+        preset->relay[relay_index] = PRESET_RELAY_OPEN;
+
+    preset_index = (uint8_t)(index % PRESETS_PER_BANK);
+    memset(preset->name, 0, sizeof(preset->name));
+    name_length = strlen(preset_default_names[preset_index]);
+    if (name_length > PRESET_NAME_LENGTH)
+        name_length = PRESET_NAME_LENGTH;
+
+    memcpy(preset->name, preset_default_names[preset_index], name_length);
+}
+
 static void Presets_EnsureRuntimeStore(void)
 {
     if (preset_store_initialized)
         return;
 
     memcpy(preset_store, preset_table, sizeof(preset_store));
+    for (uint8_t index = 0U; index < PRESET_COUNT; ++index)
+        Presets_ApplyFactoryDefaults(&preset_store[index], index);
     Presets_FlashLoadRuntimeStore();
     preset_store_initialized = 1U;
     preset_store_dirty = 0U;
@@ -1223,6 +1265,7 @@ void Presets_ResetPresetToDefaults(uint8_t index)
     bank_index = (uint8_t)(index / PRESETS_PER_BANK);
     preset_index = (uint8_t)(index % PRESETS_PER_BANK);
     preset_store[index] = preset_table[bank_index][preset_index];
+    Presets_ApplyFactoryDefaults(&preset_store[index], index);
 }
 
 void Presets_MarkDirty(void)

@@ -37,11 +37,12 @@ Footer behavior
 	right = NO
 
 Control model
-- ENC2 SW enters MENU from LIVE.
+- ENC2 SW steps to the next bank from LIVE.
+- ENC2 turn cycles through presets within the current bank in LIVE.
 - ENC1 turn moves the cursor within the current list or page.
 - ENC1 press enters the selected submenu or starts editing the selected field.
-- ENC3 turn changes the selected value when the current row is a leaf field.
-- ENC3 SW backs out one level.
+- ENC3 turn changes tempo in LIVE and changes the selected value when the current row is a leaf field.
+- ENC3 SW enters MENU from LIVE, then backs out one level inside MENU.
 - ENC2 SW acts as HOME inside MENU pages.
 - ENC2 SW acts as YES on confirmation screens.
 

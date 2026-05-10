@@ -1,0 +1,109 @@
+MidiMutation - High-Level Overview
+
+1. Product summary
+
+- MidiMutation is a foot controller for hybrid guitar rigs that combine MIDI effects and conventional amplifier switching.
+- The current system combines preset recall, Program Change transmission, CC transmission, relay switching, tempo control, MIDI clock handling, and on-device editing.
+- The hardware design also includes provision for 2 TRS MIDI connectors. These are not yet hooked up electrically in the current build.
+
+2. Functional scope
+
+- 64 preset locations via 8 banks x 8 presets.
+- Up to 8 MIDI device slots are addressed per preset.
+- Each preset stores 8 device Program Change values, 8 additional CC slots, and 2 relay states.
+- The relay outputs are intended for amplifier control, including channel switching and built-in spring reverb tank on/off.
+- MIDI In, smart MIDI Out, and soft-thru are part of the current design.
+- Preset names are editable on the controller.
+
+3. Workflow summary
+
+- In LIVE mode, the controller selects presets, changes banks, controls tempo, and enters MENU or preset edit.
+- In preset edit mode, the user can scroll device preset numbers from the controller, resend the current combination, and audition changes without touching the connected FX pedals.
+- When a useful combination is found, it can be stored as a named preset. Names can be descriptive, functional, or emotion-based.
+- A random preset function is also available. Its practical use is to expose combinations that are otherwise easy to ignore when pedals contain many internal presets.
+
+4. Practical use case
+
+- The main use case is a rig with several MIDI pedals plus an amplifier that still requires relay-based switching.
+- The controller is intended to reduce the need for separate MIDI controllers, amp switchers, and external MIDI utility boxes.
+- The planned TRS MIDI provision addresses a current gap in many foot controllers, since modern FX pedals increasingly use TRS MIDI while many controllers still assume external adapter or junction hardware.
+
+5. Current I/O summary
+
+- Smart MIDI Out 1: UART4 TX on PD1.
+- MIDI In: USART2 RX on PD6.
+- Soft-thru: USART2 TX on PD5.
+- Spare MIDI-capable output path: UART5 TX on PC12, currently unused by firmware.
+- Display: ST7796 TFT over SPI1.
+- User controls: preset/select footswitches, tap footswitch, and 3 rotary encoders with pushbuttons.
+- Control outputs: 2 relay outputs for amp functions.
+- Debug path: USART3 over ST-LINK VCP plus SWD.
+- Planned expansion: 2 TRS MIDI connectors, not yet electrically active.
+
+6. Technical overview
+
+Hardware architecture
+
+- MCU: STM32F413ZH on Nucleo-144.
+- Display subsystem: ST7796 480x320 SPI display with DAC-controlled backlight.
+- Display bulk transfers use a manual SPI1 TX DMA path on DMA2 Stream3.
+- Input subsystem: preset/select footswitches are handled on GPIO EXTI lines; tap is on its own EXTI input; all 3 rotary encoder A/B pairs are sampled from TIM7; encoder pushbuttons are edge-latched on EXTI and debounced in the shared sampler path.
+- MIDI subsystem: UART4 is the smart MIDI output, USART2 handles MIDI input and soft-thru, USART3 is reserved for debug/VCP, and UART5 TX is currently unused in firmware.
+- Relay subsystem: 2 relay control states are stored per preset and intended for amplifier channel and spring reverb switching.
+- TRS MIDI subsystem: board provision exists for 2 TRS MIDI connectors, but the current hardware build does not yet wire them into the active MIDI path.
+
+Software architecture
+
+- main.cpp: boot sequence, peripheral init, timer init, encoder handling, and top-level mode dispatch.
+- button_functions.c: footswitch event queue, preset button handling, tap, random preset, special function, and mute behavior.
+- presets.c / presets.h: preset store, active preset selection, random preset generation, and preset persistence hooks.
+- midi_functions.c: MIDI parser, smart-output scheduling, transport state, external clock measurement, and sync discipline.
+- display_functions.c and display_compose.c: main screen, preset edit UI, menu UI, and display compose/blit pipeline.
+- runtime_config.c / runtime_config.h: editable bank, device, function-button, and global configuration data.
+- led_functions.c: beat and activity LED behavior.
+- bpm_functions.c: BPM persistence and periodic background service support.
+
+Data model
+
+- Preset store: 8 banks x 8 presets.
+- Each preset contains a name, 8 per-device Program Change slots, 8 CC slots, and 2 relay states.
+- Program slots map directly to the configured MIDI device table.
+- Runtime configuration stores editable bank names, optional device names, device channel/max-preset fields, function-button labels/messages, startup delay, screensaver timeout, sync style, and brightness.
+
+Timing and interrupt model
+
+- TIM2: free-running 1 MHz microsecond counter used for external MIDI clock interval measurement and timeout tracking.
+- TIM6: internal MIDI clock engine. Outgoing F8 bytes are generated from the TIM6 IRQ path, and the beat LED is pulsed once per quarter note.
+- TIM7: 2 kHz shared encoder sampler for quadrature decoding and encoder-switch debounce support.
+- EXTI: used for footswitch edges, tap input, and encoder pushbutton edge detection.
+- DMA2 Stream3: used for SPI1 display bulk transfers.
+
+Persistence model
+
+- Sector 11 stores BPM/runtime state. Boot currently restores BPM but starts from bank 1 / preset 1 rather than restoring the last active preset location.
+- Sector 12 stores a versioned combined image containing the editable preset store and runtime configuration.
+- If the stored image is invalid, the firmware falls back to compiled defaults.
+- Preset edits mark the runtime preset store dirty and are committed on preset edit exit.
+- Runtime configuration shares the same combined persistence image so preset and config saves do not erase each other.
+
+Runtime flow
+
+- Boot flow:
+	system clock init -> GPIO/UART/SPI/display init -> runtime config load -> preset store load -> timer start -> draw main screen.
+- Footswitch flow:
+	EXTI edge -> button event queue -> foreground processing in button_functions.c -> preset/random/special/mute/tap action -> display and LED update.
+- Encoder flow:
+	TIM7 sample -> quadrature accumulation -> pending step/button flags -> foreground processing in main.cpp -> mode-specific action for LIVE, MENU, or preset edit.
+- Preset activation flow:
+	preset selection -> fetch preset data -> send Program Changes and CC messages through the MIDI output path -> apply relay states -> refresh display.
+- MIDI clock flow:
+	external clock bytes arrive on USART2 -> interval measured with TIM2 -> TIM6 pulse interval and phase are updated -> outgoing clock continues from TIM6 -> soft-thru continues on USART2 TX.
+- Edit flow:
+	menu or preset edit changes mutate RAM structures first -> dirty flags are set -> data is saved on mode exit rather than on every encoder step.
+
+Implementation notes
+
+- The current software architecture separates live control data from editable runtime configuration.
+- The display path is optimized around off-screen composition and row-level blits to reduce visible redraw artifacts.
+- The smart MIDI output path uses a dedicated realtime queue plus a separate message queue so clock bytes are not blocked by longer Program Change or CC traffic.
+- The random preset path is part of the runtime preset system rather than a separate external tool.
