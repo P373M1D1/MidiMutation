@@ -63,6 +63,24 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Custom application sources
     Core/Src/display_compose.c
+    Core/Src/display/display_backlight.c
+    Core/Src/display/display_menu_controller.c
+    Core/Src/display/display_menu_pages.c
+    Core/Src/display/display_menu_row_render.c
+    Core/Src/display/display_menu_redraw.c
+    Core/Src/display/display_menu_redraw_utils.c
+    Core/Src/display/display_menu_page_devices.c
+    Core/Src/display/display_menu_page_device_edit.c
+    Core/Src/display/display_menu_page_bank_edit.c
+    Core/Src/display/display_menu_page_global.c
+    Core/Src/display/display_menu_page_banks.c
+    Core/Src/display/display_menu_page_function_button_text.c
+    Core/Src/display/display_menu_page_function_button_compare.c
+    Core/Src/display/display_menu_page_function_button_redraw.c
+    Core/Src/display/display_menu_text_edit.c
+    Core/Src/display/display_menu_value.c
+    Core/Src/display/display_value_helpers.c
+    Core/Src/display/display_screensaver.c
     Core/Src/display_functions.c
     Core/Src/bpm_functions.c
     Core/Src/led_functions.c

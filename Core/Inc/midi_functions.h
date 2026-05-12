@@ -72,6 +72,15 @@ void MIDI_SendProgramChange(uint8_t channel, uint8_t program);
 void MIDI_SendCC(uint8_t channel, uint8_t cc_number, uint8_t value);
 
 /**
+ * @brief  Apply one preset program slot to a device.
+ *         If program == PRESET_PROGRAM_NONE ("---"), sends the device bypass CC.
+ *         Otherwise sends Program Change, then the device active/engage CC.
+ * @param  device_index  Device slot index (0..MIDI_DEVICE_COUNT-1).
+ * @param  program       Program number (0..127) or PRESET_PROGRAM_NONE.
+ */
+void Midi_SendDeviceProgramSlot(uint8_t device_index, uint8_t program);
+
+/**
  * @brief  Consume one received MIDI byte from the dedicated MIDI input UART.
  *         Filters the input to sync traffic only: MIDI clock/transport and
  *         MIDI timecode quarter-frame bytes.

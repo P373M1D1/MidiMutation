@@ -1164,7 +1164,10 @@ static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index,
         return;
 
     if (update_index)
+    {
         active_preset_index = idx;
+        LED_SetPresetIndicator((uint8_t)(idx % PRESETS_PER_BANK));
+    }
 
     active_preset = preset;
     Midi_LoadPreset(active_preset);

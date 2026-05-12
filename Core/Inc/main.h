@@ -118,6 +118,23 @@ void MidiClockOutputTrackExternalPulse(uint32_t interval_us);
 
 /* USER CODE BEGIN Private defines */
 
+#define PRESET_LED1_Pin GPIO_PIN_0 /* preset 1 indicator LED output pin */
+#define PRESET_LED1_GPIO_Port GPIOF /* GPIO port for preset 1 indicator LED */
+#define PRESET_LED2_Pin GPIO_PIN_1 /* preset 2 indicator LED output pin */
+#define PRESET_LED2_GPIO_Port GPIOF /* GPIO port for preset 2 indicator LED */
+#define PRESET_LED3_Pin GPIO_PIN_3 /* preset 3 indicator LED output pin (PF3 due to wiring swap) */
+#define PRESET_LED3_GPIO_Port GPIOF /* GPIO port for preset 3 indicator LED */
+#define PRESET_LED4_Pin GPIO_PIN_2 /* preset 4 indicator LED output pin (PF2 due to wiring swap) */
+#define PRESET_LED4_GPIO_Port GPIOF /* GPIO port for preset 4 indicator LED */
+#define PRESET_LED5_Pin GPIO_PIN_4 /* preset 5 indicator LED output pin */
+#define PRESET_LED5_GPIO_Port GPIOF /* GPIO port for preset 5 indicator LED */
+#define PRESET_LED6_Pin GPIO_PIN_5 /* preset 6 indicator LED output pin */
+#define PRESET_LED6_GPIO_Port GPIOF /* GPIO port for preset 6 indicator LED */
+#define PRESET_LED7_Pin GPIO_PIN_6 /* preset 7 indicator LED output pin */
+#define PRESET_LED7_GPIO_Port GPIOF /* GPIO port for preset 7 indicator LED */
+#define PRESET_LED8_Pin GPIO_PIN_7 /* preset 8 indicator LED output pin */
+#define PRESET_LED8_GPIO_Port GPIOF /* GPIO port for preset 8 indicator LED */
+
 #define MIDI_IN_LED_Pin GPIO_PIN_15 /* dedicated MIDI input activity LED pin number */
 #define MIDI_IN_LED_GPIO_Port GPIOF /* GPIO port for the MIDI input activity LED */
 

@@ -6,6 +6,7 @@
 #define RUNTIME_CONFIG_INVALID_BANK_NAME                "(bank?)"
 #define RUNTIME_CONFIG_GLOBAL_STARTUP_DELAY_DEFAULT     1U
 #define RUNTIME_CONFIG_GLOBAL_SCREENSAVER_MIN_DEFAULT   10U
+#define RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT       RUNTIME_CONFIG_DISPLAY_MODE_DARK
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_DEFAULT        RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX
 
 #define RUNTIME_CONFIG_PROGRAM_MESSAGE_UNUSED \
@@ -53,21 +54,28 @@ typedef struct {
 } RuntimeConfigDeviceLegacyV4_t;
 
 typedef struct {
+    uint8_t startup_delay_seconds;
+    uint8_t screensaver_timeout_minutes;
+    RuntimeConfigSyncStyle_t sync_style;
+    uint16_t backlight_brightness;
+} RuntimeConfigGlobalLegacyV4_t;
+
+typedef struct {
     RuntimeConfigBankLegacyV2_t banks[PRESET_BANK_COUNT];
     RuntimeConfigDeviceLegacyV2_t devices[MIDI_DEVICE_COUNT];
-    RuntimeConfigGlobal_t global;
+    RuntimeConfigGlobalLegacyV4_t global;
 } RuntimeConfigLegacyV2_t;
 
 typedef struct {
     RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
     RuntimeConfigDeviceLegacyV2_t devices[MIDI_DEVICE_COUNT];
-    RuntimeConfigGlobal_t global;
+    RuntimeConfigGlobalLegacyV4_t global;
 } RuntimeConfigLegacyV3_t;
 
 typedef struct {
     RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
     RuntimeConfigDeviceLegacyV4_t devices[MIDI_DEVICE_COUNT];
-    RuntimeConfigGlobal_t global;
+    RuntimeConfigGlobalLegacyV4_t global;
 } RuntimeConfigLegacyV4_t;
 
 #define RUNTIME_CONFIG_FUNCTION_BUTTON_DEFAULT \
@@ -142,6 +150,7 @@ static const RuntimeConfig_t runtime_config_defaults = {
         .startup_delay_seconds = RUNTIME_CONFIG_GLOBAL_STARTUP_DELAY_DEFAULT,
         .screensaver_timeout_minutes = RUNTIME_CONFIG_GLOBAL_SCREENSAVER_MIN_DEFAULT,
         .sync_style = RUNTIME_CONFIG_SYNC_STYLE_MIDI_CLOCK,
+        .display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT,
         .backlight_brightness = RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_DEFAULT,
     },
 };
@@ -229,6 +238,14 @@ static uint16_t RuntimeConfig_NormalizeBacklightBrightness(uint16_t brightness)
     return brightness;
 }
 
+static RuntimeConfigDisplayMode_t RuntimeConfig_NormalizeDisplayMode(uint8_t display_mode)
+{
+    if (display_mode > (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT)
+        return RUNTIME_CONFIG_DISPLAY_MODE_DARK;
+
+    return (RuntimeConfigDisplayMode_t)display_mode;
+}
+
 static void RuntimeConfig_NormalizeLoadedStore(void)
 {
     for (uint8_t bank_index = 0U; bank_index < PRESET_BANK_COUNT; ++bank_index)
@@ -239,6 +256,8 @@ static void RuntimeConfig_NormalizeLoadedStore(void)
 
     runtime_config_store.global.backlight_brightness = RuntimeConfig_NormalizeBacklightBrightness(
         runtime_config_store.global.backlight_brightness);
+    runtime_config_store.global.display_mode = RuntimeConfig_NormalizeDisplayMode(
+        (uint8_t)runtime_config_store.global.display_mode);
 }
 
 static void RuntimeConfig_ApplyLegacyV2Snapshot(const RuntimeConfigLegacyV2_t *legacy_store)
@@ -260,7 +279,11 @@ static void RuntimeConfig_ApplyLegacyV2Snapshot(const RuntimeConfigLegacyV2_t *l
         RuntimeConfig_CopyLegacyDevice(&runtime_config_store.devices[device_index],
                                        &legacy_store->devices[device_index]);
 
-    runtime_config_store.global = legacy_store->global;
+    runtime_config_store.global.startup_delay_seconds = legacy_store->global.startup_delay_seconds;
+    runtime_config_store.global.screensaver_timeout_minutes = legacy_store->global.screensaver_timeout_minutes;
+    runtime_config_store.global.sync_style = legacy_store->global.sync_style;
+    runtime_config_store.global.display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT;
+    runtime_config_store.global.backlight_brightness = legacy_store->global.backlight_brightness;
 }
 
 static void RuntimeConfig_ApplyLegacyV3Snapshot(const RuntimeConfigLegacyV3_t *legacy_store)
@@ -276,7 +299,11 @@ static void RuntimeConfig_ApplyLegacyV3Snapshot(const RuntimeConfigLegacyV3_t *l
         RuntimeConfig_CopyLegacyDevice(&runtime_config_store.devices[device_index],
                                        &legacy_store->devices[device_index]);
 
-    runtime_config_store.global = legacy_store->global;
+    runtime_config_store.global.startup_delay_seconds = legacy_store->global.startup_delay_seconds;
+    runtime_config_store.global.screensaver_timeout_minutes = legacy_store->global.screensaver_timeout_minutes;
+    runtime_config_store.global.sync_style = legacy_store->global.sync_style;
+    runtime_config_store.global.display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT;
+    runtime_config_store.global.backlight_brightness = legacy_store->global.backlight_brightness;
 }
 
 static void RuntimeConfig_ApplyLegacyV4Snapshot(const RuntimeConfigLegacyV4_t *legacy_store)
@@ -292,7 +319,11 @@ static void RuntimeConfig_ApplyLegacyV4Snapshot(const RuntimeConfigLegacyV4_t *l
         RuntimeConfig_CopyLegacyDeviceV4(&runtime_config_store.devices[device_index],
                                          &legacy_store->devices[device_index]);
 
-    runtime_config_store.global = legacy_store->global;
+    runtime_config_store.global.startup_delay_seconds = legacy_store->global.startup_delay_seconds;
+    runtime_config_store.global.screensaver_timeout_minutes = legacy_store->global.screensaver_timeout_minutes;
+    runtime_config_store.global.sync_style = legacy_store->global.sync_style;
+    runtime_config_store.global.display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT;
+    runtime_config_store.global.backlight_brightness = legacy_store->global.backlight_brightness;
 }
 
 static uint32_t RuntimeConfig_FlashChecksum(const uint8_t *data, size_t size)

@@ -31,6 +31,11 @@ typedef enum {
     RUNTIME_CONFIG_SYNC_STYLE_TAP_TEMPO_CC,
 } RuntimeConfigSyncStyle_t;
 
+typedef enum {
+    RUNTIME_CONFIG_DISPLAY_MODE_DARK = 0,
+    RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT,
+} RuntimeConfigDisplayMode_t;
+
 typedef struct {
     uint8_t channel;
     uint8_t program;
@@ -67,6 +72,7 @@ typedef struct {
     uint8_t startup_delay_seconds;
     uint8_t screensaver_timeout_minutes;
     RuntimeConfigSyncStyle_t sync_style;
+    RuntimeConfigDisplayMode_t display_mode;
     uint16_t backlight_brightness;
 } RuntimeConfigGlobal_t;
 

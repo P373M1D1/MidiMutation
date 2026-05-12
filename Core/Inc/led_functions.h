@@ -32,6 +32,13 @@ void LED_MidiClockPulse(void);
 void LED_MidiInPulse(void);
 
 /**
+ * @brief  Show the active preset on the board LEDs.
+ * @param  preset_slot_in_bank 0-based preset slot inside the current bank.
+ *         Slot-to-LED mapping cycles across LED1..LED3.
+ */
+void LED_SetPresetIndicator(uint8_t preset_slot_in_bank);
+
+/**
  * @brief  Service LED timeout expirations from a timebase/IRQ context.
  * @param  now  Current HAL tick value in milliseconds.
  */

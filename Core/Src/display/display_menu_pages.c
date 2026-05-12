@@ -1,0 +1,328 @@
+#include <stdio.h>
+#include <string.h>
+
+#include "display/display_internal.h"
+#include "display/display_layout.h"
+#include "display/display_menu_page_bank_edit.h"
+#include "display/display_menu_page_banks.h"
+#include "display/display_menu_page_device_edit.h"
+#include "display/display_menu_page_devices.h"
+#include "display/display_menu_page_function_button.h"
+#include "display/display_menu_page_global.h"
+#include "display/display_strings.h"
+#include "display_compose.h"
+
+typedef struct
+{
+    uint8_t *selection;
+    uint8_t item_count;
+    void (*draw_body)(void);
+    void (*draw_item)(uint8_t item_index);
+} DisplayMenuPageSpec_t;
+
+static void Display_DrawMenuConfirmPrompt(const char *text)
+{
+    char padded[MAIN_BANK_TEXT_CHARS + 1U];
+    uint16_t draw_w = (uint16_t)(MAIN_BANK_TEXT_CHARS * MAIN_BANK_FONT.width);
+    uint16_t draw_x = (uint16_t)((ST7796_WIDTH - draw_w) / 2U);
+    uint16_t background = Display_GetBackgroundColour();
+    size_t max_chars = (size_t)MAIN_BANK_TEXT_CHARS;
+    size_t text_len;
+    size_t pad_left;
+
+    if (!text)
+        return;
+
+    text_len = strnlen(text, max_chars);
+    pad_left = (max_chars - text_len) / 2U;
+
+    memset(padded, ' ', max_chars);
+    memcpy(padded + pad_left, text, text_len);
+    padded[max_chars] = '\0';
+
+    DisplayCompose_Clear(draw_w,
+                         MAIN_BANK_FONT.height,
+                         background);
+    DisplayCompose_String32(draw_w,
+                            MAIN_BANK_FONT.height,
+                            0U,
+                            0U,
+                            padded,
+                            MAIN_BANK_FONT,
+                            RED,
+                            background);
+    DisplayCompose_Blit(draw_x,
+                        MAIN_BANK_TEXT_Y,
+                        draw_w,
+                        MAIN_BANK_FONT.height);
+}
+
+static void Display_DrawMenuRootItem(uint8_t item_index)
+{
+    static const char * const menu_root_items[MENU_ROOT_ITEM_COUNT] = {
+        "Banks",
+        "Devices",
+        "Global",
+    };
+
+    if (item_index >= MENU_ROOT_ITEM_COUNT)
+    {
+        if (item_index < MENU_VISIBLE_ROW_COUNT)
+            Display_ClearStandardMenuRow(item_index);
+        return;
+    }
+
+    Display_DrawMenuRowByIndex(item_index,
+                               menu_root_items[item_index],
+                               "",
+                               (item_index == display_state.menu_root_selection_index) ? 1U : 0U);
+}
+
+static void Display_DrawMenuRoot(void)
+{
+    for (uint8_t index = 0U; index < MENU_VISIBLE_ROW_COUNT; ++index)
+        Display_DrawMenuRootItem(index);
+}
+
+static void Display_DrawMenuBankInitConfirm(void)
+{
+    char confirm_text[24];
+
+    (void)snprintf(confirm_text,
+                   sizeof(confirm_text),
+                   MENU_BANK_INIT_CONFIRM_FORMAT,
+                   (uint8_t)(display_state.menu_active_bank_index + 1U));
+    Display_DrawMenuConfirmPrompt(confirm_text);
+}
+
+static void Display_DrawMenuDeviceInitConfirm(void)
+{
+    char confirm_text[20];
+
+    (void)snprintf(confirm_text,
+                   sizeof(confirm_text),
+                   MENU_DEVICE_INIT_CONFIRM_FORMAT,
+                   (uint8_t)(display_state.menu_active_device_index + 1U));
+    Display_DrawMenuConfirmPrompt(confirm_text);
+}
+
+static void Display_DrawMenuFactoryResetConfirm(void)
+{
+    Display_DrawMenuConfirmPrompt(MENU_FACTORY_RESET_CONFIRM_TEXT);
+}
+
+const char *Display_GetMenuHeaderTextForPage(DisplayMenuPage_t page, char *buffer, size_t buffer_size)
+{
+    switch (page)
+    {
+    case DISPLAY_MENU_PAGE_BANKS:
+        return "BANKS";
+    case DISPLAY_MENU_PAGE_BANK_EDIT:
+        (void)snprintf(buffer, buffer_size, "BANK %u", (uint8_t)(display_state.menu_active_bank_index + 1U));
+        return buffer;
+    case DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM:
+        return "CONFIRM";
+    case DISPLAY_MENU_PAGE_FUNCTION_BUTTON:
+    case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES:
+    case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES:
+        return "FUNC BTN";
+    case DISPLAY_MENU_PAGE_DEVICES:
+        return "DEVICES";
+    case DISPLAY_MENU_PAGE_DEVICE_EDIT:
+        (void)snprintf(buffer, buffer_size, "DEVICE %u", (uint8_t)(display_state.menu_active_device_index + 1U));
+        return buffer;
+    case DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM:
+    case DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM:
+        return "CONFIRM";
+    case DISPLAY_MENU_PAGE_GLOBAL:
+        return "GLOBAL";
+    case DISPLAY_MENU_PAGE_ROOT:
+    default:
+        return "MENU";
+    }
+}
+
+uint8_t Display_MenuPageUsesConfirmFootbar(DisplayMenuPage_t page)
+{
+    return (page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM
+         || page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM
+         || page == DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM) ? 1U : 0U;
+}
+
+uint8_t Display_MenuPageUsesFreeformBody(DisplayMenuPage_t page)
+{
+    return (page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM
+         || page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM
+         || page == DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM) ? 1U : 0U;
+}
+
+uint8_t Display_MenuHeaderChanged(DisplayMenuPage_t previous_page, DisplayMenuPage_t current_page)
+{
+    char previous_text[12];
+    char current_text[12];
+    const char *previous_header = Display_GetMenuHeaderTextForPage(previous_page, previous_text, sizeof(previous_text));
+    const char *current_header = Display_GetMenuHeaderTextForPage(current_page, current_text, sizeof(current_text));
+
+    return (strcmp(previous_header, current_header) != 0) ? 1U : 0U;
+}
+
+static uint8_t Display_GetModeHeaderWidthChars(const char *text)
+{
+    size_t text_len = strlen(text);
+
+    if (display_state.menu_mode_active || display_state.preset_init_confirm_active)
+    {
+        uint8_t width_chars = (uint8_t)(text_len + MAIN_MODE_HEADER_MENU_PAD_CHARS);
+
+        if (width_chars > MAIN_MODE_HEADER_MAX_TEXT_CHARS)
+            width_chars = MAIN_MODE_HEADER_MAX_TEXT_CHARS;
+
+        return width_chars;
+    }
+
+    return display_state.preset_edit_mode_active ? MAIN_MODE_HEADER_EDIT_TEXT_CHARS : MAIN_MODE_HEADER_TEXT_CHARS;
+}
+
+static const char *Display_GetCurrentHeaderText(void)
+{
+    static char menu_header_text[12];
+
+    if (display_state.menu_mode_active)
+        return Display_GetMenuHeaderTextForPage((DisplayMenuPage_t)display_state.menu_page,
+                                                menu_header_text,
+                                                sizeof(menu_header_text));
+
+    if (display_state.preset_init_confirm_active)
+        return "CONFIRM";
+
+    return display_state.preset_edit_mode_active ? "EDIT" : "LIVE";
+}
+
+void Display_DrawMainModeHeader(void)
+{
+    const char *header_text = Display_GetCurrentHeaderText();
+    uint8_t header_width_chars = Display_GetModeHeaderWidthChars(header_text);
+    uint16_t clear_w = (uint16_t)(MAIN_MODE_HEADER_MAX_TEXT_CHARS * MAIN_MODE_HEADER_FONT.width);
+    uint16_t clear_x = (uint16_t)((ST7796_WIDTH - clear_w) / 2U);
+    uint16_t text_w = (uint16_t)(header_width_chars * MAIN_MODE_HEADER_FONT.width);
+    uint16_t text_x = (uint16_t)((clear_w - text_w) / 2U);
+    uint16_t foreground = (display_state.preset_edit_mode_active || display_state.menu_mode_active)
+        ? MAIN_MODE_HEADER_EDIT_COLOUR
+        : MAIN_MODE_HEADER_COLOUR;
+    uint16_t background = (display_state.preset_edit_mode_active || display_state.menu_mode_active)
+        ? MAIN_MODE_HEADER_EDIT_BG_COLOUR
+        : DISPLAY_BG_COLOUR;
+    char padded[MAIN_MODE_HEADER_MAX_TEXT_CHARS + 1U];
+    size_t text_len = strnlen(header_text, header_width_chars);
+    size_t pad_left = ((size_t)header_width_chars - text_len) / 2U;
+
+    memset(padded, ' ', header_width_chars);
+    memcpy(padded + pad_left, header_text, text_len);
+    padded[header_width_chars] = '\0';
+
+    DisplayCompose_Clear(clear_w,
+                         MAIN_MODE_HEADER_FONT.height,
+                         DISPLAY_BG_COLOUR);
+    DisplayCompose_String32(clear_w,
+                            MAIN_MODE_HEADER_FONT.height,
+                            text_x,
+                            0U,
+                            padded,
+                            MAIN_MODE_HEADER_FONT,
+                            foreground,
+                            background);
+    DisplayCompose_Blit(clear_x,
+                        MAIN_MODE_HEADER_TEXT_Y,
+                        clear_w,
+                        MAIN_MODE_HEADER_FONT.height);
+}
+
+void Display_ClearMenuBody(void)
+{
+    uint16_t clear_y = MAIN_PRESET_TEXT_Y;
+
+    for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
+    {
+        uint16_t row_y = Display_GetMenuRowYByIndex(row_index);
+
+        if (row_y > clear_y)
+        {
+            ST7796_DrawFilledRectangle(0U,
+                                       clear_y,
+                                       ST7796_WIDTH,
+                                       (uint16_t)(row_y - clear_y),
+                                       Display_GetBackgroundColour());
+        }
+
+        Display_ClearStandardMenuRow(row_index);
+        clear_y = (uint16_t)(row_y + MAIN_INFO_FONT.height);
+    }
+
+    if (clear_y < MAIN_FOOTBAR_Y)
+    {
+        ST7796_DrawFilledRectangle(0U,
+                                   clear_y,
+                                   ST7796_WIDTH,
+                                   (uint16_t)(MAIN_FOOTBAR_Y - clear_y),
+                                   Display_GetBackgroundColour());
+    }
+}
+
+static DisplayMenuPageSpec_t Display_GetMenuPageSpec(DisplayMenuPage_t page)
+{
+    switch (page)
+    {
+    case DISPLAY_MENU_PAGE_ROOT:
+        return (DisplayMenuPageSpec_t){ &display_state.menu_root_selection_index, MENU_ROOT_ITEM_COUNT, Display_DrawMenuRoot, Display_DrawMenuRootItem };
+    case DISPLAY_MENU_PAGE_BANKS:
+        return (DisplayMenuPageSpec_t){ &display_state.menu_bank_selection_index, PRESET_BANK_COUNT, Display_DrawMenuBanks, Display_DrawMenuBankItem };
+    case DISPLAY_MENU_PAGE_BANK_EDIT:
+        return (DisplayMenuPageSpec_t){ &display_state.menu_bank_edit_selection_index, MENU_BANK_EDIT_ITEM_COUNT, Display_DrawMenuBankEdit, Display_DrawMenuBankEditItem };
+    case DISPLAY_MENU_PAGE_FUNCTION_BUTTON:
+    case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES:
+    case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES:
+        return (DisplayMenuPageSpec_t){ &display_state.menu_function_button_selection_index, MENU_FUNCTION_BUTTON_ITEM_COUNT, Display_DrawMenuFunctionButton, Display_DrawMenuFunctionButtonItem };
+    case DISPLAY_MENU_PAGE_DEVICES:
+        return (DisplayMenuPageSpec_t){ &display_state.menu_device_selection_index, MIDI_DEVICE_COUNT, Display_DrawMenuDevices, Display_DrawMenuDeviceItem };
+    case DISPLAY_MENU_PAGE_DEVICE_EDIT:
+        return (DisplayMenuPageSpec_t){ &display_state.menu_device_edit_selection_index, MENU_DEVICE_EDIT_ITEM_COUNT, Display_DrawMenuDeviceEdit, Display_DrawMenuDeviceEditItem };
+    case DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM:
+        return (DisplayMenuPageSpec_t){ NULL, 0U, Display_DrawMenuDeviceInitConfirm, NULL };
+    case DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM:
+        return (DisplayMenuPageSpec_t){ NULL, 0U, Display_DrawMenuBankInitConfirm, NULL };
+    case DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM:
+        return (DisplayMenuPageSpec_t){ NULL, 0U, Display_DrawMenuFactoryResetConfirm, NULL };
+    case DISPLAY_MENU_PAGE_GLOBAL:
+        return (DisplayMenuPageSpec_t){ &display_state.menu_global_selection_index, MENU_GLOBAL_ITEM_COUNT, Display_DrawMenuGlobal, Display_DrawMenuGlobalItem };
+    default:
+        return (DisplayMenuPageSpec_t){ NULL, 0U, NULL, NULL };
+    }
+}
+
+void Display_DrawCurrentMenuPageBody(void)
+{
+    DisplayMenuPageSpec_t page_spec = Display_GetMenuPageSpec((DisplayMenuPage_t)display_state.menu_page);
+
+    if (page_spec.draw_body)
+        page_spec.draw_body();
+    else
+        Display_DrawMenuRoot();
+}
+
+void Display_DrawMenuPageItem(DisplayMenuPage_t page, uint8_t item_index)
+{
+    DisplayMenuPageSpec_t page_spec = Display_GetMenuPageSpec(page);
+
+    if (page_spec.draw_item)
+        page_spec.draw_item(item_index);
+}
+
+uint8_t *Display_GetMenuPageSelectionPointer(DisplayMenuPage_t page)
+{
+    return Display_GetMenuPageSpec(page).selection;
+}
+
+uint8_t Display_GetMenuPageItemCount(DisplayMenuPage_t page)
+{
+    return Display_GetMenuPageSpec(page).item_count;
+}

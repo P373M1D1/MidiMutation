@@ -10,6 +10,25 @@ static volatile uint32_t beat_off_tick  = 0U;  /* LD1 green – tap tempo beat *
 static volatile uint32_t flash_off_tick = 0U;  /* LD2 blue  – Flash write    */
 static volatile uint32_t midi_in_off_tick = 0U; /* PF15      – MIDI in start  */
 
+static const uint16_t preset_led_pins[8] = {
+    PRESET_LED1_Pin,
+    PRESET_LED2_Pin,
+    PRESET_LED4_Pin, /* wiring compensation: preset 3 drives the pin silked as preset 4 */
+    PRESET_LED3_Pin, /* wiring compensation: preset 4 drives the pin silked as preset 3 */
+    PRESET_LED5_Pin,
+    PRESET_LED6_Pin,
+    PRESET_LED7_Pin,
+    PRESET_LED8_Pin
+};
+
+static void LED_ClearPresetIndicators(void)
+{
+    HAL_GPIO_WritePin(GPIOF,
+                      PRESET_LED1_Pin | PRESET_LED2_Pin | PRESET_LED3_Pin | PRESET_LED4_Pin |
+                      PRESET_LED5_Pin | PRESET_LED6_Pin | PRESET_LED7_Pin | PRESET_LED8_Pin,
+                      GPIO_PIN_RESET);
+}
+
 /* -------------------------------------------------------------------------- */
 
 static void LED_UpdateExpiredOutputs(uint32_t now)
@@ -31,6 +50,7 @@ static void LED_UpdateExpiredOutputs(uint32_t now)
         midi_in_off_tick = 0U;
         HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_RESET);
     }
+
 }
 
 static uint8_t LED_BeatPulseIsAllowed(void)
@@ -66,6 +86,14 @@ void LED_MidiInPulse(void)
 {
     HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_SET);
     midi_in_off_tick = HAL_GetTick() + LED_PULSE_MS;
+}
+
+void LED_SetPresetIndicator(uint8_t preset_slot_in_bank)
+{
+    uint8_t slot = (uint8_t)(preset_slot_in_bank % 8U);
+
+    LED_ClearPresetIndicators();
+    HAL_GPIO_WritePin(GPIOF, preset_led_pins[slot], GPIO_PIN_SET);
 }
 
 void LED_TickUpdate(uint32_t now)

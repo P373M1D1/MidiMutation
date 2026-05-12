@@ -53,8 +53,8 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | **Pushbutton LEDs — GPIO output**                                                             |
 | PF0         | Button 1  LED output                                  | Pushbutton 1 LED              |
 | PF1         | Button 2  LED output                                  | Pushbutton 2 LED              |
-| PF2         | Button 3  LED output                                  | Pushbutton 3 LED              |
-| PF3         | Button 4  LED output                                  | Pushbutton 4 LED              |
+| PF2         | Button 4  LED output                                  | Pushbutton 4 LED              |  note i fucked up the soldering and confused 4 and 3
+| PF3         | Button 3  LED output                                  | Pushbutton 3 LED              |  note i fucked up the soldering and confused 4 and 3
 | PF4         | Button 5  LED output                                  | Pushbutton 5 LED              |
 | PF5         | Button 6  LED output                                  | Pushbutton 6 LED              |
 | PF6         | Button 7  LED output                                  | Pushbutton 7 LED              |

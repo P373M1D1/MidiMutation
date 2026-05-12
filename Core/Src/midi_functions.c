@@ -939,6 +939,25 @@ void Midi_SendPresetCCs(const Preset_t *preset)
     }
 }
 
+void Midi_SendDeviceProgramSlot(uint8_t device_index, uint8_t program)
+{
+    const MidiDevice_t *dev = MidiDevices_Get(device_index);
+
+    if (!dev)
+        return;
+
+    if (program == PRESET_PROGRAM_NONE)
+    {
+        if (dev->bypass.cc != PRESET_CC_NUMBER_UNUSED)
+            MIDI_SendCC(dev->channel, dev->bypass.cc, dev->bypass.value);
+        return;
+    }
+
+    MIDI_SendProgramChange(dev->channel, program);
+    if (dev->engage.cc != PRESET_CC_NUMBER_UNUSED)
+        MIDI_SendCC(dev->channel, dev->engage.cc, dev->engage.value);
+}
+
 void Midi_LoadPreset(const Preset_t *preset)
 {
     if (!preset) return;
@@ -947,11 +966,7 @@ void Midi_LoadPreset(const Preset_t *preset)
      * follow-up CCs try to tweak parameters on the newly selected preset. */
     for (uint8_t i = 0U; i < PRESET_DEVICE_SLOTS; i++)
     {
-        /* 0xFF in the program field means "don't send anything to this device" */
-        if (preset->prg[i].program == MIDI_UNUSED_SLOT) continue;
-
-        const MidiDevice_t *dev = MidiDevices_Get(i);  /* look up channel for this device slot */
-        MIDI_SendProgramChange(dev->channel, preset->prg[i].program);
+        Midi_SendDeviceProgramSlot(i, preset->prg[i].program);
     }
 
     Midi_SendPresetCCs(preset);

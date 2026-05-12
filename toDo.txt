@@ -4,7 +4,7 @@ Change: Flash stogare to RTC and use Vbat to protectr storage from failure / or 
 Change: Move PA_4 initialisation back to main.cpp
 
 Bug: Random Preset button needs debouncing. Can be pressed multiple times so flag won't work. (others can't ba activated mutliple times)
-
+BUG: --- as program change message must disable device! Or find another viable way to disable device. 
 HUGE CHANGE: EVENT DRIVEN ARCHITECTURE!! 
 HUGE CHANGE: DUAL IMAGE ATOMIC PERSISTENCE
 
@@ -38,4 +38,394 @@ USB MIDI
 setlist/song mode
 editor/librarian support
 
-You already have a strong foundation. The biggest challenge now is preventing the firmware architecture from becoming rigid as the feature set expands.
+or: 
+
+Current Architectural Weaknesses → Practical Improvements
+1. Unbounded event draining
+Problem
+App_ProcessPendingEvents();
+
+drains until the queue is empty.
+
+That means:
+
+one burst can monopolize foreground time
+latency becomes unpredictable
+lower-priority services can starve
+loop jitter grows under load
+
+This is probably your single largest scheduler weakness.
+
+Fix
+
+Process events with:
+
+a count limit
+or a time budget
+
+Example:
+
+void App_ProcessPendingEvents(uint32_t maxEvents)
+{
+    while (maxEvents-- && Queue_NotEmpty())
+    {
+        ProcessOneEvent();
+    }
+}
+
+or:
+
+void App_ProcessPendingEventsBudgeted(uint32_t maxUs)
+{
+    uint32_t start = micros();
+
+    while (Queue_NotEmpty())
+    {
+        if ((micros() - start) > maxUs)
+            break;
+
+        ProcessOneEvent();
+    }
+}
+2. Flash save can block foreground execution
+Problem
+
+Flash erase/write operations may stall for milliseconds.
+
+That creates:
+
+MIDI jitter
+UI stalls
+queue latency spikes
+possible missed timing deadlines
+
+You already identified this.
+
+Fix
+
+Convert persistence into a state machine.
+
+Instead of:
+
+SavePresetNow();
+
+do:
+
+PresetSave_Request();
+PresetSave_Service();
+
+Then execute incremental steps:
+
+switch(state)
+{
+    case ERASE_PAGE:
+    case WRITE_HEADER:
+    case WRITE_BLOCK:
+    case VERIFY:
+}
+
+This creates bounded execution slices.
+
+3. Scheduler policy is implicit
+Problem
+
+The meaning of loop order only exists in developer knowledge.
+
+Example:
+
+BPM_Service();
+App_ProcessPendingEvents();
+
+implicitly means:
+
+“BPM-generated events should execute immediately.”
+
+Future refactors can accidentally break this.
+
+Fix
+
+Define explicit scheduler phases.
+
+Example:
+
+while (1)
+{
+    ServiceInputs();
+    ProcessRealtimeEvents();
+    ServiceTiming();
+    ProcessDeferredEvents();
+    ServiceBackground();
+}
+
+Now order has semantic meaning.
+
+4. No loop timing instrumentation
+Problem
+
+You do not know:
+
+worst-case loop duration
+jitter
+queue latency
+runtime spikes
+
+So architectural decisions are currently intuition-based.
+
+Fix
+
+Add runtime telemetry.
+
+Track:
+
+max loop time
+average loop time
+queue high-water mark
+max event drain duration
+flash stall duration
+
+Example:
+
+loopStart = micros();
+
+MainLoop();
+
+loopTime = micros() - loopStart;
+
+if (loopTime > maxLoopTime)
+    maxLoopTime = loopTime;
+
+This is one of the highest ROI improvements possible.
+
+5. Hidden service-order dependencies
+Problem
+
+Services may only work correctly because of current call order.
+
+This is fragile.
+
+Symptoms:
+
+“moving this breaks MIDI”
+“UI gets laggy if reordered”
+“save timing changes behavior”
+Fix
+
+Document service contracts explicitly.
+
+Example:
+
+// Must execute before MIDI scheduler
+Tempo_Service();
+
+// Must execute after event generation
+MidiOutputSchedulerService();
+
+Or encode priorities directly.
+
+6. No foreground execution budget
+Problem
+
+There is no definition of:
+
+acceptable latency
+service runtime ceilings
+loop deadlines
+
+Without budgets:
+
+“fast enough” becomes subjective
+regressions go unnoticed
+Fix
+
+Define timing targets.
+
+Example:
+
+Component	Budget
+MIDI scheduler	<50 µs
+UI update	<500 µs
+Event drain	<1 ms
+Save slice	<2 ms
+
+Now architecture becomes measurable.
+
+7. Mixed criticality in same queue
+Problem
+
+UI, persistence, diagnostics, and timing-sensitive events may share infrastructure.
+
+That allows low-priority work to delay important work.
+
+Fix
+
+Split queues or priority classes.
+
+Example:
+
+HighPriorityEventQueue
+NormalEventQueue
+BackgroundQueue
+
+Then:
+
+DrainHighPriority();
+DrainNormal();
+DrainBackground();
+
+You do NOT necessarily need an RTOS for this.
+
+8. Potential queue burst amplification
+Problem
+
+Some services may generate more events than one loop can comfortably process.
+
+Especially with:
+
+encoder floods
+MIDI bursts
+UI refresh cascades
+
+This can create positive feedback latency.
+
+Fix
+
+Introduce:
+
+coalescing
+rate limiting
+overwrite semantics
+
+Example:
+
+QUEUE_EVENT_ONCE(EVENT_UI_REFRESH);
+
+instead of unlimited enqueueing.
+
+You already partially do this — formalize it.
+
+9. Lack of explicit idle behavior
+Problem
+
+Loop likely spins continuously even when idle.
+
+That:
+
+wastes power
+increases thermal load
+reduces idle determinism
+Fix
+
+Add idle detection:
+
+if (!WorkPending())
+{
+    __WFI();
+}
+
+Very common embedded optimization.
+
+10. Diagnostics are observational, not architectural
+Problem
+
+Current diagnostics appear focused on:
+
+dropped events
+MIDI clock behavior
+
+But not:
+
+scheduler health
+runtime saturation
+timing overruns
+Fix
+
+Add architectural diagnostics.
+
+Examples:
+
+schedulerOverruns
+maxQueueDepth
+missedDeadlines
+maxLoopUs
+eventProcessingUs
+
+This turns architecture into observable behavior.
+
+11. Queue semantics are partially implicit
+Problem
+
+You identified:
+
+FIFO
+latest-wins
+coalesced
+
+But these semantics may not be formally declared.
+
+That creates confusion later.
+
+Fix
+
+Define event semantics explicitly.
+
+Example:
+
+EVENT_FIFO
+EVENT_COALESCED
+EVENT_LATEST_WINS
+EVENT_EDGE_TRIGGERED
+
+Now behavior is intentional instead of emergent.
+
+12. Runtime determinism depends on “good behavior”
+Problem
+
+The architecture currently relies on developers:
+
+not blocking
+not adding expensive services
+not overusing queueing
+
+This scales poorly.
+
+Fix
+
+Enforce rules structurally.
+
+Examples:
+
+watchdog timing assertions
+max event count
+forbidden blocking APIs in foreground
+static service runtime checks
+What I would improve first (in order)
+Highest ROI
+Loop timing instrumentation
+Bounded event draining
+Flash-save state machine
+Explicit scheduler phases
+
+Those four alone dramatically improve robustness.
+
+Medium-term
+Queue priority separation
+Service runtime budgets
+Scheduler diagnostics
+Long-term polish
+Idle sleep support
+Formalized event semantics
+Cooperative task scheduler abstraction
+Most important thing
+
+You do NOT have:
+
+a bad architecture
+a “beginner” loop
+hardware misunderstanding
+
+You have:
+
+an organically grown cooperative firmware scheduler
+with increasing implicit timing contracts
+
+That is a very normal and very solvable stage of embedded evolution.

@@ -1,9 +1,9 @@
 #ifndef DISPLAY_FUNCTIONS_H
 #define DISPLAY_FUNCTIONS_H /* include guard for high-level display declarations */
 
-/*
- * High-level display routines: backlight control and main screen rendering.
- * Wraps ST7796 primitives and DAC backlight; keeps main.cpp free of details.
+/* Public facade for display subsystem entry points used outside display modules.
+ * Keep internal helpers out of this header; use display/display_internal.h
+ * (added as Phase 1 scaffolding) for private cross-file display internals.
  */
 
 #include <stdint.h>
@@ -12,6 +12,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* -- Preset-edit field descriptors (public; consumed by app dispatcher) -------- */
 
 typedef enum {
 	DISPLAY_PRESET_EDIT_FIELD_NONE = 0,
@@ -29,20 +31,23 @@ typedef struct {
 	uint8_t itemIndex;
 } DisplayPresetEditField_t;
 
-/* ── Backlight (DAC1 CH1 on PA4) ─────────────────────────────────────────── */
+/* -- Backlight (DAC1 CH1 on PA4) ---------------------------------------------- */
 
 void Display_BL_Init(void);
 void Display_BL_FadeIn(void);
 void Display_BL_FadeOut(void);
 
-/* ── Screen content ──────────────────────────────────────────────────────── */
+/* -- Main/live screen ---------------------------------------------------------- */
 
 void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm);
-void Display_RefreshPresetEditMode(const Preset_t *p, uint16_t bpm);
 void Display_UpdateBPM(uint16_t bpm);
 void Display_MainInfoScrollReset(void);
 uint8_t Display_MainInfoScrollBy(int8_t delta);
 uint8_t Display_MainInfoScrollAndRefresh(const Preset_t *p, int8_t delta);
+
+/* -- Preset-edit mode ---------------------------------------------------------- */
+
+void Display_RefreshPresetEditMode(const Preset_t *p, uint16_t bpm);
 void Display_PresetEditEnter(void);
 void Display_PresetEditExit(void);
 uint8_t Display_PresetEditIsActive(void);
@@ -60,6 +65,9 @@ DisplayPresetEditField_t Display_PresetEditGetField(void);
 void Display_PresetEditRefreshCurrentField(const Preset_t *p);
 void Display_ShowSavingPopup(void);
 void Display_HideSavingPopup(const Preset_t *p);
+
+/* -- Menu mode ----------------------------------------------------------------- */
+
 void Display_MenuEnter(void);
 void Display_MenuExit(void);
 uint8_t Display_MenuIsActive(void);
@@ -74,7 +82,7 @@ uint8_t Display_MenuTextEditIsActive(void);
 uint8_t Display_MenuTextEditMoveCursor(int8_t delta);
 uint8_t Display_MenuAdjustValue(int8_t delta);
 
-/* ── Screensaver (backlight idle mode) ───────────────────────────────────── */
+/* -- Screensaver/loading ------------------------------------------------------- */
 
 /** Draws a progress bar in the lower quarter and blocks for duration_ms. */
 void Display_LoadingBar(uint32_t duration_ms);

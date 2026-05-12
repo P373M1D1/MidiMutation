@@ -381,10 +381,9 @@ static uint8_t PresetEdit_AdjustProgramValue(Preset_t *preset, uint8_t slot, int
   }
 
   if (preset->prg[slot].program != previous_program
-   && preset->prg[slot].program != PRESET_PROGRAM_NONE
    && device != NULL)
   {
-    MIDI_SendProgramChange(device->channel, preset->prg[slot].program);
+    Midi_SendDeviceProgramSlot(slot, preset->prg[slot].program);
   }
 
   return 1U;
@@ -1528,6 +1527,9 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(ST7796_RST_GPIO_Port, ST7796_RST_Pin, GPIO_PIN_SET);   /* RST high = not in reset */
   HAL_GPIO_WritePin(ST7796_CS_GPIO_Port,  ST7796_CS_Pin,  GPIO_PIN_SET);   /* CS high = deselected */
   HAL_GPIO_WritePin(ST7796_DC_GPIO_Port,  ST7796_DC_Pin,  GPIO_PIN_SET);   /* DC high = data */
+  HAL_GPIO_WritePin(GPIOF, PRESET_LED1_Pin | PRESET_LED2_Pin | PRESET_LED3_Pin | PRESET_LED4_Pin |
+                           PRESET_LED5_Pin | PRESET_LED6_Pin | PRESET_LED7_Pin | PRESET_LED8_Pin,
+                    GPIO_PIN_RESET);
   HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_RESET);
 
   /* Configure the Nucleo user button as a second falling-edge random trigger. */
@@ -1607,6 +1609,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(MIDI_IN_LED_GPIO_Port, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = PRESET_LED1_Pin | PRESET_LED2_Pin | PRESET_LED3_Pin | PRESET_LED4_Pin |
+                        PRESET_LED5_Pin | PRESET_LED6_Pin | PRESET_LED7_Pin | PRESET_LED8_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
   /* Rotary 1 A/B stay on plain inputs because EXTI11/12 are already needed by PE11/12. */
   GPIO_InitStruct.Pin = ENC1_CLK_Pin | ENC1_DT_Pin;
