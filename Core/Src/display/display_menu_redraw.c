@@ -7,6 +7,13 @@
 #include "display/display_menu_redraw_utils.h"
 #include "display/display_menu_row_render.h"
 
+/* Incremental menu redraw orchestration.
+ *
+ * This file turns selection/value/page changes into targeted row redraws so the
+ * menu can update without repainting the full body every time. When debugging a
+ * stale row, highlight bug, or overdraw artifact, this is usually the first
+ * file to inspect. */
+
 typedef enum
 {
     DISPLAY_MENU_DIRTY_ROW_ACTION_NONE = 0,
@@ -29,6 +36,8 @@ static void Display_MenuQueueDirtyRowAction(uint8_t row_index,
     if (!dirty_row_mask || !dirty_row_items || !dirty_row_actions || row_index >= MENU_VISIBLE_ROW_COUNT)
         return;
 
+    /* Last request wins for a row within one redraw pass; that keeps the queue
+     * compact and avoids painting the same row multiple times in one update. */
     *dirty_row_mask = (uint8_t)(*dirty_row_mask | (uint8_t)(1U << row_index));
     dirty_row_items[row_index] = item_index;
     dirty_row_actions[row_index] = action;
@@ -194,6 +203,8 @@ static void Display_MenuFlushDirtyRows(DisplayMenuPage_t page,
 
 void Display_MenuRefreshBodyOnly(void)
 {
+    /* Freeform bodies and page transitions can rearrange headers/badges in ways
+     * the row-diff path cannot express, so fall back to a full body clear. */
     if (!display_state.menu_draw_state_valid
      || Display_MenuPageUsesFreeformBody((DisplayMenuPage_t)display_state.menu_page)
      || Display_MenuPageUsesFreeformBody((DisplayMenuPage_t)display_state.menu_last_drawn_page))

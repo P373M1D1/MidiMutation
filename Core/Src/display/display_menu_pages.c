@@ -13,6 +13,12 @@
 #include "display/display_menu_row_render.h"
 #include "display/display_strings.h"
 
+/* Menu page registry and shared menu chrome.
+ *
+ * Each menu page contributes a selection pointer, item count, body renderer,
+ * and row renderer. This file is the switchboard that maps menu_page to those
+ * functions and also owns shared header/footbar text used by multiple pages. */
+
 typedef struct
 {
     uint8_t *selection;
@@ -40,6 +46,8 @@ static const char *Display_GetFootbarLabel(uint8_t section_index)
 {
     if (display_state.menu_mode_active)
     {
+        /* Menu footers take precedence over preset-edit/live-mode copy because
+         * the soft-button hints should always describe the currently modal UI. */
         if (Display_MenuPageUsesConfirmFootbar((DisplayMenuPage_t)display_state.menu_page))
             return Display_GetConfirmFootbarLabel(section_index);
 
@@ -141,6 +149,8 @@ static void Display_WriteCenteredPaddedText32WithBackground(uint16_t y,
     text_len = strnlen(text, max_chars);
     pad_left = (max_chars - text_len) / 2U;
 
+    /* Fill the full target width with spaces first so centered prompts stay
+     * visually stable even when the visible text length changes. */
     memset(padded, ' ', max_chars);
     memcpy(padded + pad_left, text, text_len);
     padded[max_chars] = '\0';
@@ -192,6 +202,8 @@ static void Display_DrawMenuRootItem(uint8_t item_index)
 
     if (item_index >= MENU_ROOT_ITEM_COUNT)
     {
+        /* Root-page item counts are smaller than the physical row count, so
+         * off-end rows must be actively cleared when reused from another page. */
         if (item_index < MENU_VISIBLE_ROW_COUNT)
             Display_ClearStandardMenuRow(item_index);
         return;

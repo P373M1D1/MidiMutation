@@ -15,6 +15,10 @@ extern "C" {
 
 /* -- Preset-edit field descriptors (public; consumed by app dispatcher) -------- */
 
+/* Logical cursor targets on the preset-edit screen.
+ * The app layer asks the display which kind of field is active so encoder/input
+ * code can decide whether to change a name cell, program number, relay state,
+ * CC field, or the preset-init action. */
 typedef enum {
 	DISPLAY_PRESET_EDIT_FIELD_NONE = 0,
 	DISPLAY_PRESET_EDIT_FIELD_NAME,
@@ -63,6 +67,8 @@ uint8_t Display_PresetEditMoveCursor(int8_t delta);
 uint8_t Display_PresetEditMoveCursorAndRefresh(const Preset_t *p, int8_t delta);
 DisplayPresetEditField_t Display_PresetEditGetField(void);
 void Display_PresetEditRefreshCurrentField(const Preset_t *p);
+/* Saving popup ownership lives in the display layer because it overlays either
+ * the main screen or the menu body and must restore only the obscured region. */
 void Display_ShowSavingPopup(void);
 void Display_HideSavingPopup(const Preset_t *p);
 
@@ -80,6 +86,9 @@ uint8_t Display_MenuBack(void);
 void Display_MenuTextEditExit(void);
 uint8_t Display_MenuTextEditIsActive(void);
 uint8_t Display_MenuTextEditMoveCursor(int8_t delta);
+/* Value adjustment may mutate runtime config immediately and can trigger a full
+ * redraw for theme changes, so callers should treat this as more than a pure
+ * formatting helper. */
 uint8_t Display_MenuAdjustValue(int8_t delta);
 
 /* -- Screensaver/loading ------------------------------------------------------- */

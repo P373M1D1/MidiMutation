@@ -9,6 +9,12 @@
 extern "C" {
 #endif
 
+/* Shared drawing helpers used by split-out display modules.
+ *
+ * These work on the shared compose buffer and intentionally avoid any page- or
+ * menu-specific policy. Callers choose clip sizes, colours, and fonts; this API
+ * just performs the buffered draw/blit operations. */
+
 void Display_ComposeClear(uint16_t clip_width,
                           uint16_t clip_height,
                           uint16_t colour);
@@ -43,6 +49,8 @@ void Display_ComposeString32(uint16_t clip_width,
                              FontDef32 font,
                              uint16_t colour,
                              uint16_t background);
+/* Literal is kept as a separate entry point so callers can signal intent even
+ * though the current implementation forwards to the same compose primitive. */
 void Display_ComposeString32Literal(uint16_t clip_width,
                                     uint16_t clip_height,
                                     uint16_t x,

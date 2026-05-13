@@ -9,6 +9,8 @@ extern "C" {
 #endif
 
 /* Internal BANKS page helpers shared by redraw and page dispatch. */
+/* bank_index is always the logical bank number; windowing into the visible
+ * four-row menu is handled separately by redraw helpers before row painters run. */
 void Display_FormatMenuBankLabel(uint8_t bank_index, char *buffer, size_t buffer_size);
 void Display_DrawMenuBanks(void);
 void Display_DrawMenuBankItem(uint8_t bank_index);

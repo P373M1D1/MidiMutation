@@ -9,6 +9,8 @@ extern "C" {
 #endif
 
 /* Internal BANK_EDIT page helpers shared by redraw and page dispatch. */
+/* item_index here is the logical BANK_EDIT item, not the visible row index.
+ * Callers translate through the shared menu window helpers before drawing. */
 void Display_FormatBankEditValue(uint8_t item_index, char *buffer, size_t buffer_size);
 void Display_DrawMenuBankEdit(void);
 void Display_DrawMenuBankEditItem(uint8_t item_index);

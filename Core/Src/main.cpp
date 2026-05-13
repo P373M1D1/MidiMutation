@@ -58,8 +58,7 @@
 #define STARTUP_STATUS_FONT             Font_7x10 /* font used for the startup flash-status text */
 #define STARTUP_STATUS_FG_COLOUR        CHARCOAL /* foreground colour of the startup flash-status text */
 #define STARTUP_STATUS_BG_COLOUR        BLACK /* background colour behind the startup splash/status area */
-#define STARTUP_FLASH_OK_TEXT           "flash_OK" /* status string shown when persisted flash state validates */
-#define STARTUP_FLASH_INVALID_TEXT      "flash_notOK" /* status string shown when persisted flash state is blank or invalid */
+#define STARTUP_STATUS_TEXT_BUFFER_SIZE 16U /* small fixed buffer for startup persistent-store diagnostics */
 #define STARTUP_LOADING_BAR_MS_DEFAULT 1000U /* startup loading-bar duration before the main screen appears */
 
 #define MIDI_OUTPUT_UART_INSTANCE      UART4 /* dedicated UART instance used for controller-managed MIDI output */
@@ -159,8 +158,25 @@ static uint8_t app_screensaver_activity_event_pending = 0U; /* coalesce repeated
 static uint8_t app_periodic_ui_service_event_pending = 0U; /* sticky guard so the per-loop UI service request is queued at most once until handled */
 static uint8_t app_preset_activate_event_pending = 0U; /* last queued preset activation wins until the handler runs */
 static uint8_t app_redraw_main_screen_event_pending = 0U; /* coalesce repeated full-screen redraw requests until the handler runs */
-static uint8_t app_save_request_pending_mask = 0U; /* one pending bit per save kind so flash writes are not queued redundantly */
+static uint8_t app_save_request_pending_mask = 0U; /* one queued event bit per save kind so duplicate save events are coalesced before dispatch */
+static uint8_t app_save_service_requested_mask = 0U; /* acknowledged save requests waiting for the foreground save service */
 static uint8_t app_pending_preset_activate_index = 0U; /* payload stored outside the queue so repeated preset turns collapse to one event */
+
+/* Small foreground save-service state machine.
+ *
+ * Save requests still originate as app events so ISR-driven callers can queue
+ * them safely, but the actual flash work and popup ownership live here rather
+ * than inside the event dispatcher. That keeps event handling short and makes
+ * future save slicing easier to localize in one function. */
+typedef enum {
+  APP_SAVE_SERVICE_STATE_IDLE = 0,
+  APP_SAVE_SERVICE_STATE_SHOW_COMBINED_POPUP,
+  APP_SAVE_SERVICE_STATE_SAVE_COMBINED,
+  APP_SAVE_SERVICE_STATE_HIDE_COMBINED_POPUP,
+  APP_SAVE_SERVICE_STATE_SAVE_RUNTIME_STATE,
+} AppSaveServiceState_t;
+
+static AppSaveServiceState_t app_save_service_state = APP_SAVE_SERVICE_STATE_IDLE;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -204,6 +220,7 @@ static void App_HandlePeriodicUiServiceEvent(void);
 static void App_HandleRedrawActiveDisplayEvent(void);
 static void App_HandleRedrawMainScreenEvent(void);
 static void App_HandleSaveRequestEvent(uint8_t save_kind);
+static void App_SaveService(void);
 static void App_QueueEncoderPressEvent(uint8_t press_mask);
 static void App_QueueEncoderTurnEvent(uint8_t encoder_source, int8_t delta);
 static void App_QueueBankStepEvent(int8_t delta, uint8_t step_mode);
@@ -573,6 +590,21 @@ static uint8_t App_SaveRequestMaskForKind(uint8_t save_kind)
   default:
     return 0U;
   }
+}
+
+static uint8_t App_SaveCombinedRequestMask(void)
+{
+  /* Runtime config and preset edits are persisted in one combined flash image,
+   * so they share one popup/save path once either side requests a write. */
+  return (uint8_t)(App_SaveRequestMaskForKind(APP_EVENT_SAVE_KIND_RUNTIME_CONFIG)
+                 | App_SaveRequestMaskForKind(APP_EVENT_SAVE_KIND_PRESETS));
+}
+
+static void App_SaveServiceRegisterRequest(uint8_t save_kind)
+{
+  /* Events only register demand; the foreground service decides when to show
+   * popups and when the actual flash write is executed. */
+  app_save_service_requested_mask |= App_SaveRequestMaskForKind(save_kind);
 }
 
 static void App_QueueEncoderPressEvent(uint8_t press_mask)
@@ -1089,34 +1121,68 @@ static void App_HandleSaveRequestEvent(uint8_t save_kind)
 {
   app_save_request_pending_mask &= (uint8_t)~App_SaveRequestMaskForKind(save_kind);
 
-  switch (save_kind)
+  /* A SAVE_REQUEST event is now just an acknowledgement step. Keeping that
+   * handoff here means callers still queue the same event type, while the more
+   * expensive UI/flash work happens in App_SaveService later in the loop. */
+  App_SaveServiceRegisterRequest(save_kind);
+}
+
+static void App_SaveService(void)
+{
+  uint8_t combined_mask = App_SaveCombinedRequestMask();
+  uint8_t runtime_state_mask = App_SaveRequestMaskForKind(APP_EVENT_SAVE_KIND_RUNTIME_STATE);
+
+  /* Intentionally one small step per call. The combined save still blocks in
+   * the SAVE_COMBINED state today, but popup ownership and future sub-states
+   * are centralized here instead of being buried inside event dispatch. */
+  switch (app_save_service_state)
   {
-  case APP_EVENT_SAVE_KIND_RUNTIME_CONFIG:
-    if (!RuntimeConfig_IsDirty())
-      return;
+  case APP_SAVE_SERVICE_STATE_IDLE:
+    if ((app_save_service_requested_mask & combined_mask) != 0U)
+    {
+      if (!RuntimeConfig_IsDirty() && !Presets_IsDirty())
+      {
+        app_save_service_requested_mask &= (uint8_t)~combined_mask;
+        return;
+      }
 
-    Display_ShowSavingPopup();
-    RuntimeConfig_SaveIfDirty();
-    Display_HideSavingPopup(App_GetCurrentDisplayPreset());
+      app_save_service_state = APP_SAVE_SERVICE_STATE_SHOW_COMBINED_POPUP;
+      return;
+    }
+
+    if ((app_save_service_requested_mask & runtime_state_mask) != 0U)
+      app_save_service_state = APP_SAVE_SERVICE_STATE_SAVE_RUNTIME_STATE;
     return;
 
-  case APP_EVENT_SAVE_KIND_PRESETS:
-    if (!Presets_IsDirty())
-      return;
-
+  case APP_SAVE_SERVICE_STATE_SHOW_COMBINED_POPUP:
     Display_ShowSavingPopup();
-    Presets_SaveIfDirty();
-    Display_HideSavingPopup(App_GetCurrentDisplayPreset());
+    app_save_service_state = APP_SAVE_SERVICE_STATE_SAVE_COMBINED;
     return;
 
-  case APP_EVENT_SAVE_KIND_RUNTIME_STATE:
+  case APP_SAVE_SERVICE_STATE_SAVE_COMBINED:
+    /* Presets_SaveIfDirty also persists RuntimeConfig because both live in the
+     * same atomic sector image. */
+    (void)Presets_SaveIfDirty();
+    app_save_service_requested_mask &= (uint8_t)~combined_mask;
+    app_save_service_state = APP_SAVE_SERVICE_STATE_HIDE_COMBINED_POPUP;
+    return;
+
+  case APP_SAVE_SERVICE_STATE_HIDE_COMBINED_POPUP:
+    Display_HideSavingPopup(App_GetCurrentDisplayPreset());
+    app_save_service_state = APP_SAVE_SERVICE_STATE_IDLE;
+    return;
+
+  case APP_SAVE_SERVICE_STATE_SAVE_RUNTIME_STATE:
 #if BPM_FLASH_WRITES_ENABLED
     RuntimeState_Flash_Save(g_bpm, active_preset_index, current_bank);
     LED_FlashPulse();
 #endif
+    app_save_service_requested_mask &= (uint8_t)~runtime_state_mask;
+    app_save_service_state = APP_SAVE_SERVICE_STATE_IDLE;
     return;
 
   default:
+    app_save_service_state = APP_SAVE_SERVICE_STATE_IDLE;
     return;
   }
 }
@@ -1284,12 +1350,14 @@ int main(void)
   MidiSetOutputUart(&huart4);
   ST7796_Init();
   MX_TIM2_Init();
+  char startup_status_text[STARTUP_STATUS_TEXT_BUFFER_SIZE];
     /* The splash asset is stored with swapped red/blue channels. */
     ST7796_DrawImageSwapRB(STARTUP_SPLASH_X, STARTUP_SPLASH_Y, IMAGE_WIDTH, IMAGE_HEIGHT, image_data);
   Display_BL_FadeIn();
-  /* BPM flash status ??? top-left corner, visible during loading bar */
+  /* Combined preset/config persistent-store status, visible during loading bar. */
+    RuntimeConfig_FormatPersistentStoreStatusText(startup_status_text, sizeof(startup_status_text));
     ST7796_WriteString(STARTUP_STATUS_TEXT_X, STARTUP_STATUS_TEXT_Y,
-      BPM_Flash_IsValid() ? STARTUP_FLASH_OK_TEXT : STARTUP_FLASH_INVALID_TEXT,
+      startup_status_text,
       STARTUP_STATUS_FONT, STARTUP_STATUS_FG_COLOUR, STARTUP_STATUS_BG_COLOUR);
   //Display_LoadingBar(7000U);
     Display_LoadingBar(App_GetStartupLoadingBarDurationMs());
@@ -1341,6 +1409,7 @@ int main(void)
     App_QueuePeriodicUiServiceEvent();
     BPM_Service();
     App_ProcessPendingEvents();
+    App_SaveService();
     AppEventDiagnosticService();
     MidiClockDiagnosticService();
     Button_ProcessPendingEvents();

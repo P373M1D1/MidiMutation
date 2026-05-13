@@ -7,6 +7,13 @@
 #include "runtime_config.h"
 #include "st7796.h"
 
+/* Shared display geometry and text/layout constants.
+ *
+ * This is the single place for screen coordinates, row counts, badge widths,
+ * and other layout math used by multiple display modules. Theme colours/fonts
+ * come from display_theme.h; strings belong in display_strings.h. */
+
+/* Main screen footer and info-row geometry. */
 #define MAIN_FOOTBAR_Y                 298U
 #define MAIN_FOOTBAR_H                 (ST7796_HEIGHT - MAIN_FOOTBAR_Y)
 #define MAIN_FOOTBAR_FONT              (*Display_GetThemeFootbarFont())
@@ -39,6 +46,7 @@
 #define MAIN_MODE_HEADER_MAX_TEXT_CHARS  10U
 #define MAIN_MODE_HEADER_FONT          MAIN_FOOTBAR_FONT
 
+/* Main title area and top BPM strip geometry. */
 #define BPM_FONT                       MAIN_INFO_FONT
 #define BPM_TEXT_Y                     7U
 #define BPM_INTERNAL_X                 365U
@@ -85,6 +93,7 @@
 #define TRANSPORT_BARBEAT_TEXT_CHARS    4U
 #define TRANSPORT_BARBEAT_TEXT_W        (TRANSPORT_BARBEAT_TEXT_CHARS * MAIN_PRESET_FONT.width)
 
+/* Startup/loading screen geometry; intentionally independent from runtime themes. */
 #define LOADING_BAR_X                   10U
 #define LOADING_BAR_Y                   262U
 #define LOADING_BAR_W                   460U
@@ -98,6 +107,7 @@
 #define LOADING_BAR_MARKERS_TEXT        "..accessing genetic markers"
 #define LOADING_BAR_DONE_TEXT           "mutation complete"
 
+/* Shared menu shell row counts and logical item totals. */
 #define MENU_ROOT_ITEM_COUNT            3U
 #define MENU_VISIBLE_ROW_COUNT          4U
 #define MENU_GLOBAL_ITEM_COUNT          6U

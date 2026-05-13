@@ -19,9 +19,9 @@ Add: Copy Midi out (UART4) to two more UART TX
 Add another special Functuion button
 Add. Caps to reduce voltage spikes in Midi channel comms
 Add: Preset names must also include numbers. So far, we only have upper case and lower case letters to choose from. "A-Z,a-z,0-9, " same we do with device and bank naming 
-Add:  W/D Black on charcoal badge after bank name if bank is Wet / dry 
 
-CHATGPT review: 
+
+CHATGPT review: after uploading only a high level outline of our firmware (it might not know all intricacies)
 
 What I Would Prioritize Next
 

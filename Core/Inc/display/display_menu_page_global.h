@@ -10,7 +10,10 @@
 extern "C" {
 #endif
 
-/* Internal GLOBAL page helpers shared by redraw and page dispatch. */
+/* GLOBAL page renderer surface.
+ * This page is where persisted global settings become user-facing strings. */
+/* item_index matches the persisted global-setting order, so changing that order
+ * in runtime_config.h should be mirrored here to keep labels/values aligned. */
 void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buffer_size);
 void Display_DrawMenuGlobal(void);
 void Display_DrawMenuGlobalItem(uint8_t item_index);

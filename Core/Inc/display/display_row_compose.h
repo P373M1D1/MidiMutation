@@ -8,7 +8,13 @@
 extern "C" {
 #endif
 
-/* Internal menu-row compose helpers shared by extracted renderer modules. */
+/* Low-level row-buffer compose helpers.
+ *
+ * These are below the page/menu renderer level: they operate on one menu-row
+ * compose surface and are shared by the denser row renderers that cannot use a
+ * simple label/value layout. */
+/* Optional-field formatting is used by compare/CC editors to show sentinel
+ * values as dashes without duplicating that policy in each page module. */
 void Display_FormatMenuOptionalField(char *buffer,
 				     size_t buffer_size,
 				     uint8_t value,
@@ -20,6 +26,8 @@ void Display_MenuRowComposeTextSegment32(uint16_t x,
 					 const char *text,
 					 uint16_t foreground,
 					 uint16_t background);
+/* Returns the next X position after drawing, which is why dense row builders
+ * can chain multiple calls while staying aligned. */
 uint16_t Display_MenuRowComposeValueSegment32(uint16_t x,
 					      const char *text,
 					      uint8_t highlighted);

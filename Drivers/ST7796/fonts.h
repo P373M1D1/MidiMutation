@@ -47,6 +47,11 @@ extern FontDef32 Font_C64_8x21;
 extern FontDef32 Font_C64_15x35;
 extern FontDef32 Font_C64_23x49;
 
+/* DOS BIOS-inspired bitmap fonts used only by the BIOS display theme. */
+extern FontDef32 Font_BIOS_8x21;
+extern FontDef32 Font_BIOS_15x35;
+extern FontDef32 Font_BIOS_23x49;
+
 #ifdef __cplusplus
 }
 #endif

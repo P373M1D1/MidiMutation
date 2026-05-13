@@ -5,6 +5,13 @@
 #include "st7796.h"
 #include "stm32f4xx_hal.h"
 
+/* Shared helpers used by value-edit code.
+ *
+ * These helpers translate between the user-facing 0..100 brightness control and
+ * the stored DAC value, and they also provide the full-screen redraw hook used
+ * when a setting change (most notably theme selection) invalidates the entire
+ * cached display state. */
+
 uint16_t Display_GetBrightnessFromUiValue(uint8_t ui_value)
 {
     uint32_t brightness_span = (uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX - (uint32_t)RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN;
@@ -56,6 +63,8 @@ uint8_t Display_GetGlobalBrightnessUiValue(uint16_t brightness)
         uint8_t mid = (uint8_t)(low + ((high - low) / 2U));
         uint16_t mapped = Display_GetBrightnessFromUiValue(mid);
 
+        /* Invert the cubic brightness curve with a binary search so the GLOBAL
+         * menu can display the nearest user-facing step for any stored raw DAC value. */
         if (mapped < brightness)
             low = (uint8_t)(mid + 1U);
         else
@@ -78,6 +87,8 @@ uint8_t Display_GetGlobalBrightnessUiValue(uint16_t brightness)
 
 void Display_ApplyConfiguredBacklightBrightnessNow(void)
 {
+    /* Preserve the intentionally dark screensaver state; brightness changes are
+     * applied immediately only while the UI is actually awake. */
     if (Display_ScreensaverIsActive())
         return;
 
@@ -86,6 +97,8 @@ void Display_ApplyConfiguredBacklightBrightnessNow(void)
 
 void Display_ForceFullDisplayRedraw(void)
 {
+    /* Theme changes swap both colours and fonts, so incremental redraws are
+     * not sufficient; force every cached display fragment to be recomputed. */
     ST7796_FillScreen(Display_GetBackgroundColour());
     display_state.menu_draw_state_valid = 0U;
     display_state.menu_last_drawn_page = DISPLAY_MENU_PAGE_ROOT;

@@ -6,6 +6,12 @@
 #include "display/display_menu_row_render.h"
 #include "runtime_config.h"
 
+/* FUNCTION_BUTTON text-row renderer.
+ *
+ * The first rows of the function-button page are plain editable text fields
+ * (name, active label, inactive label). This module handles only those rows;
+ * the denser compare/message tables live in separate function-button files. */
+
 void Display_FormatFunctionButtonValue(uint8_t item_index, char *buffer, size_t buffer_size)
 {
     const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(display_state.menu_active_bank_index);
@@ -54,6 +60,8 @@ void Display_DrawMenuFunctionButtonTextItemAtRow(uint8_t item_index, uint8_t row
         const char *text_value = "";
         uint8_t cell_count = 0U;
 
+        /* Once a text row enters edit mode, render it as fixed cells instead of
+         * a normal value string so the cursor can move without layout jitter. */
         switch (item_index)
         {
         case 0U:

@@ -7,8 +7,15 @@
 extern "C" {
 #endif
 
+/* Page/chrome dispatch helpers.
+ *
+ * Use these when a caller knows the logical menu page but should not care which
+ * concrete renderer implements that page. */
+
 uint8_t Display_MenuPageUsesConfirmFootbar(DisplayMenuPage_t page);
 uint8_t Display_MenuPageUsesFreeformBody(DisplayMenuPage_t page);
+/* Header-change detection lets callers skip redraw work when two neighboring
+ * pages share the same top chrome even though their bodies differ. */
 uint8_t Display_MenuHeaderChanged(DisplayMenuPage_t previous_page, DisplayMenuPage_t current_page);
 void Display_DrawFootbar(void);
 void Display_DrawMainModeHeader(void);

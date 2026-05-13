@@ -11,6 +11,8 @@ extern "C" {
 
 /* Internal DEVICES page helpers shared by redraw, page dispatch, and device edit. */
 void Display_FormatMenuDeviceLabel(uint8_t device_index, char *buffer, size_t buffer_size);
+/* Device rows prefer the configured name, but deliberately fall back to a
+ * channel summary so an unnamed device still produces a meaningful list row. */
 void Display_FormatMenuDeviceListValue(const RuntimeConfigDevice_t *device,
 					       char *buffer,
 					       size_t buffer_size);

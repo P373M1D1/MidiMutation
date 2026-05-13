@@ -23,7 +23,6 @@
 #define PRESET_ROW(name, programs, cc_slots, relay1, relay2) { name, programs, cc_slots, { relay1, relay2 } } /* compact row helper for the static preset table */
 #define PRESET_ROW_EMPTY(name) PRESET_ROW(name, PRESET_PROGRAM_LIST_EMPTY, PRESET_CC_LIST_EMPTY, PRESET_RELAY_OPEN, PRESET_RELAY_OPEN) /* blank preset row used for placeholder banks */
 #define PRESET_BANK_EMPTY { PRESET_ROW_EMPTY("Preset 1"), PRESET_ROW_EMPTY("Preset 2"), PRESET_ROW_EMPTY("Preset 3"), PRESET_ROW_EMPTY("Preset 4"), PRESET_ROW_EMPTY("Preset 5"), PRESET_ROW_EMPTY("Preset 6"), PRESET_ROW_EMPTY("Preset 7"), PRESET_ROW_EMPTY("Preset 8") } /* eight blank presets so future banks are immediately editable */
-#define PRESET_FLASH_SECTOR         FLASH_SECTOR_12 /* dedicated flash sector reserved for preset persistence */
 #define PRESET_RANDOM_LCG_SEED                0x6D2B79F5UL /* initial state for the random-preset pseudo-random generator */
 #define PRESET_RANDOM_LCG_MULTIPLIER          1664525UL /* LCG multiplier used when generating random preset programs */
 #define PRESET_RANDOM_LCG_INCREMENT           1013904223UL /* LCG increment used when generating random preset programs */
@@ -39,6 +38,16 @@ extern volatile uint32_t  bpm_save_tick;
 extern const Preset_t    *active_preset;
 extern uint8_t            active_preset_index;
 volatile uint8_t          current_bank = 0U;
+
+static const uint32_t preset_flash_slot_addresses[] = {
+    PERSISTENT_STORE_SLOT0_FLASH_ADDR,
+    PERSISTENT_STORE_SLOT1_FLASH_ADDR,
+};
+
+static const uint32_t preset_flash_slot_sectors[] = {
+    FLASH_SECTOR_12,
+    FLASH_SECTOR_13,
+};
 
 /* ── Preset table ────────────────────────────────────────────────────────────
  *
@@ -925,6 +934,11 @@ static uint32_t Presets_FlashChecksum(const uint8_t *data, size_t size)
     return hash;
 }
 
+static uint8_t Presets_FlashGenerationIsNewer(uint32_t candidate, uint32_t reference)
+{
+    return ((int32_t)(candidate - reference) > 0) ? 1U : 0U;
+}
+
 static uint8_t Presets_FlashHeaderV1IsValid(const PersistentStoreHeaderV1_t *header)
 {
     if (!header)
@@ -955,11 +969,118 @@ static uint8_t Presets_FlashHeaderV2IsValid(const PersistentStoreHeaderV2_t *hea
             + header->config_size) <= PERSISTENT_STORE_FLASH_SIZE_BYTES)) ? 1U : 0U;
 }
 
-static uint8_t Presets_FlashLoadRuntimeStore(void)
+static uint8_t Presets_FlashHeaderV3IsValid(const PersistentStoreHeaderV3_t *header)
+{
+    if (!header)
+        return 0U;
+
+    /* commit_marker must already be present here, so partially written slots
+     * are rejected before any payload checks happen. */
+    return (header->magic == PERSISTENT_STORE_MAGIC_V3
+         && header->version == PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC
+         && header->commit_marker == PERSISTENT_STORE_COMMIT_MARKER
+         && header->bank_count == PRESET_BANK_COUNT
+         && header->presets_per_bank == PRESETS_PER_BANK
+         && header->preset_count == PRESET_COUNT
+         && header->payload_size == sizeof(preset_store)
+         && header->config_size > 0U
+         && ((sizeof(PersistentStoreHeaderV3_t)
+            + header->payload_size
+            + header->config_size) <= PERSISTENT_STORE_FLASH_SIZE_BYTES)) ? 1U : 0U;
+}
+
+static uint8_t Presets_FlashV3ImageIsValid(uint32_t slot_address,
+                                           const PersistentStoreHeaderV3_t **header_out)
+{
+    const PersistentStoreHeaderV3_t *header = (const PersistentStoreHeaderV3_t *)slot_address;
+    const uint8_t *preset_payload;
+    const uint8_t *config_payload;
+
+    if (!Presets_FlashHeaderV3IsValid(header))
+        return 0U;
+
+    /* The combined image is validated end-to-end: header, preset payload, and
+     * runtime-config payload must all match their stored checksums. */
+    preset_payload = (const uint8_t *)(slot_address + sizeof(PersistentStoreHeaderV3_t));
+    config_payload = preset_payload + header->payload_size;
+
+    if (Presets_FlashChecksum(preset_payload, header->payload_size) != header->checksum)
+        return 0U;
+
+    if (Presets_FlashChecksum(config_payload, header->config_size) != header->config_checksum)
+        return 0U;
+
+    if (header_out)
+        *header_out = header;
+
+    return 1U;
+}
+
+static uint8_t Presets_FlashFindLatestV3Store(uint32_t *slot_address_out,
+                                              uint32_t *generation_out)
+{
+    uint8_t found = 0U;
+    uint32_t selected_address = 0U;
+    uint32_t selected_generation = 0U;
+
+    /* At boot we prefer the highest valid generation rather than a fixed slot,
+     * so either sector can survive as the last good image after power loss. */
+    for (size_t slot_index = 0U; slot_index < (sizeof(preset_flash_slot_addresses) / sizeof(preset_flash_slot_addresses[0])); ++slot_index)
+    {
+        const PersistentStoreHeaderV3_t *header = NULL;
+
+        if (!Presets_FlashV3ImageIsValid(preset_flash_slot_addresses[slot_index], &header))
+            continue;
+
+        if (!found || Presets_FlashGenerationIsNewer(header->generation, selected_generation))
+        {
+            found = 1U;
+            selected_address = preset_flash_slot_addresses[slot_index];
+            selected_generation = header->generation;
+        }
+    }
+
+    if (slot_address_out)
+        *slot_address_out = selected_address;
+
+    if (generation_out)
+        *generation_out = selected_generation;
+
+    return found;
+}
+
+static uint8_t Presets_FlashLegacyStoreIsValid(void)
 {
     const PersistentStoreHeaderV1_t *header_v1 = (const PersistentStoreHeaderV1_t *)PERSISTENT_STORE_FLASH_ADDR;
     const PersistentStoreHeaderV2_t *header_v2 = (const PersistentStoreHeaderV2_t *)PERSISTENT_STORE_FLASH_ADDR;
     const uint8_t *preset_payload;
+
+    if (Presets_FlashHeaderV2IsValid(header_v2))
+    {
+        preset_payload = (const uint8_t *)(PERSISTENT_STORE_FLASH_ADDR + sizeof(PersistentStoreHeaderV2_t));
+        return (Presets_FlashChecksum(preset_payload, sizeof(preset_store)) == header_v2->checksum) ? 1U : 0U;
+    }
+
+    if (!Presets_FlashHeaderV1IsValid(header_v1))
+        return 0U;
+
+    preset_payload = (const uint8_t *)(PERSISTENT_STORE_FLASH_ADDR + sizeof(PersistentStoreHeaderV1_t));
+    return (Presets_FlashChecksum(preset_payload, sizeof(preset_store)) == header_v1->checksum) ? 1U : 0U;
+}
+
+static uint8_t Presets_FlashLoadRuntimeStore(void)
+{
+    uint32_t slot_address = 0U;
+    const PersistentStoreHeaderV1_t *header_v1 = (const PersistentStoreHeaderV1_t *)PERSISTENT_STORE_FLASH_ADDR;
+    const PersistentStoreHeaderV2_t *header_v2 = (const PersistentStoreHeaderV2_t *)PERSISTENT_STORE_FLASH_ADDR;
+    const uint8_t *preset_payload;
+
+    if (Presets_FlashFindLatestV3Store(&slot_address, NULL))
+    {
+        preset_payload = (const uint8_t *)(slot_address + sizeof(PersistentStoreHeaderV3_t));
+        memcpy(preset_store, preset_payload, sizeof(preset_store));
+        return 1U;
+    }
 
     if (Presets_FlashHeaderV2IsValid(header_v2))
     {
@@ -1006,16 +1127,40 @@ static uint8_t Presets_FlashProgramBuffer(uint32_t address,
 static uint8_t Presets_FlashSaveRuntimeStore(void)
 {
     FLASH_EraseInitTypeDef erase = {0};
-    PersistentStoreHeaderV2_t header;
+    PersistentStoreHeaderV3_t header;
     const RuntimeConfig_t *config = RuntimeConfig_Get();
+    uint32_t latest_slot_address = 0U;
+    uint32_t latest_generation = 0U;
     uint32_t sector_error = 0U;
+    uint32_t target_address;
+    uint32_t target_sector;
     uint8_t saved = 0U;
+    uint8_t target_slot_index;
 
-    if ((sizeof(PersistentStoreHeaderV2_t) + sizeof(preset_store) + sizeof(RuntimeConfig_t)) > PERSISTENT_STORE_FLASH_SIZE_BYTES)
+    if ((sizeof(PersistentStoreHeaderV3_t) + sizeof(preset_store) + sizeof(RuntimeConfig_t)) > PERSISTENT_STORE_FLASH_SIZE_BYTES)
         return 0U;
 
-    header.magic = PERSISTENT_STORE_MAGIC_V2;
-    header.version = PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG;
+    /* Always write the opposite slot from the newest valid image. That keeps
+     * one complete bootable copy intact until the replacement image is fully
+     * programmed and committed. */
+    if (Presets_FlashFindLatestV3Store(&latest_slot_address, &latest_generation))
+    {
+        target_slot_index = (latest_slot_address == preset_flash_slot_addresses[0]) ? 1U : 0U;
+        header.generation = latest_generation + 1U;
+        if (header.generation == 0U)
+            header.generation = 1U;
+    }
+    else
+    {
+        target_slot_index = Presets_FlashLegacyStoreIsValid() ? 1U : 0U;
+        header.generation = 1U;
+    }
+
+    target_address = preset_flash_slot_addresses[target_slot_index];
+    target_sector = preset_flash_slot_sectors[target_slot_index];
+
+    header.magic = PERSISTENT_STORE_MAGIC_V3;
+    header.version = PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC;
     header.bank_count = PRESET_BANK_COUNT;
     header.presets_per_bank = PRESETS_PER_BANK;
     header.preset_count = PRESET_COUNT;
@@ -1024,6 +1169,7 @@ static uint8_t Presets_FlashSaveRuntimeStore(void)
     header.reserved = 0U;
     header.config_size = sizeof(RuntimeConfig_t);
     header.config_checksum = Presets_FlashChecksum((const uint8_t *)config, sizeof(RuntimeConfig_t));
+    header.commit_marker = PERSISTENT_STORE_COMMIT_MARKER;
 
     if (HAL_FLASH_Unlock() != HAL_OK)
         return 0U;
@@ -1036,25 +1182,33 @@ static uint8_t Presets_FlashSaveRuntimeStore(void)
 
     erase.TypeErase = FLASH_TYPEERASE_SECTORS;
     erase.VoltageRange = FLASH_VOLTAGE_RANGE_3;
-    erase.Sector = PRESET_FLASH_SECTOR;
+    erase.Sector = target_sector;
     erase.NbSectors = 1U;
 
     if (HAL_FLASHEx_Erase(&erase, &sector_error) != HAL_OK)
         goto done;
 
-    if (!Presets_FlashProgramBuffer(PERSISTENT_STORE_FLASH_ADDR,
-                                    (const uint8_t *)&header,
-                                    sizeof(header)))
-        goto done;
-
-    if (!Presets_FlashProgramBuffer(PERSISTENT_STORE_FLASH_ADDR + sizeof(PersistentStoreHeaderV2_t),
+    if (!Presets_FlashProgramBuffer(target_address + sizeof(PersistentStoreHeaderV3_t),
                                     (const uint8_t *)preset_store,
                                     sizeof(preset_store)))
         goto done;
 
-    if (!Presets_FlashProgramBuffer(PERSISTENT_STORE_FLASH_ADDR + sizeof(PersistentStoreHeaderV2_t) + sizeof(preset_store),
+    if (!Presets_FlashProgramBuffer(target_address + sizeof(PersistentStoreHeaderV3_t) + sizeof(preset_store),
                                     (const uint8_t *)config,
                                     sizeof(RuntimeConfig_t)))
+        goto done;
+
+    /* Program the header body first, then the commit marker word last. A reset
+     * before the final write leaves the new slot invalid, so boot falls back to
+     * the previous generation instead of a half-written replacement. */
+    if (!Presets_FlashProgramBuffer(target_address,
+                                    (const uint8_t *)&header,
+                                    PERSISTENT_STORE_HEADER_V3_PREFIX_SIZE))
+        goto done;
+
+    if (!Presets_FlashProgramBuffer(target_address + PERSISTENT_STORE_HEADER_V3_PREFIX_SIZE,
+                                    (const uint8_t *)&header.commit_marker,
+                                    sizeof(header.commit_marker)))
         goto done;
 
     saved = 1U;

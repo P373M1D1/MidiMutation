@@ -31,6 +31,10 @@ typedef enum {
     RUNTIME_CONFIG_SYNC_STYLE_TAP_TEMPO_CC,
 } RuntimeConfigSyncStyle_t;
 
+/* Display modes are persisted as raw enum values in RuntimeConfig_t and are
+ * used as direct indices into display_theme.c. Add new themes before COUNT.
+ * Avoid reordering or deleting old values unless you also migrate stored flash
+ * snapshots, otherwise existing saved configs will point at the wrong theme. */
 typedef enum {
     RUNTIME_CONFIG_DISPLAY_MODE_DARK = 0,
     RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT,
@@ -42,6 +46,8 @@ typedef enum {
     RUNTIME_CONFIG_DISPLAY_MODE_USER2,
     RUNTIME_CONFIG_DISPLAY_MODE_USER3,
     RUNTIME_CONFIG_DISPLAY_MODE_C64,
+    RUNTIME_CONFIG_DISPLAY_MODE_BIOS,
+    /* Must stay last so bounds checks and theme table sizing remain correct. */
     RUNTIME_CONFIG_DISPLAY_MODE_COUNT,
 } RuntimeConfigDisplayMode_t;
 
@@ -113,6 +119,7 @@ void RuntimeConfig_MarkDirty(void);
 uint8_t RuntimeConfig_IsDirty(void);
 void RuntimeConfig_ClearDirty(void);
 uint8_t RuntimeConfig_SaveIfDirty(void);
+void RuntimeConfig_FormatPersistentStoreStatusText(char *buffer, size_t buffer_size);
 void RuntimeConfig_ApplySnapshot(const RuntimeConfig_t *snapshot);
 
 void RuntimeConfig_ResetToDefaults(void);

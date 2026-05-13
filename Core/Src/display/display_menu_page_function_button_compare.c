@@ -11,6 +11,13 @@
 #include "runtime_config.h"
 #include "st7796.h"
 
+/* FUNCTION_BUTTON compare-table renderer.
+ *
+ * Active/inactive program and CC messages use a wider, denser layout than the
+ * standard menu rows, so their window math and row drawing live here. If the
+ * function-button editor ever gains more message columns, this is the file that
+ * defines how those rows are paged and painted. */
+
 #define MENU_ITEM_X 24U
 
 static uint8_t Display_GetVisibleWindowStart(uint8_t item_count,
@@ -26,6 +33,8 @@ static uint8_t Display_GetVisibleWindowStart(uint8_t item_count,
     if (selected_index < visible_count)
         return 0U;
 
+    /* Once the selection scrolls past the visible window, keep it pinned on
+     * the last visible row so the page advances one logical item at a time. */
     return (uint8_t)(selected_index - (visible_count - 1U));
 }
 
@@ -39,6 +48,8 @@ uint8_t Display_GetFunctionButtonLayoutSignature(uint8_t selection_index, uint8_
     if (selection_index < MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX)
         return 0U;
 
+    /* Message rows are split into a program section followed by a CC section,
+     * and each section occupies a different fixed screen layout. */
     message_selection_index = (uint8_t)(selection_index - MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX);
 
     if (message_selection_index < RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
@@ -522,6 +533,8 @@ void Display_DrawMenuFunctionButton(void)
 
     if (display_state.menu_function_button_selection_index < MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX)
     {
+        /* Top-of-page state: show the three plain text rows and only the first
+         * compare header, because selection has not entered message rows yet. */
         for (uint8_t row_index = 0U; row_index < MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT; ++row_index)
             Display_DrawMenuFunctionButtonTextItemAtRow(row_index, row_index);
 
@@ -535,6 +548,8 @@ void Display_DrawMenuFunctionButton(void)
     {
         if (message_selection_index == 0U)
         {
+            /* Transition layout from text rows into the compare table: keep the
+             * last two text rows visible above the first program message row. */
             Display_DrawMenuFunctionButtonTextItemAtRow(1U, 0U);
             Display_DrawMenuFunctionButtonTextItemAtRow(2U, 1U);
             Display_DrawMenuFunctionButtonCompareHeaderRow(Display_GetMenuRowYByIndex(2U));
@@ -577,6 +592,8 @@ void Display_DrawMenuFunctionButton(void)
 
         if (cc_selection_index == 0U)
         {
+            /* First CC row keeps the final program row visible above it so the
+             * user can still read the boundary between program and CC sections. */
             Display_DrawMenuFunctionButtonProgramCompareRowAtRow(1U,
                                                                  (uint8_t)(RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT - 1U),
                                                                  0U);

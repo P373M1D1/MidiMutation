@@ -32,6 +32,12 @@ extern "C" {
 #define MENU_FUNCTION_BUTTON_ITEM_COUNT (MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT + MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT)
 #define MENU_DEVICE_EDIT_ITEM_COUNT     8U
 
+/* Shared mutable display state.
+ *
+ * This is still owned centrally by display_functions.c, but extracted display
+ * modules read/write pieces of it through the extern below. If you add state,
+ * keep it display-only and prefer grouping related flags together so redraw and
+ * controller code stay readable. */
 typedef struct DisplayState {
 	uint8_t main_layout_dirty;
 	uint8_t bpm_display_valid;
@@ -69,6 +75,9 @@ typedef struct DisplayState {
 	uint8_t menu_draw_state_valid;
 } DisplayState;
 
+/* Logical menu pages used by controller, renderer, and redraw modules.
+ * The value itself is persisted nowhere, so these may be reordered if every
+ * switch statement and page registry is updated together. */
 typedef enum {
 	DISPLAY_MENU_PAGE_ROOT = 0,
 	DISPLAY_MENU_PAGE_BANKS,
@@ -84,6 +93,7 @@ typedef enum {
 	DISPLAY_MENU_PAGE_GLOBAL,
 } DisplayMenuPage_t;
 
+/* Editable text-field identities used by the menu text-edit helper path. */
 typedef enum {
 	DISPLAY_MENU_TEXT_FIELD_NONE = 0,
 	DISPLAY_MENU_TEXT_FIELD_BANK_NAME,
@@ -107,6 +117,8 @@ uint16_t Display_GetBackgroundColour(void);
 DisplayMenuTextField_t Display_GetMenuTextFieldForSelection(void);
 uint8_t Display_GetMenuTextFieldLength(DisplayMenuTextField_t field);
 size_t Display_GetMenuTextFieldCapacity(DisplayMenuTextField_t field);
+/* Returns the live mutable string behind the current text field selection; the
+ * menu editor writes through this pointer directly before marking config dirty. */
 char *Display_GetMenuTextFieldPointer(DisplayMenuTextField_t field);
 void Display_LoadMenuTextCells(const char *source, uint8_t cell_count, char *cells);
 void Display_StoreMenuTextCells(char *destination,
@@ -122,6 +134,8 @@ uint8_t Display_MenuTextEditMoveCursor(int8_t delta);
 
 /* Internal redraw hooks shared by menu helper modules. */
 void Display_MenuRedrawCurrentItem(void);
+/* Current-value redraw is narrower than current-item redraw and should be used
+ * when only the right-hand value or sub-editor state changed. */
 void Display_MenuRedrawCurrentValue(void);
 void Display_MenuRedrawSelectionChange(DisplayMenuPage_t page, uint8_t previous_selection);
 void Display_MenuRedrawCurrentPageRows(void);

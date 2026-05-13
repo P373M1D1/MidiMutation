@@ -104,6 +104,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/ST7796/font_c64_8x21.c
     Drivers/ST7796/font_c64_15x35.c
     Drivers/ST7796/font_c64_23x49.c
+    Drivers/ST7796/font_bios_8x21.c
+    Drivers/ST7796/font_bios_15x35.c
+    Drivers/ST7796/font_bios_23x49.c
     Core/Src/button_functions.c
 )
 

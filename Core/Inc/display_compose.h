@@ -8,6 +8,12 @@
 extern "C" {
 #endif
 
+/* Low-level compose-buffer API.
+ *
+ * This sits below the theme-aware display helpers: callers provide raw colours,
+ * fonts, clip sizes, and target positions, and the implementation composes into
+ * a shared scratch buffer before blitting to the panel. */
+
 void DisplayCompose_Clear(uint16_t clip_width,
                           uint16_t clip_height,
                           uint16_t colour);

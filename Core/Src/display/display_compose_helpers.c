@@ -7,6 +7,13 @@
 #include "display/display_row_compose.h"
 #include "display_compose.h"
 
+/* Shared compose wrappers for extracted display modules.
+ *
+ * These helpers expose a narrow drawing surface so split-out display files can
+ * clear, fill, render text, and blit row buffers without depending on static
+ * functions that used to live in display_functions.c. Keep this layer focused
+ * on reusable drawing primitives rather than page-specific policy. */
+
 uint16_t Display_GetBackgroundColour(void)
 {
     return DISPLAY_BG_COLOUR;
@@ -104,6 +111,8 @@ void Display_ComposeString32Literal(uint16_t clip_width,
                                     uint16_t colour,
                                     uint16_t background)
 {
+    /* Kept as a named wrapper so call sites that conceptually render constant
+     * UI copy remain obvious after the compose layer was extracted. */
     DisplayCompose_String32(clip_width,
                             clip_height,
                             x,
@@ -139,6 +148,8 @@ void Display_FormatMenuOptionalField(char *buffer,
 
     if (value == unused_value)
     {
+        /* Optional numeric fields render as dashes instead of blanks so the UI
+         * communicates "unused" rather than "missing redraw". */
         memset(field_text, '-', digits);
         field_text[digits] = '\0';
     }
@@ -222,6 +233,8 @@ uint16_t Display_MenuRowComposeValueSegment32(uint16_t x,
     if (text_length == 0U)
         return x;
 
+    /* Return the next X position so dense row builders can chain segments left
+     * to right without repeating width calculations at each call site. */
     Display_MenuRowComposeTextSegment32(x,
                                         text,
                                         highlighted ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR : MAIN_INFO_TEXT_COLOUR,

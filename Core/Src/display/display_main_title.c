@@ -6,6 +6,12 @@
 #include "display/display_layout.h"
 #include "display/display_main_title.h"
 
+/* Main-title renderer for the large preset line and the bank-name line.
+ *
+ * This file owns the centering math and cursor helpers for preset-name edits.
+ * If title alignment, bank-line badges, or preset-name cursor limits ever look
+ * wrong, start here before editing the larger display monolith. */
+
 static uint8_t Display_GetPresetNameLength(const Preset_t *preset)
 {
     if (!preset)
@@ -18,6 +24,8 @@ static uint8_t Display_GetPresetNameRenderLength(const Preset_t *preset)
 {
     uint8_t name_length = Display_GetPresetNameLength(preset);
 
+    /* Even an empty preset keeps one render cell so edit highlighting still has
+     * a stable target instead of collapsing the centered title math to zero. */
     return (name_length > 0U) ? name_length : 1U;
 }
 
@@ -87,6 +95,8 @@ void Display_DrawCurrentBankNameLine(void)
 
     if (bank && bank->wet_dry_enabled)
     {
+        /* Center the bank name and wet/dry badge as one visual group so adding
+         * the badge does not shove the bank name off-center on its own. */
         badge_width = (uint16_t)(strlen(MAIN_BANK_WET_DRY_BADGE_TEXT) * MAIN_BANK_FONT.width);
         group_width = (uint16_t)(group_width + gap_width + badge_width);
     }
@@ -167,6 +177,8 @@ void Display_DrawPresetName(const Preset_t *preset)
             && logical_index >= 0
             && logical_index < (int16_t)render_length)
         {
+            /* Whole-field selection uses a broad highlight, while the separate
+             * char-edit mode below narrows that to the active character cell. */
             foreground = MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR;
             background = MAIN_INFO_EDIT_CURSOR_BG_COLOUR;
         }

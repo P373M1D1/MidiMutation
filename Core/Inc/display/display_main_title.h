@@ -9,6 +9,10 @@
 extern "C" {
 #endif
 
+/* Preset-title and bank-line helpers used by the main screen. */
+
+/* The max editable index depends on the centered render padding, not just the
+ * raw preset-name capacity, so callers should ask this helper instead of math. */
 uint8_t Display_GetPresetNameEditMaxIndex(const Preset_t *preset);
 void Display_DrawCurrentBankNameLine(void);
 void Display_DrawPresetName(const Preset_t *preset);

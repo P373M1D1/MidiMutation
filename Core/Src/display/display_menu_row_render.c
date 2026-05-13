@@ -6,6 +6,12 @@
 #include "display/display_menu_row_render.h"
 #include "display/display_row_compose.h"
 
+/* Standard menu-row surface renderer.
+ *
+ * This module owns the four visible row Y positions, left/right alignment, and
+ * selected-row colour handling used by the common menu shell. Page modules hand
+ * it labels/values; it decides how one row is actually painted on screen. */
+
 #define MENU_ITEM_X 24U
 #define MENU_ITEM_W (ST7796_WIDTH - (MENU_ITEM_X * 2U))
 
@@ -37,6 +43,8 @@ static void Display_DrawMenuRowComposed(uint16_t row_y,
     uint8_t highlight_value = (selected && value && value[0] != '\0') ? 1U : 0U;
     uint8_t highlight_label = (selected && !highlight_value) ? 1U : 0U;
 
+    /* Standard rows highlight the value when one exists; rows without a value
+     * badge instead highlight the label so selection is still visible. */
     Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
 
     if (label && label[0] != '\0')
@@ -109,6 +117,8 @@ static void Display_DrawMenuTextEditRow(uint16_t row_y,
     if (cell_count == 0U || cell_count > sizeof(cells))
         return;
 
+    /* Text-edit rows are rendered as fixed-width cells so the cursor highlight
+     * does not shift when trailing spaces or short names are edited. */
     Display_LoadMenuTextCells(source, cell_count, cells);
     value_x = (uint16_t)(ST7796_WIDTH - MENU_ITEM_X - ((uint16_t)cell_count * MAIN_INFO_FONT.width));
 

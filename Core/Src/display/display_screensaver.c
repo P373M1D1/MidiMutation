@@ -3,6 +3,13 @@
 #include "runtime_config.h"
 #include "stm32f4xx_hal.h"
 
+/* Inactivity-driven screensaver/backlight policy.
+ *
+ * This module does not draw a separate screensaver scene; it simply tracks the
+ * last activity time, decides when the UI should be considered idle, and fades
+ * the backlight out/in. The main screen is marked dirty so normal rendering can
+ * restore the UI when activity returns. */
+
 #define SCREENSAVER_TIMEOUT_MIN_DEFAULT 10UL
 
 static uint32_t screensaver_last_activity_tick = 0U;
@@ -21,6 +28,8 @@ static uint32_t Display_GetConfiguredScreensaverTimeoutMs(void)
 
 void Display_ScreensaverActivity(void)
 {
+    /* Any input source calls this; the module only needs the latest timestamp,
+     * not the identity of the activity that kept the UI awake. */
     screensaver_last_activity_tick = HAL_GetTick();
 }
 
@@ -57,6 +66,8 @@ uint8_t Display_ScreensaverUpdate(void)
 
     if (now - screensaver_last_activity_tick < screensaver_timeout_ms)
     {
+        /* Return 1 exactly on wake so the caller can schedule a main-screen
+         * redraw after the backlight fade-in without polling extra state. */
         Display_ScreensaverDismiss();
         return 1U;
     }

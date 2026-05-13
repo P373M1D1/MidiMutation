@@ -7,6 +7,12 @@
 #include "display/display_menu_row_render.h"
 #include "runtime_config.h"
 
+/* BANKS list-page renderer.
+ *
+ * This file formats the visible bank list rows and nothing more. Selection and
+ * scrolling rules live elsewhere; this module just turns a bank index into the
+ * label/value pair shown in the shared four-row menu window. */
+
 #define MENU_BANK_LABEL_PREFIX "Bank "
 
 void Display_FormatMenuBankLabel(uint8_t bank_index, char *buffer, size_t buffer_size)
@@ -27,6 +33,8 @@ void Display_DrawMenuBankWindowRow(uint8_t row_index, uint8_t bank_index)
 
     if (bank_index >= PRESET_BANK_COUNT)
     {
+        /* When the final BANKS window has fewer than four entries, scrub the
+         * leftover row so previous page content cannot leak through. */
         Display_ClearStandardMenuRow(row_index);
         return;
     }
@@ -50,6 +58,8 @@ void Display_DrawMenuBankItem(uint8_t bank_index)
     if (bank_index < first_visible_index || bank_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
         return;
 
+    /* Single-item redraws reuse the same window math as full-page draws so the
+     * row index stays stable when redraw code repaints just one changed bank. */
     row_index = (uint8_t)(bank_index - first_visible_index);
     bank = RuntimeConfig_GetBank(bank_index);
     Display_FormatMenuBankLabel(bank_index, label_text, sizeof(label_text));

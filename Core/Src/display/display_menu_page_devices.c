@@ -8,6 +8,12 @@
 #include "midi_devices.h"
 #include "runtime_config.h"
 
+/* DEVICES list-page renderer.
+ *
+ * This module formats the summary rows for the device list page. It is the
+ * display-side counterpart to the device table/config model and keeps the
+ * generic menu row renderer free of device-specific wording. */
+
 #define MENU_DEVICE_LABEL_PREFIX "Device "
 
 void Display_FormatMenuDeviceLabel(uint8_t device_index, char *buffer, size_t buffer_size)
@@ -28,6 +34,8 @@ void Display_FormatMenuDeviceListValue(const RuntimeConfigDevice_t *device,
     if (device && device->name[0] != '\0')
         (void)snprintf(buffer, buffer_size, "%s", device->name);
     else if (device)
+        /* Unnamed devices still need a stable list entry; channel is the least
+         * surprising fallback because it is always configured. */
         (void)snprintf(buffer, buffer_size, "CH %u", device->channel);
     else
         buffer[0] = '\0';
@@ -81,6 +89,8 @@ void Display_DrawMenuDevices(void)
 
         if (device_index >= MIDI_DEVICE_COUNT)
         {
+            /* Clear spare rows when the window reaches the end of the device
+             * list so old text from previous pages is not left behind. */
             Display_ClearStandardMenuRow(row_index);
             continue;
         }

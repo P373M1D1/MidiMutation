@@ -5,6 +5,12 @@
 #include "display/display_value_helpers.h"
 #include "runtime_config.h"
 
+/* Value-edit engine for menu pages.
+ *
+ * This file owns numeric/enum adjustment rules and any immediate side effects
+ * caused by a change (mark dirty, apply brightness immediately, force a full
+ * redraw after theme changes). Rendering remains in the page/row modules. */
+
 static uint8_t Display_AdjustWrappedU8(uint8_t *value, uint8_t min_value, uint8_t max_value, int8_t delta)
 {
     int32_t next_value;
@@ -214,6 +220,8 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
 
     if ((DisplayMenuTextField_t)display_state.menu_text_edit_field != DISPLAY_MENU_TEXT_FIELD_NONE)
     {
+        /* Text editing bypasses the normal numeric/enum page logic and mutates
+         * the currently selected character cell directly. */
         changed = Display_MenuAdjustTextCharacter(delta);
         if (!changed)
             return 0U;
@@ -225,6 +233,8 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
 
     if (Display_MenuFunctionButtonMessagePageIsActive())
     {
+        /* The compare table has its own sub-field cursoring, so message edits
+         * are handled before the generic page switch below. */
         changed = Display_AdjustFunctionButtonMessageValue(delta);
         if (!changed)
             return 0U;
@@ -263,6 +273,8 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
 
         if (Display_MenuDeviceCcRowIsSelected() && device_cc)
         {
+            /* DEVICE_EDIT CC rows expose two editable sub-fields on one row,
+             * unlike the single-value rows elsewhere in the menu system. */
             switch (display_state.menu_device_cc_field_index)
             {
             case 0U:
@@ -332,6 +344,9 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
         {
             uint8_t display_mode = (uint8_t)global->display_mode;
 
+            /* Theme selection is multi-valued, so it must wrap across the full
+             * enum range rather than use the older two-endpoint directional
+             * helper that was suitable only for binary choices. */
             changed = Display_AdjustWrappedU8(&display_mode,
                                               (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_DARK,
                                               (uint8_t)(RUNTIME_CONFIG_DISPLAY_MODE_COUNT - 1U),
@@ -374,6 +389,8 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
 
     if (full_redraw)
     {
+        /* Theme changes invalidate fonts, colours, and cached row state all at
+         * once, so the safe path is to rebuild the entire display surface. */
         Display_ForceFullDisplayRedraw();
         return 1U;
     }

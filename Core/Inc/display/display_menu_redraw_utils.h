@@ -7,8 +7,14 @@
 extern "C" {
 #endif
 
+/* Shared selection/window math used by redraw, controller, and page modules.
+ * Keep these helpers free of drawing side effects so all callers can rely on
+ * the same visible-row calculations. */
+
 uint8_t Display_GetMenuFirstVisibleIndex(uint8_t item_count, uint8_t selected_index);
 uint8_t Display_GetMenuSelectionIndexForPage(DisplayMenuPage_t page);
+/* Page-aware first-visible calculation exists because FUNCTION_BUTTON and a
+ * few other pages do not use the standard one-row-per-item layout. */
 uint8_t Display_GetMenuFirstVisibleIndexForPage(DisplayMenuPage_t page, uint8_t selection_index);
 uint8_t Display_GetMenuVisibleRowIndex(DisplayMenuPage_t page, uint8_t item_index, uint8_t *row_index);
 

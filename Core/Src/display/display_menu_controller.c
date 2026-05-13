@@ -8,6 +8,13 @@
 #include "presets.h"
 #include "runtime_config.h"
 
+/* Menu controller and focus/navigation logic.
+ *
+ * This module decides which menu item, page, or sub-field is currently active
+ * and how selection moves in response to encoder/button input. Rendering stays
+ * in the row/page modules; this file should answer "where is focus now?" and
+ * "what page should we enter/leave?" without composing pixels directly. */
+
 /* ── Focus index helpers for FUNCTION_BUTTON and DEVICE_EDIT pages ─────────── */
 
 static uint8_t Display_GetFunctionButtonMessageFieldCount(uint8_t row_index)
@@ -27,6 +34,8 @@ static uint16_t Display_GetFunctionButtonFocusCount(void)
 {
     uint16_t focus_count = 0U;
 
+    /* Flatten the visible FUNCTION_BUTTON page into a single cursor domain so
+     * encoder navigation can move across both row boundaries and sub-fields. */
     for (uint8_t selection_index = 0U; selection_index < MENU_FUNCTION_BUTTON_ITEM_COUNT; ++selection_index)
         focus_count = (uint16_t)(focus_count + Display_GetFunctionButtonFocusFieldCount(selection_index));
 
@@ -63,6 +72,9 @@ static void Display_SetFunctionButtonFocusIndex(uint16_t focus_index)
 
         if (focus_index < field_count)
         {
+            /* Translate the flattened focus index back into the pair of values
+             * the rest of the display code understands: row selection plus the
+             * active field inside that row. */
             display_state.menu_function_button_selection_index = selection_index;
             display_state.menu_function_button_message_field_index = (selection_index < MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX)
                 ? 0U
@@ -147,6 +159,8 @@ static void Display_ResetFunctionButtonMessageEditor(void)
 
 static void Display_ResetMenuTransientEditors(void)
 {
+    /* These editor cursors are page-local scratch state. Reset them on page
+     * transitions so a new page never inherits stale text/CC sub-selection. */
     display_state.menu_function_button_message_selection_index = 0U;
     display_state.menu_function_button_message_field_index = 0U;
     display_state.menu_function_button_message_field_edit_active = 0U;
@@ -158,6 +172,9 @@ static void Display_ResetMenuTransientEditors(void)
 
 static void Display_RestoreFactorySettings(void)
 {
+    /* Factory reset spans both persistent models: runtime config plus every
+     * preset slot. Mark both dirty so the save service writes one consistent
+     * combined image afterwards. */
     RuntimeConfig_ResetToDefaults();
 
     for (uint8_t preset_index = 0U; preset_index < PRESET_COUNT; ++preset_index)

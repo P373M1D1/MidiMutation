@@ -9,7 +9,11 @@
 extern "C" {
 #endif
 
-/* Internal DEVICE_EDIT page helpers shared by redraw and page dispatch. */
+/* DEVICE_EDIT page-family surface.
+ * These declarations cover both simple field formatting and the denser CC-row
+ * editing helpers used only by the device editor. */
+/* The CC helpers intentionally expose mutable MidiCC_t pointers because the
+ * value-edit module changes sub-fields in place while this page just formats. */
 const char *Display_GetMenuDeviceEditLabel(uint8_t item_index,
 					   char *buffer,
 					   size_t buffer_size);

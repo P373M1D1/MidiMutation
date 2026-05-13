@@ -14,6 +14,8 @@ static void DisplayCompose_CompactRows(uint16_t packed_width, uint16_t height)
     if (packed_width == 0U || packed_width >= ST7796_WIDTH)
         return;
 
+    /* Compose callers write rows into a full-width scratch buffer. Before a
+     * narrow blit, compact each row down so ST7796_DrawImage sees packed data. */
     for (uint16_t row = 1U; row < height; ++row)
     {
         memmove(&display_compose_buffer[(uint32_t)row * packed_width],
@@ -33,6 +35,8 @@ static void DisplayCompose_Char16(uint16_t clip_width,
 {
     uint32_t glyph_offset;
 
+    /* The built-in font tables only cover printable ASCII. Unknown values are
+     * rendered as '?' so the UI never reads from an invalid glyph slot. */
     if (ch < 32 || ch > 126)
         ch = '?';
 
@@ -228,6 +232,8 @@ void DisplayCompose_Blit(uint16_t x,
     if (width == 0U || height == 0U)
         return;
 
+    /* Packing happens at the last moment so upstream compose helpers can keep
+     * using simple full-width row offsets while drawing into the scratch buffer. */
     DisplayCompose_CompactRows(width, height);
     ST7796_DrawImage(x,
                      y,

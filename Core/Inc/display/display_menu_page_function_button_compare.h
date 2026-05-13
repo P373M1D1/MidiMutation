@@ -9,6 +9,9 @@ extern "C" {
 #endif
 
 /* Internal FUNCTION_BUTTON compare helpers shared by redraw modules. */
+/* The layout signature encodes which special four-row arrangement is active:
+ * text rows, program header/window, or CC header/window. Redraw code uses it
+ * to keep the compare table stable while selection moves. */
 uint8_t Display_GetFunctionButtonLayoutSignature(uint8_t selection_index, uint8_t *window_start);
 uint8_t Display_GetFunctionButtonSelectionRow(uint8_t selection_index, uint8_t *row_index);
 uint8_t Display_GetFunctionButtonMessageSelectionIndex(void);

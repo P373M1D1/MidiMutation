@@ -7,6 +7,12 @@
 #include "runtime_config.h"
 #include "display/display_menu_page_function_button.h"
 
+/* Targeted redraw helpers for the FUNCTION_BUTTON page family.
+ *
+ * The function-button editor has several special-case row types, so its redraw
+ * logic is split out of the generic menu redraw path. This file answers the
+ * question "which exact row needs repainting now?" for that page family. */
+
 void Display_RedrawMenuFunctionButtonSelectionItem(uint8_t item_index, uint8_t selected)
 {
     static const char * const menu_function_button_labels[MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT] = {
@@ -34,6 +40,8 @@ void Display_RedrawMenuFunctionButtonSelectionItem(uint8_t item_index, uint8_t s
     message_selection_index = (uint8_t)(item_index - MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX);
     if (message_selection_index < RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
     {
+        /* Program rows can redraw in-place with their dense compare layout even
+         * when only selection state changed. */
         Display_DrawMenuFunctionButtonProgramCompareEditRowCore(Display_GetMenuRowYByIndex(row_index),
                                                                 message_selection_index,
                                                                 selected,
@@ -47,6 +55,8 @@ void Display_RedrawMenuFunctionButtonSelectionItem(uint8_t item_index, uint8_t s
         Display_DrawMenuFunctionButtonCcCompareEditRowNoClear(Display_GetMenuRowYByIndex(row_index), message_selection_index);
     else
     {
+        /* Non-selected CC rows fall back to a compact one-line summary instead
+         * of the multi-highlight edit layout used by the active row. */
         Display_FormatFunctionButtonCcCompareRow(message_selection_index, value_text, sizeof(value_text));
         Display_DrawMenuRowByIndex(row_index, value_text, "", 0U);
     }

@@ -7,34 +7,42 @@
 #include "runtime_config.h"
 #include "st7796.h"
 
+/* Complete palette contract for one display theme.
+ *
+ * Every entry in display_theme.c must provide every field here because the UI
+ * reaches the palette only through these names/macros. When adding a new field,
+ * update all existing theme specs as part of the same change. */
 typedef struct
 {
-	uint16_t display_bg_colour;
-	uint16_t main_footbar_color;
-	uint16_t main_footbar_text_colour;
-	uint16_t main_info_text_colour;
-	uint16_t main_info_edit_cursor_text_colour;
-	uint16_t main_info_edit_cursor_bg_colour;
-	uint16_t main_info_edit_cursor_shared_bg_colour;
-	uint16_t main_saving_popup_bg_colour;
-	uint16_t main_saving_popup_text_colour;
-	uint16_t main_saving_popup_border_colour;
-	uint16_t main_mode_header_colour;
-	uint16_t main_mode_header_edit_colour;
-	uint16_t main_mode_header_edit_bg_colour;
-	uint16_t main_preset_colour;
-	uint16_t main_bank_colour;
-	uint16_t main_bank_wet_dry_colour;
-	uint16_t main_special_function_button_active_colour;
-	uint16_t main_special_function_button_inactive_colour;
-	uint16_t main_special_function_button_active_bg;
-	uint16_t main_alert_badge_text_colour;
-	uint16_t bpm_internal_colour;
-	uint16_t ext_bpm_colour;
+	uint16_t display_bg_colour; /* whole-screen background outside explicit badges/popups */
+	uint16_t main_footbar_color; /* footer/status bar fill */
+	uint16_t main_footbar_text_colour; /* footer/status bar text */
+	uint16_t main_info_text_colour; /* normal main-info and menu text */
+	uint16_t main_info_edit_cursor_text_colour; /* text drawn inside the active edit row/badge */
+	uint16_t main_info_edit_cursor_bg_colour; /* active edit row/badge background */
+	uint16_t main_info_edit_cursor_shared_bg_colour; /* alternate highlight used for shared/paired fields */
+	uint16_t main_saving_popup_bg_colour; /* saving popup fill */
+	uint16_t main_saving_popup_text_colour; /* saving popup text */
+	uint16_t main_saving_popup_border_colour; /* saving popup border */
+	uint16_t main_mode_header_colour; /* LIVE/MENU header text */
+	uint16_t main_mode_header_edit_colour; /* EDIT badge text */
+	uint16_t main_mode_header_edit_bg_colour; /* EDIT badge background */
+	uint16_t main_preset_colour; /* large preset-name line */
+	uint16_t main_bank_colour; /* bank-name line */
+	uint16_t main_bank_wet_dry_colour; /* W/D badge beside the bank line */
+	uint16_t main_special_function_button_active_colour; /* active special-button text */
+	uint16_t main_special_function_button_inactive_colour; /* inactive special-button text */
+	uint16_t main_special_function_button_active_bg; /* active special-button badge fill */
+	uint16_t main_alert_badge_text_colour; /* text inside alert/confirm badges */
+	uint16_t bpm_internal_colour; /* internally generated BPM text */
+	uint16_t ext_bpm_colour; /* external MIDI-clock BPM text */
 } DisplayTheme_t;
 
-/* Edit the palette values in display_theme.c to tweak the UI appearance. */
+/* Most callers should use the macros below rather than caching raw palette
+ * pointers, so future theme refactors stay localized to this interface. */
 const DisplayTheme_t *Display_GetTheme(void);
+/* Theme names are user-facing strings used by the GLOBAL page; the lookup also
+ * normalizes out-of-range persisted ids before the label reaches the screen. */
 const char *Display_GetThemeName(RuntimeConfigDisplayMode_t display_mode);
 const FontDef32 *Display_GetThemeFootbarFont(void);
 const FontDef32 *Display_GetThemeInfoFont(void);

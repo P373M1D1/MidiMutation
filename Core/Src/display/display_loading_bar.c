@@ -7,8 +7,12 @@
 #include "stm32f4xx_hal.h"
 #include "st7796.h"
 
-/* Startup progress bar shown during boot while peripherals settle.
- * The implementation stays blocking on purpose to preserve the current flow. */
+/* Startup loading bar shown during boot while peripherals settle.
+ *
+ * Colours here are intentionally fixed and do not follow runtime themes, so a
+ * later theme edit cannot accidentally make the boot splash unreadable. The
+ * implementation is still blocking because boot flow currently expects a simple
+ * splash-delay stage before the main UI comes up. */
 
 #define LOADING_SCREEN_BG_COLOUR   BLACK
 #define LOADING_SCREEN_BAR_COLOUR  DARK_RED
@@ -34,6 +38,8 @@ static void Display_LoadingBarSetText(const char *text, uint16_t colour)
     size_t text_len = strlen(text);
     uint16_t text_x = (uint16_t)(ST7796_WIDTH - ((uint16_t)text_len * LOADING_BAR_TEXT_FONT.width) - LOADING_BAR_X);
 
+    /* Boot text is right-aligned to the bar end so changing message lengths do
+     * not shift the visual relationship between the text row and the bar. */
     Display_ComposeFillRect(ST7796_WIDTH,
                             LOADING_BAR_TEXT_FONT.height,
                             0U,
@@ -93,6 +99,8 @@ void Display_LoadingBar(uint32_t duration_ms)
 
         uint32_t now = HAL_GetTick();
 
+        /* Text phases are time-based rather than fill-based so boot copy stays
+         * readable even if panel SPI speed or duration_ms changes later. */
         if (phase == 0U && elapsed >= duration_ms / LOADING_BAR_PHASE_DIVISOR)
         {
             Display_LoadingBarSetText(LOADING_BAR_MATCH_TEXT, LOADING_SCREEN_TEXT_COLOUR);

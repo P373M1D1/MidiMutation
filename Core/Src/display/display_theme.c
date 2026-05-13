@@ -2,18 +2,29 @@
 
 #include "runtime_config.h"
 
-/* Theme palettes selected by the existing GLOBAL -> Display menu setting.
+/* Theme registration table for the main UI.
+ *
+ * Maintenance checklist for adding/removing themes:
+ * 1. Add or deprecate the enum value in RuntimeConfigDisplayMode_t.
+ * 2. Keep persisted enum values stable whenever possible because flash stores
+ *    the numeric mode id directly inside RuntimeConfig_t.
+ * 3. Add a valid entry to display_theme_specs[] for every live enum value.
+ * 4. If a theme needs unique fonts, add those assets/declarations separately.
+ *
  * Colours here are literal for each mode; the compose layer no longer flips
  * black/white automatically in bright mode. */
 typedef struct
 {
-    const char *name;
-    const FontDef32 *footbar_font;
-    const FontDef32 *info_font;
-    const FontDef32 *preset_font;
-    DisplayTheme_t theme;
+    const char *name; /* user-visible label shown in the GLOBAL menu */
+    const FontDef32 *footbar_font; /* footer/header font for this theme */
+    const FontDef32 *info_font; /* menu/info-row font for this theme */
+    const FontDef32 *preset_font; /* large preset-name font for this theme */
+    DisplayTheme_t theme; /* colour palette consumed through display_theme.h macros */
 } DisplayThemeSpec_t;
 
+/* The array is indexed directly by RuntimeConfigDisplayMode_t. Every persisted
+ * mode id therefore needs a valid entry here; a missing entry is not a soft
+ * failure because the display code will later dereference fonts/colours. */
 static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_COUNT] = {
     [RUNTIME_CONFIG_DISPLAY_MODE_DARK] = {
         .name = "Dark",
@@ -286,23 +297,25 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
         },
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_C64] = {
+        /* Custom generated bitmap fonts keep the C64 theme legible at the same
+         * geometry as the Consolas themes without changing layout constants. */
         .name = "C64",
         .footbar_font = &Font_C64_8x21,
         .info_font = &Font_C64_15x35,
         .preset_font = &Font_C64_23x49,
         .theme = {
-            .display_bg_colour = DARK_GREEN,
+            .display_bg_colour = DARK_JUNGLE_GREEN,
             .main_footbar_color = GREEN_WEB,
             .main_footbar_text_colour = EERIE_BLACK,
             .main_info_text_colour = GREEN_WEB,
-            .main_info_edit_cursor_text_colour = RICH_BLACK,
+            .main_info_edit_cursor_text_colour = DARK_JUNGLE_GREEN,
             .main_info_edit_cursor_bg_colour = GREEN_WEB,
             .main_info_edit_cursor_shared_bg_colour = DARK_PASTEL_GREEN,
             .main_saving_popup_bg_colour = GREEN_WEB,
-            .main_saving_popup_text_colour = RICH_BLACK,
+            .main_saving_popup_text_colour = DARK_JUNGLE_GREEN,
             .main_saving_popup_border_colour = DARK_GREEN_X11,
             .main_mode_header_colour = GREEN_WEB,
-            .main_mode_header_edit_colour = RICH_BLACK,
+            .main_mode_header_edit_colour = DARK_JUNGLE_GREEN,
             .main_mode_header_edit_bg_colour = GREEN_WEB,
             .main_preset_colour = GREEN_WEB,
             .main_bank_colour = GREEN_WEB,
@@ -310,15 +323,49 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
             .main_special_function_button_active_colour = GREEN_WEB,
             .main_special_function_button_inactive_colour = DARK_PASTEL_GREEN,
             .main_special_function_button_active_bg = DARK_GREEN_X11,
-            .main_alert_badge_text_colour = RICH_BLACK,
+            .main_alert_badge_text_colour = DARK_JUNGLE_GREEN,
             .bpm_internal_colour = GREEN_WEB,
             .ext_bpm_colour = GREEN_WEB,
+        },
+    },
+    [RUNTIME_CONFIG_DISPLAY_MODE_BIOS] = {
+        /* BIOS uses its own font trio for the same reason as C64: preserve the
+         * established layout while changing the character style completely. */
+        .name = "BIOS",
+        .footbar_font = &Font_BIOS_8x21,
+        .info_font = &Font_BIOS_15x35,
+        .preset_font = &Font_BIOS_23x49,
+        .theme = {
+            .display_bg_colour = COBALT_BLUE,
+            .main_footbar_color = DARK_BLUE,
+            .main_footbar_text_colour = BABY_POWDER,
+            .main_info_text_colour = BABY_POWDER,
+            .main_info_edit_cursor_text_colour = BLACK,
+            .main_info_edit_cursor_bg_colour = BABY_POWDER,
+            .main_info_edit_cursor_shared_bg_colour = BEAU_BLUE,
+            .main_saving_popup_bg_colour = DARK_BLUE,
+            .main_saving_popup_text_colour = BABY_POWDER,
+            .main_saving_popup_border_colour = WHITE,
+            .main_mode_header_colour = WHITE,
+            .main_mode_header_edit_colour = BLACK,
+            .main_mode_header_edit_bg_colour = BABY_POWDER,
+            .main_preset_colour = WHITE,
+            .main_bank_colour = BEAU_BLUE,
+            .main_bank_wet_dry_colour = BABY_POWDER,
+            .main_special_function_button_active_colour = WHITE,
+            .main_special_function_button_inactive_colour = BEAU_BLUE,
+            .main_special_function_button_active_bg = RED,
+            .main_alert_badge_text_colour = WHITE,
+            .bpm_internal_colour = BABY_POWDER,
+            .ext_bpm_colour = BEAU_BLUE,
         },
     },
 };
 
 static RuntimeConfigDisplayMode_t Display_NormalizeThemeMode(RuntimeConfigDisplayMode_t display_mode)
 {
+    /* Normalization is a last-resort guard for corrupt or future flash data.
+     * It is not a migration layer for intentionally removed/reordered themes. */
     if ((uint8_t)display_mode >= (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_COUNT)
         return RUNTIME_CONFIG_DISPLAY_MODE_DARK;
 
@@ -330,6 +377,8 @@ static const DisplayThemeSpec_t *Display_GetThemeSpec(void)
     const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
     RuntimeConfigDisplayMode_t mode = global ? global->display_mode : RUNTIME_CONFIG_DISPLAY_MODE_DARK;
 
+    /* Resolve fonts and colours through one shared lookup so a theme change can
+     * never update the palette without also updating the matching font set. */
     mode = Display_NormalizeThemeMode(mode);
 
     return &display_theme_specs[(uint8_t)mode];

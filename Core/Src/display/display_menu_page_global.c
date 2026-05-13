@@ -10,6 +10,12 @@
 #include "runtime_config.h"
 #include "st7796.h"
 
+/* GLOBAL menu page renderer.
+ *
+ * This file formats the user-facing text for the global runtime settings but
+ * does not change values itself; value adjustment lives in display_menu_value.c
+ * so the formatting and mutation rules stay separated. */
+
 static const char * const menu_global_labels[MENU_GLOBAL_ITEM_COUNT] = {
     "Startup Delay",
     "Screen Saver",
@@ -41,6 +47,8 @@ void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buff
                        (global->sync_style == RUNTIME_CONFIG_SYNC_STYLE_TAP_TEMPO_CC) ? "Tap Tempo CC" : "MIDI clock");
         break;
     case 3U:
+        /* Theme names come from the registration table in display_theme.c, so
+         * adding a theme there automatically updates the menu label here. */
         (void)snprintf(buffer,
                        buffer_size,
                        "%s",
@@ -91,6 +99,8 @@ void Display_DrawMenuGlobalItem(uint8_t item_index)
 
     if (item_index == 5U)
     {
+        /* Factory reset is intentionally rendered as a badge instead of a value
+         * row so it stands apart from ordinary editable global settings. */
         Display_DrawMenuCenteredBadgeRowByIndex(row_index,
                                                 menu_global_labels[item_index],
                                                 MAIN_ALERT_BADGE_TEXT_COLOUR,

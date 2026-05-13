@@ -504,12 +504,19 @@ def parse_font7x10_fallback() -> dict[str, list[int]]:
     return glyphs
 
 
+def embolden_source_glyph(src_rows: list[int]) -> list[int]:
+    return [((row | (row >> 1)) & 0xFF) for row in src_rows]
+
+
 def build_c64_alphabet() -> dict[str, list[int]]:
     glyphs = parse_font7x10_fallback()
     glyphs.update(C64_OVERRIDES)
 
     for upper in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
         glyphs[upper.lower()] = C64_OVERRIDES[upper]
+
+    for ch, rows in list(glyphs.items()):
+        glyphs[ch] = embolden_source_glyph(rows)
 
     return glyphs
 

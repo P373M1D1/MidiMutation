@@ -1,6 +1,7 @@
 #include "runtime_config.h"
 #include "persistent_store_layout.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #define RUNTIME_CONFIG_INVALID_BANK_NAME                "(bank?)"
@@ -155,9 +156,25 @@ static const RuntimeConfig_t runtime_config_defaults = {
     },
 };
 
+typedef enum {
+    RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_DEFAULT = 0,
+    RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_LEGACY_V2,
+    RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_ATOMIC_V3,
+} RuntimeConfigPersistentStoreDiagnosticMode_t;
+
 static RuntimeConfig_t runtime_config_store;
 static uint8_t runtime_config_initialized = 0U;
 static uint8_t runtime_config_dirty = 0U;
+static RuntimeConfigPersistentStoreDiagnosticMode_t runtime_config_persistent_store_diag_mode = RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_DEFAULT;
+static uint8_t runtime_config_persistent_store_diag_slot = 0U;
+static uint32_t runtime_config_persistent_store_diag_generation = 0U;
+
+static void RuntimeConfig_ResetPersistentStoreDiagnostic(void)
+{
+    runtime_config_persistent_store_diag_mode = RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_DEFAULT;
+    runtime_config_persistent_store_diag_slot = 0U;
+    runtime_config_persistent_store_diag_generation = 0U;
+}
 
 static void RuntimeConfig_CopyLegacyDevice(RuntimeConfigDevice_t *destination,
                                            const RuntimeConfigDeviceLegacyV2_t *source)
@@ -240,6 +257,9 @@ static uint16_t RuntimeConfig_NormalizeBacklightBrightness(uint16_t brightness)
 
 static RuntimeConfigDisplayMode_t RuntimeConfig_NormalizeDisplayMode(uint8_t display_mode)
 {
+    /* This only clamps corrupt/out-of-range values. It does NOT remap legacy
+     * theme ids, so any theme removal/reordering must be handled explicitly
+     * before this point if old persisted snapshots need a stable migration. */
     if (display_mode >= (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_COUNT)
         return RUNTIME_CONFIG_DISPLAY_MODE_DARK;
 
@@ -360,10 +380,128 @@ static uint8_t RuntimeConfig_FlashHeaderV2IsValid(const PersistentStoreHeaderV2_
           + header->config_size) <= PERSISTENT_STORE_FLASH_SIZE_BYTES) ? 1U : 0U;
 }
 
+static uint8_t RuntimeConfig_FlashHeaderV3IsValid(const PersistentStoreHeaderV3_t *header)
+{
+    size_t preset_payload_size = sizeof(Preset_t) * PRESET_COUNT;
+
+    if (!header)
+        return 0U;
+
+    if (header->magic != PERSISTENT_STORE_MAGIC_V3
+     || header->version != PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC
+     || header->commit_marker != PERSISTENT_STORE_COMMIT_MARKER
+     || header->bank_count != PRESET_BANK_COUNT
+     || header->presets_per_bank != PRESETS_PER_BANK
+     || header->preset_count != PRESET_COUNT
+     || header->payload_size != preset_payload_size
+      || !RuntimeConfig_FlashHeaderV2HasSupportedConfigSize(header->config_size))
+        return 0U;
+
+    return ((sizeof(PersistentStoreHeaderV3_t)
+          + header->payload_size
+          + header->config_size) <= PERSISTENT_STORE_FLASH_SIZE_BYTES) ? 1U : 0U;
+}
+
+static uint8_t RuntimeConfig_FlashGenerationIsNewer(uint32_t candidate, uint32_t reference)
+{
+    return ((int32_t)(candidate - reference) > 0) ? 1U : 0U;
+}
+
+static uint8_t RuntimeConfig_FlashV3ImageIsValid(uint32_t slot_address,
+                                                 const PersistentStoreHeaderV3_t **header_out)
+{
+    const PersistentStoreHeaderV3_t *header = (const PersistentStoreHeaderV3_t *)slot_address;
+    const uint8_t *preset_payload;
+    const uint8_t *config_payload;
+
+    if (!RuntimeConfig_FlashHeaderV3IsValid(header))
+        return 0U;
+
+    preset_payload = (const uint8_t *)(slot_address + sizeof(PersistentStoreHeaderV3_t));
+    config_payload = preset_payload + header->payload_size;
+
+    if (RuntimeConfig_FlashChecksum(preset_payload, header->payload_size) != header->checksum)
+        return 0U;
+
+    if (RuntimeConfig_FlashChecksum(config_payload, header->config_size) != header->config_checksum)
+        return 0U;
+
+    if (header_out)
+        *header_out = header;
+
+    return 1U;
+}
+
+static const PersistentStoreHeaderV3_t *RuntimeConfig_FindLatestPersistentStoreV3(void)
+{
+    static const uint32_t slot_addresses[] = {
+        PERSISTENT_STORE_SLOT0_FLASH_ADDR,
+        PERSISTENT_STORE_SLOT1_FLASH_ADDR,
+    };
+    const PersistentStoreHeaderV3_t *selected_header = NULL;
+    uint32_t selected_generation = 0U;
+
+    for (size_t slot_index = 0U; slot_index < (sizeof(slot_addresses) / sizeof(slot_addresses[0])); ++slot_index)
+    {
+        const PersistentStoreHeaderV3_t *header = NULL;
+
+        if (!RuntimeConfig_FlashV3ImageIsValid(slot_addresses[slot_index], &header))
+            continue;
+
+        if (!selected_header || RuntimeConfig_FlashGenerationIsNewer(header->generation, selected_generation))
+        {
+            selected_header = header;
+            selected_generation = header->generation;
+        }
+    }
+
+    return selected_header;
+}
+
 static void RuntimeConfig_TryLoadPersistentStore(void)
 {
+    const PersistentStoreHeaderV3_t *header_v3 = RuntimeConfig_FindLatestPersistentStoreV3();
     const PersistentStoreHeaderV2_t *header = (const PersistentStoreHeaderV2_t *)PERSISTENT_STORE_FLASH_ADDR;
     const uint8_t *config_payload;
+
+    RuntimeConfig_ResetPersistentStoreDiagnostic();
+
+    if (header_v3)
+    {
+        runtime_config_persistent_store_diag_mode = RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_ATOMIC_V3;
+        runtime_config_persistent_store_diag_slot = ((uintptr_t)header_v3 == (uintptr_t)PERSISTENT_STORE_SLOT1_FLASH_ADDR) ? 1U : 0U;
+        runtime_config_persistent_store_diag_generation = header_v3->generation;
+        config_payload = (const uint8_t *)header_v3
+                       + sizeof(PersistentStoreHeaderV3_t)
+                       + header_v3->payload_size;
+
+        if (header_v3->config_size == sizeof(runtime_config_store))
+            memcpy(&runtime_config_store, config_payload, sizeof(runtime_config_store));
+        else if (header_v3->config_size == sizeof(RuntimeConfigLegacyV4_t))
+        {
+            RuntimeConfigLegacyV4_t legacy_store;
+
+            memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+            RuntimeConfig_ApplyLegacyV4Snapshot(&legacy_store);
+        }
+        else if (header_v3->config_size == sizeof(RuntimeConfigLegacyV3_t))
+        {
+            RuntimeConfigLegacyV3_t legacy_store;
+
+            memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+            RuntimeConfig_ApplyLegacyV3Snapshot(&legacy_store);
+        }
+        else
+        {
+            RuntimeConfigLegacyV2_t legacy_store;
+
+            memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+            RuntimeConfig_ApplyLegacyV2Snapshot(&legacy_store);
+        }
+
+        RuntimeConfig_NormalizeLoadedStore();
+        return;
+    }
 
     if (!RuntimeConfig_FlashHeaderV2IsValid(header))
         return;
@@ -374,6 +512,8 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
 
     if (RuntimeConfig_FlashChecksum(config_payload, header->config_size) != header->config_checksum)
         return;
+
+    runtime_config_persistent_store_diag_mode = RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_LEGACY_V2;
 
     if (header->config_size == sizeof(runtime_config_store))
         memcpy(&runtime_config_store, config_payload, sizeof(runtime_config_store));
@@ -533,6 +673,33 @@ uint8_t RuntimeConfig_SaveIfDirty(void)
         return 1U;
 
     return Presets_SaveIfDirty();
+}
+
+void RuntimeConfig_FormatPersistentStoreStatusText(char *buffer, size_t buffer_size)
+{
+    if (!buffer || buffer_size == 0U)
+        return;
+
+    RuntimeConfig_EnsureInitialized();
+
+    switch (runtime_config_persistent_store_diag_mode)
+    {
+    case RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_ATOMIC_V3:
+        (void)snprintf(buffer,
+                       buffer_size,
+                       "img%c %04lX",
+                       runtime_config_persistent_store_diag_slot ? 'B' : 'A',
+                       (unsigned long)(runtime_config_persistent_store_diag_generation & 0xFFFFUL));
+        break;
+
+    case RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_LEGACY_V2:
+        (void)snprintf(buffer, buffer_size, "img legacy");
+        break;
+
+    default:
+        (void)snprintf(buffer, buffer_size, "img default");
+        break;
+    }
 }
 
 void RuntimeConfig_ApplySnapshot(const RuntimeConfig_t *snapshot)

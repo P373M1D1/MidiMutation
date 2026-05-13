@@ -2,6 +2,13 @@
 #include "runtime_config.h"
 #include "stm32f4xx_hal.h"
 
+/* DAC backlight control.
+ *
+ * This module owns the raw PA4/DAC setup plus the blocking fade-in/fade-out
+ * ramps used during boot and screensaver transitions. Keep the fades simple
+ * and deterministic here; higher-level policy about when to fade belongs in
+ * main.cpp or display_screensaver.c. */
+
 #define BL_STEPS      100U
 #define BL_SPIN_DELAY 48000U
 #define BL_BRIGHTNESS_DEFAULT 2095U
@@ -14,6 +21,8 @@ uint16_t Display_BacklightGetConfiguredBrightness(void)
     if (global)
         brightness = global->backlight_brightness;
 
+    /* Clamp persisted values so legacy/default/corrupt config never drives the
+     * DAC outside the range the UI and hardware path are tuned around. */
     if (brightness < RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN)
         brightness = RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN;
     else if (brightness > RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX)
@@ -41,6 +50,8 @@ void Display_BL_FadeIn(void)
 {
     uint16_t brightness = Display_BacklightGetConfiguredBrightness();
 
+    /* The fade is intentionally blocking and deterministic; callers use it only
+     * for boot and screensaver transitions where a tiny stall is acceptable. */
     for (uint32_t step = 0U; step <= BL_STEPS; step++)
     {
         DAC->DHR12R1 = (step * brightness) / BL_STEPS;
@@ -52,6 +63,8 @@ void Display_BL_FadeOut(void)
 {
     uint16_t brightness = Display_BacklightGetConfiguredBrightness();
 
+    /* Count down explicitly to zero so the panel never retains a dim residual
+     * level after the screensaver decides the UI should go fully dark. */
     for (uint32_t step = BL_STEPS; ; step--)
     {
         DAC->DHR12R1 = (step * brightness) / BL_STEPS;

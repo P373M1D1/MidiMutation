@@ -1,6 +1,11 @@
 #ifndef DISPLAY_STRINGS_H
 #define DISPLAY_STRINGS_H
 
+/* Shared UI copy used across the main screen and menu pages.
+ * Keep repeated user-visible labels here so wording changes do not require
+ * hunting through several renderer files. */
+
+/* Footer copy for live, edit, menu, and confirm states. */
 #define MAIN_FOOTBAR_LEFT_TEXT          "SCROLL / EDIT"
 #define MAIN_FOOTBAR_CENTER_TEXT        "PRESET / BANK"
 #define MAIN_FOOTBAR_RIGHT_TEXT         "TEMPO / MENU"
@@ -14,6 +19,7 @@
 #define MAIN_FOOTBAR_CONFIRM_CENTER_TEXT "YES"
 #define MAIN_FOOTBAR_CONFIRM_RIGHT_TEXT  "NO"
 
+/* Main-screen and preset-edit labels. */
 #define MAIN_INFO_CC_CHANNEL_PREFIX     "CH: "
 #define MAIN_INFO_CC_NUMBER_PREFIX      " CC: "
 #define MAIN_INFO_CC_VALUE_PREFIX       " Value: "
@@ -31,6 +37,7 @@
 #define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_ACTIVE_TEXT "active"
 #define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_INACTIVE_TEXT "bypass"
 
+/* GLOBAL page labels. */
 #define MENU_GLOBAL_LABEL_STARTUP_DELAY  "Startup Delay"
 #define MENU_GLOBAL_LABEL_SCREENSAVER    "Screen Saver"
 #define MENU_GLOBAL_LABEL_SYNC_STYLE     "Sync Style"

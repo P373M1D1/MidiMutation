@@ -8,6 +8,12 @@
 #include "midi_functions.h"
 #include "runtime_config.h"
 
+/* Top status strip renderer.
+ *
+ * This file owns the compact BPM and bar.beat readout at the top of the main
+ * screen, including internal/external clock formatting, sync-lost messaging,
+ * and redraw suppression so tiny tempo changes do not repaint more than needed. */
+
 typedef enum
 {
     BPM_TEXT_MODE_INTERNAL = 0,
@@ -52,6 +58,8 @@ static void Display_UpdateTransportBarBeat(void)
     }
     else if (external_signal_present || sync_lost || stop_latched)
     {
+        /* Show a placeholder when transport state exists but no stable bar.beat
+         * is available yet, instead of leaving stale numbers on screen. */
         strcpy(next_text, "-.-");
     }
     else
@@ -110,6 +118,8 @@ static uint16_t Display_GetExternalBpmHysteresisX10(uint16_t reference_bpm_x10)
 {
     uint32_t hysteresis_x10 = (((uint32_t)reference_bpm_x10 * BPM_EXT_HYSTERESIS_BPS) + 5000U) / 10000U;
 
+    /* External clock estimates can wobble by small fractions every update, so
+     * hold off redraws until the change exceeds a tempo-scaled deadband. */
     if (hysteresis_x10 < BPM_EXT_HYSTERESIS_MIN_X10)
         hysteresis_x10 = BPM_EXT_HYSTERESIS_MIN_X10;
 
@@ -230,6 +240,8 @@ void Display_UpdateBPM(uint16_t bpm)
         return;
     }
 
+    /* Switching from internal to external clock, or recovering from sync loss,
+     * rebuilds the whole BPM area because both primary and suffix text change. */
     full_redraw = (uint8_t)(!display_state.bpm_display_valid || was_sync_lost || !display_state.bpm_display_external);
     if (!full_redraw)
     {

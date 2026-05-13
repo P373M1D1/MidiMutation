@@ -12,6 +12,12 @@
 #include "runtime_config.h"
 #include "st7796.h"
 
+/* DEVICE_EDIT page renderer.
+ *
+ * Device editing has denser row layouts than a normal label/value menu because
+ * CC rows expose multiple fields on the same line. Those custom row layouts and
+ * value labels are kept here so the generic row renderer can stay simple. */
+
 #define MENU_DEVICE_INIT_TEXT "INIT DEVICE"
 #define MENU_ITEM_X 24U
 
@@ -68,6 +74,8 @@ static void Display_DrawMenuDeviceCcEditRowByIndex(uint8_t row_index,
                                         cc->value,
                                         3U);
 
+    /* Build the dense CC edit row from a fixed template so all sub-fields stay
+     * column-aligned while only the active segment receives highlight colours. */
     value_x = Display_GetMenuRightAlignedValueXLocal("CC:--- VAL:---");
     value_x = Display_MenuRowComposeValueSegment32(value_x, "CC:", 0U);
     value_x = Display_MenuRowComposeValueSegment32(value_x,
@@ -100,6 +108,8 @@ const char *Display_GetMenuDeviceEditLabel(uint8_t item_index,
 
     if (item_index == 0U)
     {
+        /* The first row label includes the device number so the editor still
+         * has context when opened from a scrolled DEVICES list. */
         Display_FormatMenuDeviceLabel(display_state.menu_active_device_index, buffer, buffer_size);
         return buffer;
     }
@@ -266,6 +276,8 @@ void Display_DrawMenuDeviceEditItem(uint8_t item_index)
         row_selected = 0U;
     }
     if (row_selected && item_index >= 3U && item_index <= 6U)
+        /* CC edit rows draw their own per-field highlights, so suppress the
+         * normal whole-row selection background in the generic row renderer. */
         row_selected = 0U;
 
     if (item_index == 0U

@@ -4,6 +4,13 @@
 #include "display/display_internal.h"
 #include "runtime_config.h"
 
+/* Menu text-field editing support.
+ *
+ * The menu system has a few editable text fields (bank name, device name, and
+ * function-button labels). This file maps the current selection to a concrete
+ * text field, owns the allowed character set, and keeps cursor movement rules
+ * separate from value editing and row rendering. */
+
 static const char menu_text_edit_charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ";
 
 DisplayMenuTextField_t Display_GetMenuTextFieldForSelection(void)
@@ -18,6 +25,8 @@ DisplayMenuTextField_t Display_GetMenuTextFieldForSelection(void)
 
     if (display_state.menu_page == (uint8_t)DISPLAY_MENU_PAGE_FUNCTION_BUTTON)
     {
+        /* FUNCTION_BUTTON exposes three independent text rows at the top of a
+         * larger editor page, so selection index alone identifies the target. */
         switch (display_state.menu_function_button_selection_index)
         {
         case 0U:
@@ -111,6 +120,8 @@ void Display_StoreMenuTextCells(char *destination,
 
     memset(destination, 0, destination_size);
 
+    /* Stored strings stay trimmed on the right even though the edit surface is
+     * fixed-width and space-padded; this keeps flash data and row labels clean. */
     for (last_non_space_index = (int16_t)cell_count - 1; last_non_space_index >= 0; --last_non_space_index)
     {
         if (cells[last_non_space_index] != ' ')
@@ -169,6 +180,8 @@ uint8_t Display_MenuAdjustTextCharacter(int8_t delta)
     current_charset_index = Display_FindMenuTextCharsetIndex(cells[display_state.menu_text_edit_cursor_index]);
     next_charset_index = current_charset_index + (int16_t)delta;
 
+    /* Encoder deltas can move in either direction, so wrap manually through the
+     * character table instead of relying on unsigned overflow behaviour. */
     while (next_charset_index < 0)
         next_charset_index += charset_length;
 
