@@ -8,12 +8,18 @@
 typedef struct
 {
     const char *name;
+    const FontDef32 *footbar_font;
+    const FontDef32 *info_font;
+    const FontDef32 *preset_font;
     DisplayTheme_t theme;
 } DisplayThemeSpec_t;
 
 static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_COUNT] = {
     [RUNTIME_CONFIG_DISPLAY_MODE_DARK] = {
         .name = "Dark",
+        .footbar_font = &Font_Consolas8x21,
+        .info_font = &Font_Consolas15x35,
+        .preset_font = &Font_Consolas23x49,
         .theme = {
             .display_bg_colour = BLACK,
             .main_footbar_color = JET,
@@ -41,6 +47,9 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT] = {
         .name = "Bright",
+        .footbar_font = &Font_Consolas8x21,
+        .info_font = &Font_Consolas15x35,
+        .preset_font = &Font_Consolas23x49,
         .theme = {
             .display_bg_colour = WHITE,
             .main_footbar_color = JET,
@@ -68,6 +77,9 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_USER] = {
         .name = "User",
+        .footbar_font = &Font_Consolas8x21,
+        .info_font = &Font_Consolas15x35,
+        .preset_font = &Font_Consolas23x49,
         .theme = {
             .display_bg_colour = BLACK,
             .main_footbar_color = BLUE_SAPPHIRE,
@@ -95,6 +107,9 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_WEED] = {
         .name = "Weed",
+        .footbar_font = &Font_Consolas8x21,
+        .info_font = &Font_Consolas15x35,
+        .preset_font = &Font_Consolas23x49,
         .theme = {
             .display_bg_colour = DARK_JUNGLE_GREEN,
             .main_footbar_color = PAKISTAN_GREEN,
@@ -122,6 +137,9 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_BLUESCREEN] = {
         .name = "BLUESCREEN",
+        .footbar_font = &Font_Consolas8x21,
+        .info_font = &Font_Consolas15x35,
+        .preset_font = &Font_Consolas23x49,
         .theme = {
             .display_bg_colour = DARK_BLUE,
             .main_footbar_color = NAVY_BLUE,
@@ -149,6 +167,9 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_MIDNIGHT] = {
         .name = "Midnight",
+        .footbar_font = &Font_Consolas8x21,
+        .info_font = &Font_Consolas15x35,
+        .preset_font = &Font_Consolas23x49,
         .theme = {
             .display_bg_colour = NAVY_BLUE,
             .main_footbar_color = DARK_BLUE,
@@ -176,6 +197,9 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_TRIPPING] = {
         .name = "Tripping",
+        .footbar_font = &Font_Consolas8x21,
+        .info_font = &Font_Consolas15x35,
+        .preset_font = &Font_Consolas23x49,
         .theme = {
             .display_bg_colour = BLACK,
             .main_footbar_color = PSYCHEDELIC_PURPLE,
@@ -203,6 +227,9 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_USER2] = {
         .name = "USER2",
+        .footbar_font = &Font_Consolas8x21,
+        .info_font = &Font_Consolas15x35,
+        .preset_font = &Font_Consolas23x49,
         .theme = {
             .display_bg_colour = BLACK,
             .main_footbar_color = DARK_GOLDENROD,
@@ -230,6 +257,9 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_USER3] = {
         .name = "USER3",
+        .footbar_font = &Font_Consolas8x21,
+        .info_font = &Font_Consolas15x35,
+        .preset_font = &Font_Consolas23x49,
         .theme = {
             .display_bg_colour = BLACK,
             .main_footbar_color = TYRIAN_PURPLE,
@@ -255,6 +285,36 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
             .ext_bpm_colour = HOT_PINK,
         },
     },
+    [RUNTIME_CONFIG_DISPLAY_MODE_C64] = {
+        .name = "C64",
+        .footbar_font = &Font_C64_8x21,
+        .info_font = &Font_C64_15x35,
+        .preset_font = &Font_C64_23x49,
+        .theme = {
+            .display_bg_colour = DARK_GREEN,
+            .main_footbar_color = GREEN_WEB,
+            .main_footbar_text_colour = EERIE_BLACK,
+            .main_info_text_colour = GREEN_WEB,
+            .main_info_edit_cursor_text_colour = RICH_BLACK,
+            .main_info_edit_cursor_bg_colour = GREEN_WEB,
+            .main_info_edit_cursor_shared_bg_colour = DARK_PASTEL_GREEN,
+            .main_saving_popup_bg_colour = GREEN_WEB,
+            .main_saving_popup_text_colour = RICH_BLACK,
+            .main_saving_popup_border_colour = DARK_GREEN_X11,
+            .main_mode_header_colour = GREEN_WEB,
+            .main_mode_header_edit_colour = RICH_BLACK,
+            .main_mode_header_edit_bg_colour = GREEN_WEB,
+            .main_preset_colour = GREEN_WEB,
+            .main_bank_colour = GREEN_WEB,
+            .main_bank_wet_dry_colour = GREEN_WEB,
+            .main_special_function_button_active_colour = GREEN_WEB,
+            .main_special_function_button_inactive_colour = DARK_PASTEL_GREEN,
+            .main_special_function_button_active_bg = DARK_GREEN_X11,
+            .main_alert_badge_text_colour = RICH_BLACK,
+            .bpm_internal_colour = GREEN_WEB,
+            .ext_bpm_colour = GREEN_WEB,
+        },
+    },
 };
 
 static RuntimeConfigDisplayMode_t Display_NormalizeThemeMode(RuntimeConfigDisplayMode_t display_mode)
@@ -265,14 +325,19 @@ static RuntimeConfigDisplayMode_t Display_NormalizeThemeMode(RuntimeConfigDispla
     return display_mode;
 }
 
-const DisplayTheme_t *Display_GetTheme(void)
+static const DisplayThemeSpec_t *Display_GetThemeSpec(void)
 {
     const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
     RuntimeConfigDisplayMode_t mode = global ? global->display_mode : RUNTIME_CONFIG_DISPLAY_MODE_DARK;
 
     mode = Display_NormalizeThemeMode(mode);
 
-    return &display_theme_specs[(uint8_t)mode].theme;
+    return &display_theme_specs[(uint8_t)mode];
+}
+
+const DisplayTheme_t *Display_GetTheme(void)
+{
+    return &Display_GetThemeSpec()->theme;
 }
 
 const char *Display_GetThemeName(RuntimeConfigDisplayMode_t display_mode)
@@ -280,4 +345,19 @@ const char *Display_GetThemeName(RuntimeConfigDisplayMode_t display_mode)
     display_mode = Display_NormalizeThemeMode(display_mode);
 
     return display_theme_specs[(uint8_t)display_mode].name;
+}
+
+const FontDef32 *Display_GetThemeFootbarFont(void)
+{
+    return Display_GetThemeSpec()->footbar_font;
+}
+
+const FontDef32 *Display_GetThemeInfoFont(void)
+{
+    return Display_GetThemeSpec()->info_font;
+}
+
+const FontDef32 *Display_GetThemePresetFont(void)
+{
+    return Display_GetThemeSpec()->preset_font;
 }

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "fonts.h"
 #include "runtime_config.h"
 #include "st7796.h"
 
@@ -35,6 +36,9 @@ typedef struct
 /* Edit the palette values in display_theme.c to tweak the UI appearance. */
 const DisplayTheme_t *Display_GetTheme(void);
 const char *Display_GetThemeName(RuntimeConfigDisplayMode_t display_mode);
+const FontDef32 *Display_GetThemeFootbarFont(void);
+const FontDef32 *Display_GetThemeInfoFont(void);
+const FontDef32 *Display_GetThemePresetFont(void);
 
 #define DISPLAY_BG_COLOUR                          (Display_GetTheme()->display_bg_colour)
 

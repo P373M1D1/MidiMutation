@@ -58,7 +58,7 @@
 /* ?????? Screen layout constants ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 #define MAIN_FOOTBAR_Y                 298U                  // top edge of the footer/status bar
 #define MAIN_FOOTBAR_H                 (ST7796_HEIGHT - MAIN_FOOTBAR_Y) // footer height from its top edge to screen bottom
-#define MAIN_FOOTBAR_FONT              Font_Consolas8x21    // font used for the footer caption
+#define MAIN_FOOTBAR_FONT              (*Display_GetThemeFootbarFont())    // font used for the footer caption
 #define MAIN_FOOTBAR_SECTION_COUNT     3U                    // footer is conceptually split into three unlabeled regions
 #define MAIN_FOOTBAR_SECTION_WIDTH     (ST7796_WIDTH / MAIN_FOOTBAR_SECTION_COUNT) // width of one footer region
 #define MAIN_FOOTBAR_LEFT_TEXT         "SCROLL / EDIT"              // label for the left footer region during normal operation
@@ -75,9 +75,9 @@
 #define MAIN_FOOTBAR_CONFIRM_RIGHT_TEXT "NO"                      // right footer label while a confirm page is active
 #define MAIN_INFO_LEFT_X               30U                  // x origin of the left info column (MIDI programs)
 #define MAIN_INFO_RIGHT_X              235U                 // x origin of the right info column (relay / special state), shifted right by one glyph cell
-#define MAIN_INFO_FONT                 Font_Consolas15x35   // font used for bank text, BPM text, and info rows
-#define MAIN_INFO_FONT_CELL_WIDTH      15U                  // compile-time width of MAIN_INFO_FONT glyph cells for row-buffer composition
-#define MAIN_INFO_FONT_CELL_HEIGHT     35U                  // compile-time height of MAIN_INFO_FONT glyph cells for row-buffer composition
+#define MAIN_INFO_FONT                 (*Display_GetThemeInfoFont())   // font used for bank text, BPM text, and info rows
+#define MAIN_INFO_FONT_CELL_WIDTH      (MAIN_INFO_FONT.width)                  // compile-time width of MAIN_INFO_FONT glyph cells for row-buffer composition
+#define MAIN_INFO_FONT_CELL_HEIGHT     (MAIN_INFO_FONT.height)                  // compile-time height of MAIN_INFO_FONT glyph cells for row-buffer composition
 #define MAIN_INFO_ROW_COUNT            3U                   // number of vertically stacked info rows currently visible on the main screen
 #define MAIN_INFO_PROGRAM_DIGITS       3U                   // fixed width of the displayed MIDI program number
 #define MAIN_INFO_CC_CHANNEL_DIGITS    2U                   // fixed width of the displayed MIDI CC channel number
@@ -107,13 +107,13 @@
 #define MAIN_MODE_HEADER_FONT          MAIN_FOOTBAR_FONT    // font used for the top mode label
 #define MAIN_PRESET_TEXT_Y             85U                  // y position of the large preset name line
 #define MAIN_PRESET_TEXT_CHARS         20U                  // fixed character width used when centering preset names
-#define MAIN_PRESET_FONT               Font_Consolas23x49   // large font for the preset name
-#define MAIN_PRESET_FONT_CELL_WIDTH    23U                  // compile-time width of MAIN_PRESET_FONT glyph cells for row-buffer composition
-#define MAIN_PRESET_FONT_CELL_HEIGHT   49U                  // compile-time height of MAIN_PRESET_FONT glyph cells for row-buffer composition
+#define MAIN_PRESET_FONT               (*Display_GetThemePresetFont())   // large font for the preset name
+#define MAIN_PRESET_FONT_CELL_WIDTH    (MAIN_PRESET_FONT.width)                  // compile-time width of MAIN_PRESET_FONT glyph cells for row-buffer composition
+#define MAIN_PRESET_FONT_CELL_HEIGHT   (MAIN_PRESET_FONT.height)                  // compile-time height of MAIN_PRESET_FONT glyph cells for row-buffer composition
 #define MAIN_PRESET_ROW_BUFFER_WIDTH   (PRESET_NAME_LENGTH * MAIN_PRESET_FONT_CELL_WIDTH) // total pixel width of the preset-name row buffer
 #define MAIN_BANK_TEXT_Y               145U                 // y position of the bank name line
 #define MAIN_BANK_TEXT_CHARS           PRESET_BANK_NAME_MAXLEN // fixed character width used when centering bank names
-#define MAIN_BANK_FONT                 Font_Consolas15x35   // font for the bank name line
+#define MAIN_BANK_FONT                 MAIN_INFO_FONT   // font for the bank name line
 #define MAIN_BANK_WET_DRY_BADGE_TEXT   "W/D"               // badge shown after the bank name when Wet/Dry mode is enabled for that bank
 #define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_NAME       "SpcBtn" // fallback label shown ahead of the special-function-button state
 #define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_ACTIVE_TEXT "active" // fallback text shown when the special-function button mode is active
@@ -136,7 +136,7 @@
 
 static const uint16_t main_info_row_y[MAIN_INFO_ROW_COUNT] = {184U, 220U, 256U};
 
-#define BPM_FONT                       Font_Consolas15x35   // font used for all BPM display text
+#define BPM_FONT                       MAIN_INFO_FONT   // font used for all BPM display text
 #define BPM_TEXT_Y                     7U                   // y position of the BPM line at the top of the screen
 #define BPM_INTERNAL_X                 365U                 // legacy anchor for internal BPM placement
 

@@ -6,8 +6,8 @@
 #include "display/display_menu_page_function_button_compare.h"
 #include "display/display_menu_row_render.h"
 #include "display/display_row_compose.h"
+#include "display/display_layout.h"
 #include "display/display_theme.h"
-#include "fonts.h"
 #include "runtime_config.h"
 #include "st7796.h"
 
@@ -162,10 +162,10 @@ void Display_DrawMenuFunctionButtonProgramCompareEditRowCore(uint16_t row_y,
     char active_program_text[4];
     char inactive_channel_text[4];
     char inactive_program_text[4];
-    uint16_t active_channel_x = (uint16_t)(MENU_ITEM_X + (5U * Font_Consolas15x35.width));
-    uint16_t active_program_x = (uint16_t)(MENU_ITEM_X + (11U * Font_Consolas15x35.width));
-    uint16_t inactive_channel_x = (uint16_t)(MENU_ITEM_X + (19U * Font_Consolas15x35.width));
-    uint16_t inactive_program_x = (uint16_t)(MENU_ITEM_X + (25U * Font_Consolas15x35.width));
+    uint16_t active_channel_x = (uint16_t)(MENU_ITEM_X + (5U * MAIN_INFO_FONT.width));
+    uint16_t active_program_x = (uint16_t)(MENU_ITEM_X + (11U * MAIN_INFO_FONT.width));
+    uint16_t inactive_channel_x = (uint16_t)(MENU_ITEM_X + (19U * MAIN_INFO_FONT.width));
+    uint16_t inactive_program_x = (uint16_t)(MENU_ITEM_X + (25U * MAIN_INFO_FONT.width));
     char row_number_text[4];
 
     (void)clear_row;
@@ -207,19 +207,19 @@ void Display_DrawMenuFunctionButtonProgramCompareEditRowCore(uint16_t row_y,
                                         row_number_text,
                                         MAIN_INFO_TEXT_COLOUR,
                                         DISPLAY_BG_COLOUR);
-    Display_MenuRowComposeTextSegment32((uint16_t)(MENU_ITEM_X + (1U * Font_Consolas15x35.width)),
+    Display_MenuRowComposeTextSegment32((uint16_t)(MENU_ITEM_X + (1U * MAIN_INFO_FONT.width)),
                                         " Ch:",
                                         MAIN_INFO_TEXT_COLOUR,
                                         DISPLAY_BG_COLOUR);
-    Display_MenuRowComposeTextSegment32((uint16_t)(MENU_ITEM_X + (7U * Font_Consolas15x35.width)),
+    Display_MenuRowComposeTextSegment32((uint16_t)(MENU_ITEM_X + (7U * MAIN_INFO_FONT.width)),
                                         " Pg:",
                                         MAIN_INFO_TEXT_COLOUR,
                                         DISPLAY_BG_COLOUR);
-    Display_MenuRowComposeTextSegment32((uint16_t)(MENU_ITEM_X + (14U * Font_Consolas15x35.width)),
+    Display_MenuRowComposeTextSegment32((uint16_t)(MENU_ITEM_X + (14U * MAIN_INFO_FONT.width)),
                                         "  Ch:",
                                         MAIN_INFO_TEXT_COLOUR,
                                         DISPLAY_BG_COLOUR);
-    Display_MenuRowComposeTextSegment32((uint16_t)(MENU_ITEM_X + (21U * Font_Consolas15x35.width)),
+    Display_MenuRowComposeTextSegment32((uint16_t)(MENU_ITEM_X + (21U * MAIN_INFO_FONT.width)),
                                         " Pg:",
                                         MAIN_INFO_TEXT_COLOUR,
                                         DISPLAY_BG_COLOUR);

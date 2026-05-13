@@ -9,15 +9,15 @@
 
 #define MAIN_FOOTBAR_Y                 298U
 #define MAIN_FOOTBAR_H                 (ST7796_HEIGHT - MAIN_FOOTBAR_Y)
-#define MAIN_FOOTBAR_FONT              Font_Consolas8x21
+#define MAIN_FOOTBAR_FONT              (*Display_GetThemeFootbarFont())
 #define MAIN_FOOTBAR_SECTION_COUNT     3U
 #define MAIN_FOOTBAR_SECTION_WIDTH     (ST7796_WIDTH / MAIN_FOOTBAR_SECTION_COUNT)
 
 #define MAIN_INFO_LEFT_X               30U
 #define MAIN_INFO_RIGHT_X              235U
-#define MAIN_INFO_FONT                 Font_Consolas15x35
-#define MAIN_INFO_FONT_CELL_WIDTH      15U
-#define MAIN_INFO_FONT_CELL_HEIGHT     35U
+#define MAIN_INFO_FONT                 (*Display_GetThemeInfoFont())
+#define MAIN_INFO_FONT_CELL_WIDTH      (MAIN_INFO_FONT.width)
+#define MAIN_INFO_FONT_CELL_HEIGHT     (MAIN_INFO_FONT.height)
 #define MAIN_INFO_ROW_COUNT            3U
 #define MAIN_INFO_PROGRAM_DIGITS       3U
 #define MAIN_INFO_CC_CHANNEL_DIGITS    2U
@@ -39,20 +39,20 @@
 #define MAIN_MODE_HEADER_MAX_TEXT_CHARS  10U
 #define MAIN_MODE_HEADER_FONT          MAIN_FOOTBAR_FONT
 
-#define BPM_FONT                       Font_Consolas15x35
+#define BPM_FONT                       MAIN_INFO_FONT
 #define BPM_TEXT_Y                     7U
 #define BPM_INTERNAL_X                 365U
 
 #define MAIN_PRESET_TEXT_Y             85U
 #define MAIN_PRESET_TEXT_CHARS         20U
-#define MAIN_PRESET_FONT               Font_Consolas23x49
-#define MAIN_PRESET_FONT_CELL_WIDTH    23U
-#define MAIN_PRESET_FONT_CELL_HEIGHT   49U
+#define MAIN_PRESET_FONT               (*Display_GetThemePresetFont())
+#define MAIN_PRESET_FONT_CELL_WIDTH    (MAIN_PRESET_FONT.width)
+#define MAIN_PRESET_FONT_CELL_HEIGHT   (MAIN_PRESET_FONT.height)
 #define MAIN_PRESET_ROW_BUFFER_WIDTH   (PRESET_NAME_LENGTH * MAIN_PRESET_FONT_CELL_WIDTH)
 
 #define MAIN_BANK_TEXT_Y               145U
 #define MAIN_BANK_TEXT_CHARS           PRESET_BANK_NAME_MAXLEN
-#define MAIN_BANK_FONT                 Font_Consolas15x35
+#define MAIN_BANK_FONT                 MAIN_INFO_FONT
 #define MAIN_BANK_WET_DRY_BADGE_TEXT   "W/D"
 
 #define BPM_DISPLAY_AREA_X              280U
