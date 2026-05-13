@@ -8,16 +8,12 @@
 typedef struct
 {
     const char *name;
-    const char *preview_name;
-    uint16_t preview_colour;
     DisplayTheme_t theme;
 } DisplayThemeSpec_t;
 
 static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_COUNT] = {
     [RUNTIME_CONFIG_DISPLAY_MODE_DARK] = {
         .name = "Dark",
-        .preview_name = "WHITE",
-        .preview_colour = WHITE,
         .theme = {
             .display_bg_colour = BLACK,
             .main_footbar_color = JET,
@@ -41,13 +37,10 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
             .main_alert_badge_text_colour = BLACK,
             .bpm_internal_colour = GREEN_WEB,
             .ext_bpm_colour = COBALT_BLUE,
-            .bpm_sync_lost_colour = RED,
         },
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT] = {
         .name = "Bright",
-        .preview_name = "DARK_RED",
-        .preview_colour = DARK_RED,
         .theme = {
             .display_bg_colour = WHITE,
             .main_footbar_color = JET,
@@ -71,13 +64,10 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
             .main_alert_badge_text_colour = WHITE,
             .bpm_internal_colour = GREEN_WEB,
             .ext_bpm_colour = COBALT_BLUE,
-            .bpm_sync_lost_colour = RED,
         },
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_USER] = {
         .name = "User",
-        .preview_name = "AQUA",
-        .preview_colour = AQUA,
         .theme = {
             .display_bg_colour = BLACK,
             .main_footbar_color = BLUE_SAPPHIRE,
@@ -101,13 +91,10 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
             .main_alert_badge_text_colour = BLACK,
             .bpm_internal_colour = AQUA,
             .ext_bpm_colour = CANTALOUPE_MELON,
-            .bpm_sync_lost_colour = BRINK_PINK,
         },
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_WEED] = {
         .name = "Weed",
-        .preview_name = "SAP_GREEN",
-        .preview_colour = SAP_GREEN,
         .theme = {
             .display_bg_colour = DARK_JUNGLE_GREEN,
             .main_footbar_color = PAKISTAN_GREEN,
@@ -131,13 +118,10 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
             .main_alert_badge_text_colour = BLACK,
             .bpm_internal_colour = SAP_GREEN,
             .ext_bpm_colour = OLD_GOLD,
-            .bpm_sync_lost_colour = BURNT_ORANGE,
         },
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_BLUESCREEN] = {
         .name = "BLUESCREEN",
-        .preview_name = "BLUE_YONDER",
-        .preview_colour = BLUE_YONDER,
         .theme = {
             .display_bg_colour = DARK_BLUE,
             .main_footbar_color = NAVY_BLUE,
@@ -161,13 +145,10 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
             .main_alert_badge_text_colour = BABY_POWDER,
             .bpm_internal_colour = BEAU_BLUE,
             .ext_bpm_colour = BLUE_YONDER,
-            .bpm_sync_lost_colour = COPPER_ROSE,
         },
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_MIDNIGHT] = {
         .name = "Midnight",
-        .preview_name = "BEAU_BLUE",
-        .preview_colour = BEAU_BLUE,
         .theme = {
             .display_bg_colour = NAVY_BLUE,
             .main_footbar_color = DARK_BLUE,
@@ -191,13 +172,10 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
             .main_alert_badge_text_colour = BABY_POWDER,
             .bpm_internal_colour = BLUE_SAPPHIRE,
             .ext_bpm_colour = BLUE_YONDER,
-            .bpm_sync_lost_colour = BEAU_BLUE,
         },
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_TRIPPING] = {
         .name = "Tripping",
-        .preview_name = "MAGENTA",
-        .preview_colour = MAGENTA,
         .theme = {
             .display_bg_colour = BLACK,
             .main_footbar_color = PSYCHEDELIC_PURPLE,
@@ -221,13 +199,10 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
             .main_alert_badge_text_colour = CYBER_YELLOW,
             .bpm_internal_colour = CAPRI,
             .ext_bpm_colour = ELECTRIC_LIME,
-            .bpm_sync_lost_colour = HOT_PINK,
         },
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_USER2] = {
         .name = "USER2",
-        .preview_name = "AMBER",
-        .preview_colour = AMBER,
         .theme = {
             .display_bg_colour = BLACK,
             .main_footbar_color = DARK_GOLDENROD,
@@ -251,13 +226,10 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
             .main_alert_badge_text_colour = BLACK,
             .bpm_internal_colour = AMBER,
             .ext_bpm_colour = GOLDENROD,
-            .bpm_sync_lost_colour = ORANGE_RED,
         },
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_USER3] = {
         .name = "USER3",
-        .preview_name = "CAPRI",
-        .preview_colour = CAPRI,
         .theme = {
             .display_bg_colour = BLACK,
             .main_footbar_color = TYRIAN_PURPLE,
@@ -281,7 +253,6 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
             .main_alert_badge_text_colour = BLACK,
             .bpm_internal_colour = CAPRI,
             .ext_bpm_colour = HOT_PINK,
-            .bpm_sync_lost_colour = CYBER_YELLOW,
         },
     },
 };
@@ -309,18 +280,4 @@ const char *Display_GetThemeName(RuntimeConfigDisplayMode_t display_mode)
     display_mode = Display_NormalizeThemeMode(display_mode);
 
     return display_theme_specs[(uint8_t)display_mode].name;
-}
-
-const char *Display_GetThemePreviewName(RuntimeConfigDisplayMode_t display_mode)
-{
-    display_mode = Display_NormalizeThemeMode(display_mode);
-
-    return display_theme_specs[(uint8_t)display_mode].preview_name;
-}
-
-uint16_t Display_GetThemePreviewColour(RuntimeConfigDisplayMode_t display_mode)
-{
-    display_mode = Display_NormalizeThemeMode(display_mode);
-
-    return display_theme_specs[(uint8_t)display_mode].preview_colour;
 }

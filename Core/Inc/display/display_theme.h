@@ -30,14 +30,11 @@ typedef struct
 	uint16_t main_alert_badge_text_colour;
 	uint16_t bpm_internal_colour;
 	uint16_t ext_bpm_colour;
-	uint16_t bpm_sync_lost_colour;
 } DisplayTheme_t;
 
 /* Edit the palette values in display_theme.c to tweak the UI appearance. */
 const DisplayTheme_t *Display_GetTheme(void);
 const char *Display_GetThemeName(RuntimeConfigDisplayMode_t display_mode);
-const char *Display_GetThemePreviewName(RuntimeConfigDisplayMode_t display_mode);
-uint16_t Display_GetThemePreviewColour(RuntimeConfigDisplayMode_t display_mode);
 
 #define DISPLAY_BG_COLOUR                          (Display_GetTheme()->display_bg_colour)
 
@@ -80,7 +77,7 @@ uint16_t Display_GetThemePreviewColour(RuntimeConfigDisplayMode_t display_mode);
 #define BPM_INTERNAL_COLOUR                       (Display_GetTheme()->bpm_internal_colour)
 #define BPM_BG_COLOUR                             DISPLAY_BG_COLOUR
 #define EXT_BPM_COLOUR                            (Display_GetTheme()->ext_bpm_colour)
-#define BPM_SYNC_LOST_COLOUR                      (Display_GetTheme()->bpm_sync_lost_colour)
+#define BPM_SYNC_LOST_COLOUR                      RED
 #define TRANSPORT_BARBEAT_TEXT_COLOUR             MAIN_PRESET_COLOUR
 
 #endif /* DISPLAY_THEME_H */
