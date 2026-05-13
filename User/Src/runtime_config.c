@@ -240,7 +240,7 @@ static uint16_t RuntimeConfig_NormalizeBacklightBrightness(uint16_t brightness)
 
 static RuntimeConfigDisplayMode_t RuntimeConfig_NormalizeDisplayMode(uint8_t display_mode)
 {
-    if (display_mode > (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT)
+    if (display_mode >= (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_COUNT)
         return RUNTIME_CONFIG_DISPLAY_MODE_DARK;
 
     return (RuntimeConfigDisplayMode_t)display_mode;

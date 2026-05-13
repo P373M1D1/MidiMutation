@@ -126,45 +126,8 @@ void Display_MenuRedrawCurrentValue(void);
 void Display_MenuRedrawSelectionChange(DisplayMenuPage_t page, uint8_t previous_selection);
 void Display_MenuRedrawCurrentPageRows(void);
 void Display_MenuRefreshBodyOnly(void);
-void Display_DrawCurrentMenuPageBody(void);
-const char *Display_GetMenuHeaderTextForPage(DisplayMenuPage_t page, char *buffer, size_t buffer_size);
-uint8_t Display_MenuPageUsesConfirmFootbar(DisplayMenuPage_t page);
-uint8_t Display_MenuPageUsesFreeformBody(DisplayMenuPage_t page);
-uint8_t Display_MenuHeaderChanged(DisplayMenuPage_t previous_page, DisplayMenuPage_t current_page);
-void Display_DrawFootbar(void);
-void Display_DrawMainModeHeader(void);
-void Display_ClearMenuBody(void);
 void Display_RedrawMenuSelectionItem(DisplayMenuPage_t page, uint8_t item_index, uint8_t selected);
 void Display_RedrawMenuCurrentValueItem(DisplayMenuPage_t page, uint8_t item_index);
-void Display_DrawMenuPageItem(DisplayMenuPage_t page, uint8_t item_index);
-void Display_DrawMenuRowByIndex(uint8_t row_index,
-								const char *label,
-								const char *value,
-								uint8_t selected);
-void Display_DrawMenuRowValueOnlyByIndex(uint8_t row_index,
-									 const char *label,
-									 const char *value,
-									 uint8_t selected);
-void Display_DrawMenuTextEditRowByIndex(uint8_t row_index,
-								 const char *label,
-								 const char *text,
-								 uint8_t cell_count);
-void Display_DrawMenuCenteredBadgeRowByIndex(uint8_t row_index,
-									  const char *text,
-									  uint16_t text_colour,
-									  uint16_t badge_colour);
-uint16_t Display_GetMenuRowYByIndex(uint8_t row_index);
-void Display_ClearStandardMenuRow(uint8_t row_index);
-
-/* Internal selection and windowing helpers used by menu redraw/controller logic. */
-uint8_t Display_GetMenuFirstVisibleIndex(uint8_t item_count, uint8_t selected_index);
-uint8_t Display_GetMenuSelectionIndexForPage(DisplayMenuPage_t page);
-uint8_t Display_GetMenuFirstVisibleIndexForPage(DisplayMenuPage_t page, uint8_t selection_index);
-uint8_t Display_GetMenuVisibleRowIndex(DisplayMenuPage_t page, uint8_t item_index, uint8_t *row_index);
-
-/* Internal page-spec accessors used by menu controller navigation. */
-uint8_t *Display_GetMenuPageSelectionPointer(DisplayMenuPage_t page);
-uint8_t Display_GetMenuPageItemCount(DisplayMenuPage_t page);
 
 #ifdef __cplusplus
 }

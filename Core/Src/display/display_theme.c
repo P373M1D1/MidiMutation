@@ -1,0 +1,326 @@
+#include "display/display_theme.h"
+
+#include "runtime_config.h"
+
+/* Theme palettes selected by the existing GLOBAL -> Display menu setting.
+ * Colours here are literal for each mode; the compose layer no longer flips
+ * black/white automatically in bright mode. */
+typedef struct
+{
+    const char *name;
+    const char *preview_name;
+    uint16_t preview_colour;
+    DisplayTheme_t theme;
+} DisplayThemeSpec_t;
+
+static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_COUNT] = {
+    [RUNTIME_CONFIG_DISPLAY_MODE_DARK] = {
+        .name = "Dark",
+        .preview_name = "WHITE",
+        .preview_colour = WHITE,
+        .theme = {
+            .display_bg_colour = BLACK,
+            .main_footbar_color = JET,
+            .main_footbar_text_colour = WHITE,
+            .main_info_text_colour = CHARCOAL,
+            .main_info_edit_cursor_text_colour = BLACK,
+            .main_info_edit_cursor_bg_colour = WHITE,
+            .main_info_edit_cursor_shared_bg_colour = YELLOW,
+            .main_saving_popup_bg_colour = WHITE,
+            .main_saving_popup_text_colour = BLACK,
+            .main_saving_popup_border_colour = BLACK,
+            .main_mode_header_colour = WHITE,
+            .main_mode_header_edit_colour = BLACK,
+            .main_mode_header_edit_bg_colour = YELLOW,
+            .main_preset_colour = WHITE,
+            .main_bank_colour = CHARCOAL,
+            .main_bank_wet_dry_colour = WHITE,
+            .main_special_function_button_active_colour = WHITE,
+            .main_special_function_button_inactive_colour = CHARCOAL,
+            .main_special_function_button_active_bg = DARK_RED,
+            .main_alert_badge_text_colour = BLACK,
+            .bpm_internal_colour = GREEN_WEB,
+            .ext_bpm_colour = COBALT_BLUE,
+            .bpm_sync_lost_colour = RED,
+        },
+    },
+    [RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT] = {
+        .name = "Bright",
+        .preview_name = "DARK_RED",
+        .preview_colour = DARK_RED,
+        .theme = {
+            .display_bg_colour = WHITE,
+            .main_footbar_color = JET,
+            .main_footbar_text_colour = WHITE,
+            .main_info_text_colour = CHARCOAL,
+            .main_info_edit_cursor_text_colour = WHITE,
+            .main_info_edit_cursor_bg_colour = BLACK,
+            .main_info_edit_cursor_shared_bg_colour = DARK_RED,
+            .main_saving_popup_bg_colour = BLACK,
+            .main_saving_popup_text_colour = WHITE,
+            .main_saving_popup_border_colour = WHITE,
+            .main_mode_header_colour = BLACK,
+            .main_mode_header_edit_colour = BLACK,
+            .main_mode_header_edit_bg_colour = YELLOW,
+            .main_preset_colour = BLACK,
+            .main_bank_colour = CHARCOAL,
+            .main_bank_wet_dry_colour = CHARCOAL,
+            .main_special_function_button_active_colour = WHITE,
+            .main_special_function_button_inactive_colour = CHARCOAL,
+            .main_special_function_button_active_bg = DARK_RED,
+            .main_alert_badge_text_colour = WHITE,
+            .bpm_internal_colour = GREEN_WEB,
+            .ext_bpm_colour = COBALT_BLUE,
+            .bpm_sync_lost_colour = RED,
+        },
+    },
+    [RUNTIME_CONFIG_DISPLAY_MODE_USER] = {
+        .name = "User",
+        .preview_name = "AQUA",
+        .preview_colour = AQUA,
+        .theme = {
+            .display_bg_colour = BLACK,
+            .main_footbar_color = BLUE_SAPPHIRE,
+            .main_footbar_text_colour = BABY_POWDER,
+            .main_info_text_colour = AQUAMARINE,
+            .main_info_edit_cursor_text_colour = BLACK,
+            .main_info_edit_cursor_bg_colour = CANTALOUPE_MELON,
+            .main_info_edit_cursor_shared_bg_colour = BRINK_PINK,
+            .main_saving_popup_bg_colour = BABY_POWDER,
+            .main_saving_popup_text_colour = BLUE_SAPPHIRE,
+            .main_saving_popup_border_colour = CANTALOUPE_MELON,
+            .main_mode_header_colour = BABY_POWDER,
+            .main_mode_header_edit_colour = BLACK,
+            .main_mode_header_edit_bg_colour = CANTALOUPE_MELON,
+            .main_preset_colour = BABY_POWDER,
+            .main_bank_colour = PALE_AQUA,
+            .main_bank_wet_dry_colour = CANTALOUPE_MELON,
+            .main_special_function_button_active_colour = BABY_POWDER,
+            .main_special_function_button_inactive_colour = PALE_AQUA,
+            .main_special_function_button_active_bg = BLUE_SAPPHIRE,
+            .main_alert_badge_text_colour = BLACK,
+            .bpm_internal_colour = AQUA,
+            .ext_bpm_colour = CANTALOUPE_MELON,
+            .bpm_sync_lost_colour = BRINK_PINK,
+        },
+    },
+    [RUNTIME_CONFIG_DISPLAY_MODE_WEED] = {
+        .name = "Weed",
+        .preview_name = "SAP_GREEN",
+        .preview_colour = SAP_GREEN,
+        .theme = {
+            .display_bg_colour = DARK_JUNGLE_GREEN,
+            .main_footbar_color = PAKISTAN_GREEN,
+            .main_footbar_text_colour = LIGHT_GOLDENROD_YELLOW,
+            .main_info_text_colour = MOSS_GREEN,
+            .main_info_edit_cursor_text_colour = BLACK,
+            .main_info_edit_cursor_bg_colour = LIGHT_GOLDENROD_YELLOW,
+            .main_info_edit_cursor_shared_bg_colour = OLD_GOLD,
+            .main_saving_popup_bg_colour = LIGHT_GOLDENROD_YELLOW,
+            .main_saving_popup_text_colour = PAKISTAN_GREEN,
+            .main_saving_popup_border_colour = HUNTER_GREEN,
+            .main_mode_header_colour = LIGHT_GOLDENROD_YELLOW,
+            .main_mode_header_edit_colour = BLACK,
+            .main_mode_header_edit_bg_colour = OLD_GOLD,
+            .main_preset_colour = BABY_POWDER,
+            .main_bank_colour = MOSS_GREEN,
+            .main_bank_wet_dry_colour = LIGHT_GOLDENROD_YELLOW,
+            .main_special_function_button_active_colour = LIGHT_GOLDENROD_YELLOW,
+            .main_special_function_button_inactive_colour = MOSS_GREEN,
+            .main_special_function_button_active_bg = SAP_GREEN,
+            .main_alert_badge_text_colour = BLACK,
+            .bpm_internal_colour = SAP_GREEN,
+            .ext_bpm_colour = OLD_GOLD,
+            .bpm_sync_lost_colour = BURNT_ORANGE,
+        },
+    },
+    [RUNTIME_CONFIG_DISPLAY_MODE_BLUESCREEN] = {
+        .name = "BLUESCREEN",
+        .preview_name = "BLUE_YONDER",
+        .preview_colour = BLUE_YONDER,
+        .theme = {
+            .display_bg_colour = DARK_BLUE,
+            .main_footbar_color = NAVY_BLUE,
+            .main_footbar_text_colour = BABY_POWDER,
+            .main_info_text_colour = BEAU_BLUE,
+            .main_info_edit_cursor_text_colour = BABY_POWDER,
+            .main_info_edit_cursor_bg_colour = RUSSIAN_VIOLET,
+            .main_info_edit_cursor_shared_bg_colour = DARK_SLATE_BLUE,
+            .main_saving_popup_bg_colour = INDIGO_DYE,
+            .main_saving_popup_text_colour = BABY_POWDER,
+            .main_saving_popup_border_colour = BLUE_YONDER,
+            .main_mode_header_colour = BLUE_YONDER,
+            .main_mode_header_edit_colour = BABY_POWDER,
+            .main_mode_header_edit_bg_colour = PERSIAN_INDIGO,
+            .main_preset_colour = BABY_POWDER,
+            .main_bank_colour = BLUE_YONDER,
+            .main_bank_wet_dry_colour = BABY_POWDER,
+            .main_special_function_button_active_colour = BABY_POWDER,
+            .main_special_function_button_inactive_colour = DARK_BLUE_GRAY,
+            .main_special_function_button_active_bg = RUSSIAN_VIOLET,
+            .main_alert_badge_text_colour = BABY_POWDER,
+            .bpm_internal_colour = BEAU_BLUE,
+            .ext_bpm_colour = BLUE_YONDER,
+            .bpm_sync_lost_colour = COPPER_ROSE,
+        },
+    },
+    [RUNTIME_CONFIG_DISPLAY_MODE_MIDNIGHT] = {
+        .name = "Midnight",
+        .preview_name = "BEAU_BLUE",
+        .preview_colour = BEAU_BLUE,
+        .theme = {
+            .display_bg_colour = NAVY_BLUE,
+            .main_footbar_color = DARK_BLUE,
+            .main_footbar_text_colour = BLUE_YONDER,
+            .main_info_text_colour = BLUE_YONDER,
+            .main_info_edit_cursor_text_colour = BABY_POWDER,
+            .main_info_edit_cursor_bg_colour = MIDNIGHT_BLUE,
+            .main_info_edit_cursor_shared_bg_colour = PERSIAN_INDIGO,
+            .main_saving_popup_bg_colour = INDIGO_DYE,
+            .main_saving_popup_text_colour = BEAU_BLUE,
+            .main_saving_popup_border_colour = BLUE_SAPPHIRE,
+            .main_mode_header_colour = BEAU_BLUE,
+            .main_mode_header_edit_colour = BABY_POWDER,
+            .main_mode_header_edit_bg_colour = MIDNIGHT_BLUE,
+            .main_preset_colour = BEAU_BLUE,
+            .main_bank_colour = BLUE_YONDER,
+            .main_bank_wet_dry_colour = BEAU_BLUE,
+            .main_special_function_button_active_colour = BABY_POWDER,
+            .main_special_function_button_inactive_colour = BLUE_SAPPHIRE,
+            .main_special_function_button_active_bg = MIDNIGHT_BLUE,
+            .main_alert_badge_text_colour = BABY_POWDER,
+            .bpm_internal_colour = BLUE_SAPPHIRE,
+            .ext_bpm_colour = BLUE_YONDER,
+            .bpm_sync_lost_colour = BEAU_BLUE,
+        },
+    },
+    [RUNTIME_CONFIG_DISPLAY_MODE_TRIPPING] = {
+        .name = "Tripping",
+        .preview_name = "MAGENTA",
+        .preview_colour = MAGENTA,
+        .theme = {
+            .display_bg_colour = BLACK,
+            .main_footbar_color = PSYCHEDELIC_PURPLE,
+            .main_footbar_text_colour = CYBER_YELLOW,
+            .main_info_text_colour = CAPRI,
+            .main_info_edit_cursor_text_colour = BLACK,
+            .main_info_edit_cursor_bg_colour = ELECTRIC_LIME,
+            .main_info_edit_cursor_shared_bg_colour = HOT_PINK,
+            .main_saving_popup_bg_colour = CHARTREUSE_WEB,
+            .main_saving_popup_text_colour = MAGENTA,
+            .main_saving_popup_border_colour = CAPRI,
+            .main_mode_header_colour = CYBER_YELLOW,
+            .main_mode_header_edit_colour = BLACK,
+            .main_mode_header_edit_bg_colour = HOT_PINK,
+            .main_preset_colour = ELECTRIC_LIME,
+            .main_bank_colour = HOT_MAGENTA,
+            .main_bank_wet_dry_colour = CYBER_YELLOW,
+            .main_special_function_button_active_colour = BLACK,
+            .main_special_function_button_inactive_colour = CAPRI,
+            .main_special_function_button_active_bg = HOT_PINK,
+            .main_alert_badge_text_colour = CYBER_YELLOW,
+            .bpm_internal_colour = CAPRI,
+            .ext_bpm_colour = ELECTRIC_LIME,
+            .bpm_sync_lost_colour = HOT_PINK,
+        },
+    },
+    [RUNTIME_CONFIG_DISPLAY_MODE_USER2] = {
+        .name = "USER2",
+        .preview_name = "AMBER",
+        .preview_colour = AMBER,
+        .theme = {
+            .display_bg_colour = BLACK,
+            .main_footbar_color = DARK_GOLDENROD,
+            .main_footbar_text_colour = LIGHT_GOLDENROD_YELLOW,
+            .main_info_text_colour = AMBER,
+            .main_info_edit_cursor_text_colour = BLACK,
+            .main_info_edit_cursor_bg_colour = GOLDENROD,
+            .main_info_edit_cursor_shared_bg_colour = ORANGE,
+            .main_saving_popup_bg_colour = LIGHT_GOLDENROD_YELLOW,
+            .main_saving_popup_text_colour = DARK_BROWN,
+            .main_saving_popup_border_colour = GOLDEN_BROWN,
+            .main_mode_header_colour = LIGHT_GOLDENROD_YELLOW,
+            .main_mode_header_edit_colour = BLACK,
+            .main_mode_header_edit_bg_colour = AMBER,
+            .main_preset_colour = LIGHT_GOLDENROD_YELLOW,
+            .main_bank_colour = GOLDENROD,
+            .main_bank_wet_dry_colour = AMBER,
+            .main_special_function_button_active_colour = LIGHT_GOLDENROD_YELLOW,
+            .main_special_function_button_inactive_colour = GOLD_FUSION,
+            .main_special_function_button_active_bg = BROWN,
+            .main_alert_badge_text_colour = BLACK,
+            .bpm_internal_colour = AMBER,
+            .ext_bpm_colour = GOLDENROD,
+            .bpm_sync_lost_colour = ORANGE_RED,
+        },
+    },
+    [RUNTIME_CONFIG_DISPLAY_MODE_USER3] = {
+        .name = "USER3",
+        .preview_name = "CAPRI",
+        .preview_colour = CAPRI,
+        .theme = {
+            .display_bg_colour = BLACK,
+            .main_footbar_color = TYRIAN_PURPLE,
+            .main_footbar_text_colour = BABY_POWDER,
+            .main_info_text_colour = CAPRI,
+            .main_info_edit_cursor_text_colour = BLACK,
+            .main_info_edit_cursor_bg_colour = CAPRI,
+            .main_info_edit_cursor_shared_bg_colour = HOT_PINK,
+            .main_saving_popup_bg_colour = BABY_POWDER,
+            .main_saving_popup_text_colour = TYRIAN_PURPLE,
+            .main_saving_popup_border_colour = CAPRI,
+            .main_mode_header_colour = BABY_POWDER,
+            .main_mode_header_edit_colour = BLACK,
+            .main_mode_header_edit_bg_colour = CAPRI,
+            .main_preset_colour = BABY_POWDER,
+            .main_bank_colour = CAPRI,
+            .main_bank_wet_dry_colour = CAPRI,
+            .main_special_function_button_active_colour = BABY_POWDER,
+            .main_special_function_button_inactive_colour = VIOLET_CRAYOLA,
+            .main_special_function_button_active_bg = TYRIAN_PURPLE,
+            .main_alert_badge_text_colour = BLACK,
+            .bpm_internal_colour = CAPRI,
+            .ext_bpm_colour = HOT_PINK,
+            .bpm_sync_lost_colour = CYBER_YELLOW,
+        },
+    },
+};
+
+static RuntimeConfigDisplayMode_t Display_NormalizeThemeMode(RuntimeConfigDisplayMode_t display_mode)
+{
+    if ((uint8_t)display_mode >= (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_COUNT)
+        return RUNTIME_CONFIG_DISPLAY_MODE_DARK;
+
+    return display_mode;
+}
+
+const DisplayTheme_t *Display_GetTheme(void)
+{
+    const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
+    RuntimeConfigDisplayMode_t mode = global ? global->display_mode : RUNTIME_CONFIG_DISPLAY_MODE_DARK;
+
+    mode = Display_NormalizeThemeMode(mode);
+
+    return &display_theme_specs[(uint8_t)mode].theme;
+}
+
+const char *Display_GetThemeName(RuntimeConfigDisplayMode_t display_mode)
+{
+    display_mode = Display_NormalizeThemeMode(display_mode);
+
+    return display_theme_specs[(uint8_t)display_mode].name;
+}
+
+const char *Display_GetThemePreviewName(RuntimeConfigDisplayMode_t display_mode)
+{
+    display_mode = Display_NormalizeThemeMode(display_mode);
+
+    return display_theme_specs[(uint8_t)display_mode].preview_name;
+}
+
+uint16_t Display_GetThemePreviewColour(RuntimeConfigDisplayMode_t display_mode)
+{
+    display_mode = Display_NormalizeThemeMode(display_mode);
+
+    return display_theme_specs[(uint8_t)display_mode].preview_colour;
+}

@@ -86,7 +86,7 @@ uint8_t Display_MenuAdjustValue(int8_t delta);
 
 /** Draws a progress bar in the lower quarter and blocks for duration_ms. */
 void Display_LoadingBar(uint32_t duration_ms);
-/** Clears the loading bar area to black. */
+/** Clears the loading bar area to the current theme background. */
 void Display_LoadingBarClear(void);
 
 /** Call on any user input to reset the inactivity timer. */

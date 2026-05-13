@@ -6,6 +6,8 @@
 #include "display/display_internal.h"
 #include "display/display_menu_page_device_edit.h"
 #include "display/display_menu_page_devices.h"
+#include "display/display_menu_redraw_utils.h"
+#include "display/display_menu_row_render.h"
 #include "display/display_row_compose.h"
 #include "runtime_config.h"
 #include "st7796.h"
@@ -290,7 +292,7 @@ void Display_DrawMenuDeviceEditItem(uint8_t item_index)
     {
         Display_DrawMenuCenteredBadgeRowByIndex(row_index,
                                                 Display_GetMenuDeviceEditLabel(item_index, label_text, sizeof(label_text)),
-                                                BLACK,
+                                                MAIN_ALERT_BADGE_TEXT_COLOUR,
                                                 RED);
         return;
     }

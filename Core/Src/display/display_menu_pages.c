@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "display/display_internal.h"
+#include "display/display_compose_helpers.h"
 #include "display/display_layout.h"
 #include "display/display_menu_page_bank_edit.h"
 #include "display/display_menu_page_banks.h"
@@ -9,8 +9,9 @@
 #include "display/display_menu_page_devices.h"
 #include "display/display_menu_page_function_button.h"
 #include "display/display_menu_page_global.h"
+#include "display/display_menu_pages.h"
+#include "display/display_menu_row_render.h"
 #include "display/display_strings.h"
-#include "display_compose.h"
 
 typedef struct
 {
@@ -20,17 +21,121 @@ typedef struct
     void (*draw_item)(uint8_t item_index);
 } DisplayMenuPageSpec_t;
 
-static void Display_DrawMenuConfirmPrompt(const char *text)
+static const char *Display_GetConfirmFootbarLabel(uint8_t section_index)
 {
-    char padded[MAIN_BANK_TEXT_CHARS + 1U];
-    uint16_t draw_w = (uint16_t)(MAIN_BANK_TEXT_CHARS * MAIN_BANK_FONT.width);
+    switch (section_index)
+    {
+    case 0U:
+        return MAIN_FOOTBAR_CONFIRM_LEFT_TEXT;
+    case 1U:
+        return MAIN_FOOTBAR_CONFIRM_CENTER_TEXT;
+    case 2U:
+        return MAIN_FOOTBAR_CONFIRM_RIGHT_TEXT;
+    default:
+        return "";
+    }
+}
+
+static const char *Display_GetFootbarLabel(uint8_t section_index)
+{
+    if (display_state.menu_mode_active)
+    {
+        if (Display_MenuPageUsesConfirmFootbar((DisplayMenuPage_t)display_state.menu_page))
+            return Display_GetConfirmFootbarLabel(section_index);
+
+        switch (section_index)
+        {
+        case 0U:
+            return MAIN_FOOTBAR_MENU_LEFT_TEXT;
+        case 1U:
+            return MAIN_FOOTBAR_MENU_CENTER_TEXT;
+        case 2U:
+            return MAIN_FOOTBAR_MENU_RIGHT_TEXT;
+        default:
+            return "";
+        }
+    }
+
+    if (display_state.preset_edit_mode_active)
+    {
+        if (display_state.preset_init_confirm_active)
+            return Display_GetConfirmFootbarLabel(section_index);
+
+        switch (section_index)
+        {
+        case 0U:
+            return MAIN_FOOTBAR_EDIT_LEFT_TEXT;
+        case 1U:
+            return MAIN_FOOTBAR_EDIT_CENTER_TEXT;
+        case 2U:
+            return MAIN_FOOTBAR_EDIT_RIGHT_TEXT;
+        default:
+            return "";
+        }
+    }
+
+    switch (section_index)
+    {
+    case 0U:
+        return MAIN_FOOTBAR_LEFT_TEXT;
+    case 1U:
+        return MAIN_FOOTBAR_CENTER_TEXT;
+    case 2U:
+        return MAIN_FOOTBAR_RIGHT_TEXT;
+    default:
+        return "";
+    }
+}
+
+void Display_DrawFootbar(void)
+{
+    Display_ComposeClear(ST7796_WIDTH,
+                         MAIN_FOOTBAR_H,
+                         MAIN_FOOTBAR_COLOR);
+
+    for (uint8_t section_index = 0U; section_index < MAIN_FOOTBAR_SECTION_COUNT; ++section_index)
+    {
+        const char *text = Display_GetFootbarLabel(section_index);
+        size_t text_len = strlen(text);
+        uint16_t section_x = (uint16_t)(section_index * MAIN_FOOTBAR_SECTION_WIDTH);
+        uint16_t text_w = (uint16_t)text_len * MAIN_FOOTBAR_FONT.width;
+        uint16_t text_x = (uint16_t)(section_x + ((MAIN_FOOTBAR_SECTION_WIDTH - text_w) / 2U));
+        uint16_t text_y = (uint16_t)((MAIN_FOOTBAR_H - MAIN_FOOTBAR_FONT.height) / 2U);
+
+        if (text_len == 0U)
+            continue;
+
+        Display_ComposeString32Literal(ST7796_WIDTH,
+                           MAIN_FOOTBAR_H,
+                           text_x,
+                           text_y,
+                           text,
+                           MAIN_FOOTBAR_FONT,
+                           MAIN_FOOTBAR_TEXT_COLOUR,
+                           MAIN_FOOTBAR_COLOR);
+    }
+
+    Display_ComposeBlit(0U,
+                        MAIN_FOOTBAR_Y,
+                        ST7796_WIDTH,
+                        MAIN_FOOTBAR_H);
+}
+
+static void Display_WriteCenteredPaddedText32WithBackground(uint16_t y,
+                                                            const char *text,
+                                                            uint8_t width_chars,
+                                                            FontDef32 font,
+                                                            uint16_t colour,
+                                                            uint16_t background)
+{
+    char padded[MAIN_PRESET_TEXT_CHARS + 1U];
+    uint16_t draw_w = (uint16_t)width_chars * font.width;
     uint16_t draw_x = (uint16_t)((ST7796_WIDTH - draw_w) / 2U);
-    uint16_t background = Display_GetBackgroundColour();
-    size_t max_chars = (size_t)MAIN_BANK_TEXT_CHARS;
+    size_t max_chars = (size_t)width_chars;
     size_t text_len;
     size_t pad_left;
 
-    if (!text)
+    if (!text || width_chars == 0U || width_chars > MAIN_PRESET_TEXT_CHARS)
         return;
 
     text_len = strnlen(text, max_chars);
@@ -40,21 +145,41 @@ static void Display_DrawMenuConfirmPrompt(const char *text)
     memcpy(padded + pad_left, text, text_len);
     padded[max_chars] = '\0';
 
-    DisplayCompose_Clear(draw_w,
-                         MAIN_BANK_FONT.height,
+    Display_ComposeClear(draw_w,
+                         font.height,
                          background);
-    DisplayCompose_String32(draw_w,
-                            MAIN_BANK_FONT.height,
+    Display_ComposeString32(draw_w,
+                            font.height,
                             0U,
                             0U,
                             padded,
-                            MAIN_BANK_FONT,
-                            RED,
+                            font,
+                            colour,
                             background);
-    DisplayCompose_Blit(draw_x,
-                        MAIN_BANK_TEXT_Y,
+    Display_ComposeBlit(draw_x,
+                        y,
                         draw_w,
-                        MAIN_BANK_FONT.height);
+                        font.height);
+}
+
+static void Display_DrawMenuConfirmPrompt(const char *text)
+{
+    Display_WriteCenteredPaddedText32WithBackground(MAIN_BANK_TEXT_Y,
+                                                    text,
+                                                    MAIN_BANK_TEXT_CHARS,
+                                                    MAIN_BANK_FONT,
+                                                    RED,
+                                                    DISPLAY_BG_COLOUR);
+}
+
+void Display_DrawPresetInitConfirmPrompt(void)
+{
+    Display_WriteCenteredPaddedText32WithBackground(MAIN_BANK_TEXT_Y,
+                                                    MAIN_INFO_PRESET_INIT_CONFIRM_TEXT,
+                                                    MAIN_BANK_TEXT_CHARS,
+                                                    MAIN_BANK_FONT,
+                                                    RED,
+                                                    DISPLAY_BG_COLOUR);
 }
 
 static void Display_DrawMenuRootItem(uint8_t item_index)
@@ -111,7 +236,7 @@ static void Display_DrawMenuFactoryResetConfirm(void)
     Display_DrawMenuConfirmPrompt(MENU_FACTORY_RESET_CONFIRM_TEXT);
 }
 
-const char *Display_GetMenuHeaderTextForPage(DisplayMenuPage_t page, char *buffer, size_t buffer_size)
+static const char *Display_GetMenuHeaderTextForPage(DisplayMenuPage_t page, char *buffer, size_t buffer_size)
 {
     switch (page)
     {
@@ -220,10 +345,10 @@ void Display_DrawMainModeHeader(void)
     memcpy(padded + pad_left, header_text, text_len);
     padded[header_width_chars] = '\0';
 
-    DisplayCompose_Clear(clear_w,
+    Display_ComposeClear(clear_w,
                          MAIN_MODE_HEADER_FONT.height,
                          DISPLAY_BG_COLOUR);
-    DisplayCompose_String32(clear_w,
+    Display_ComposeString32(clear_w,
                             MAIN_MODE_HEADER_FONT.height,
                             text_x,
                             0U,
@@ -231,7 +356,7 @@ void Display_DrawMainModeHeader(void)
                             MAIN_MODE_HEADER_FONT,
                             foreground,
                             background);
-    DisplayCompose_Blit(clear_x,
+    Display_ComposeBlit(clear_x,
                         MAIN_MODE_HEADER_TEXT_Y,
                         clear_w,
                         MAIN_MODE_HEADER_FONT.height);

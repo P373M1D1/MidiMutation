@@ -1,20 +1,23 @@
 #include "display_functions.h"
 #include "display/display_internal.h"
+#include "display/display_compose_helpers.h"
+#include "display/display_main_title.h"
 #include "display/display_menu_page_bank_edit.h"
 #include "display/display_menu_page_banks.h"
 #include "display/display_menu_page_device_edit.h"
 #include "display/display_menu_page_devices.h"
 #include "display/display_menu_page_function_button.h"
 #include "display/display_menu_page_global.h"
+#include "display/display_menu_pages.h"
+#include "display/display_menu_row_render.h"
+#include "display/display_row_compose.h"
+#include "display/display_theme.h"
 #include "display/display_value_helpers.h"
-#include "display_compose.h"
 #include "button_functions.h"
-#include "midi_functions.h"
 #include "midi_devices.h"
 #include "runtime_config.h"
 #include "st7796.h"
 #include "fonts.h"
-#include "stm32f4xx_hal.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -52,34 +55,10 @@
  *   y= 298 .. 319 :  Footer bar,    dark grey, "MIDI / RELAY STATUS"
  * ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 
-#define DISPLAY_BG_COLOUR              BLACK               // default background colour for full-screen clears and text backgrounds
-
-static uint16_t Display_MapThemeColour(uint16_t colour)
-{
-    const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
-
-    if (!global || global->display_mode != RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT)
-        return colour;
-
-    if (colour == BLACK)
-        return WHITE;
-    if (colour == WHITE)
-        return BLACK;
-
-    return colour;
-}
-
-uint16_t Display_GetBackgroundColour(void)
-{
-    return Display_MapThemeColour(DISPLAY_BG_COLOUR);
-}
-
 /* ?????? Screen layout constants ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
 #define MAIN_FOOTBAR_Y                 298U                  // top edge of the footer/status bar
 #define MAIN_FOOTBAR_H                 (ST7796_HEIGHT - MAIN_FOOTBAR_Y) // footer height from its top edge to screen bottom
-#define MAIN_FOOTBAR_COLOR             JET           // fill colour for the footer/status bar
 #define MAIN_FOOTBAR_FONT              Font_Consolas8x21    // font used for the footer caption
-#define MAIN_FOOTBAR_TEXT_COLOUR       WHITE                 // text colour for the footer caption
 #define MAIN_FOOTBAR_SECTION_COUNT     3U                    // footer is conceptually split into three unlabeled regions
 #define MAIN_FOOTBAR_SECTION_WIDTH     (ST7796_WIDTH / MAIN_FOOTBAR_SECTION_COUNT) // width of one footer region
 #define MAIN_FOOTBAR_LEFT_TEXT         "SCROLL / EDIT"              // label for the left footer region during normal operation
@@ -99,13 +78,6 @@ uint16_t Display_GetBackgroundColour(void)
 #define MAIN_INFO_FONT                 Font_Consolas15x35   // font used for bank text, BPM text, and info rows
 #define MAIN_INFO_FONT_CELL_WIDTH      15U                  // compile-time width of MAIN_INFO_FONT glyph cells for row-buffer composition
 #define MAIN_INFO_FONT_CELL_HEIGHT     35U                  // compile-time height of MAIN_INFO_FONT glyph cells for row-buffer composition
-#define MAIN_INFO_TEXT_COLOUR          CHARCOAL            // normal text colour for info rows
-#define MAIN_INFO_TEXT_BG_COLOUR       DISPLAY_BG_COLOUR    // background colour behind normal info text
-#define MAIN_INFO_SHARED_TEXT_COLOUR   DISPLAY_BG_COLOUR    // text colour when a shared program number is inverted
-#define MAIN_INFO_SHARED_BG_COLOUR     MAIN_INFO_TEXT_COLOUR // background colour when a shared program number is inverted
-#define MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR  BLACK            // text colour inside the active edit cursor field
-#define MAIN_INFO_EDIT_CURSOR_BG_COLOUR    WHITE            // background colour for the active edit cursor field
-#define MAIN_INFO_EDIT_CURSOR_SHARED_BG_COLOUR YELLOW       // caution background for an edited program value that is also used in another preset
 #define MAIN_INFO_ROW_COUNT            3U                   // number of vertically stacked info rows currently visible on the main screen
 #define MAIN_INFO_PROGRAM_DIGITS       3U                   // fixed width of the displayed MIDI program number
 #define MAIN_INFO_CC_CHANNEL_DIGITS    2U                   // fixed width of the displayed MIDI CC channel number
@@ -123,48 +95,29 @@ uint16_t Display_GetBackgroundColour(void)
 #define MAIN_UNUSED_PROGRAM            0xFFU                // sentinel meaning no MIDI program is assigned to that slot
 #define MAIN_EMPTY_RIGHT_INFO_TEXT     "                "   // blank filler used to clear an unused right-side row
 #define MAIN_SAVING_POPUP_TEXT         " SAVING "          // temporary overlay shown while preset edits are being committed to flash
-#define MAIN_SAVING_POPUP_BG_COLOUR    WHITE             // background behind the saving overlay
-#define MAIN_SAVING_POPUP_TEXT_COLOUR  BLACK                // text colour for the saving overlay
 #define MAIN_SAVING_POPUP_ROW_INDEX    1U                   // center the saving overlay on the middle info row
 #define MAIN_SCROLL_INDICATOR_X        8U                   // x position of the device-list scroll indicator triangles
 #define MAIN_SCROLL_INDICATOR_W        9U                   // width of the scroll indicator triangles
 #define MAIN_SCROLL_INDICATOR_H        5U                   // height of the scroll indicator triangles
-#define MAIN_SCROLL_INDICATOR_COLOUR   MAIN_INFO_TEXT_COLOUR // colour of the up/down scroll indicators
 #define MAIN_MODE_HEADER_TEXT_Y        10U                  // y position of the centered LIVE/EDIT mode label at the top of the screen
 #define MAIN_MODE_HEADER_TEXT_CHARS    4U                   // width reserved for the centered top mode label
 #define MAIN_MODE_HEADER_EDIT_TEXT_CHARS 6U                 // wider badge width for EDIT so the yellow background has one padded cell on each side
 #define MAIN_MODE_HEADER_MENU_PAD_CHARS 2U                  // padded cells added to menu header badges so they match the EDIT badge style
 #define MAIN_MODE_HEADER_MAX_TEXT_CHARS  10U                // widest header badge footprint that must be cleared between mode changes
 #define MAIN_MODE_HEADER_FONT          MAIN_FOOTBAR_FONT    // font used for the top mode label
-#define MAIN_MODE_HEADER_COLOUR        WHITE                // text colour for the LIVE/EDIT mode label
-#define MAIN_MODE_HEADER_EDIT_COLOUR   BLACK               // text colour for the EDIT mode label
-#define MAIN_MODE_HEADER_EDIT_BG_COLOUR YELLOW              // background colour behind the EDIT mode label for contrast
 #define MAIN_PRESET_TEXT_Y             85U                  // y position of the large preset name line
 #define MAIN_PRESET_TEXT_CHARS         20U                  // fixed character width used when centering preset names
 #define MAIN_PRESET_FONT               Font_Consolas23x49   // large font for the preset name
 #define MAIN_PRESET_FONT_CELL_WIDTH    23U                  // compile-time width of MAIN_PRESET_FONT glyph cells for row-buffer composition
 #define MAIN_PRESET_FONT_CELL_HEIGHT   49U                  // compile-time height of MAIN_PRESET_FONT glyph cells for row-buffer composition
 #define MAIN_PRESET_ROW_BUFFER_WIDTH   (PRESET_NAME_LENGTH * MAIN_PRESET_FONT_CELL_WIDTH) // total pixel width of the preset-name row buffer
-#define MAIN_PRESET_COLOUR             WHITE               // text colour for the preset name
-#define MAIN_PRESET_BG_COLOUR          DISPLAY_BG_COLOUR    // background colour behind the preset name
 #define MAIN_BANK_TEXT_Y               145U                 // y position of the bank name line
 #define MAIN_BANK_TEXT_CHARS           PRESET_BANK_NAME_MAXLEN // fixed character width used when centering bank names
 #define MAIN_BANK_FONT                 Font_Consolas15x35   // font for the bank name line
-#define MAIN_BANK_COLOUR               CHARCOAL            // text colour for the bank name line
-#define MAIN_BANK_BG_COLOUR            DISPLAY_BG_COLOUR    // background colour behind the bank name line
 #define MAIN_BANK_WET_DRY_BADGE_TEXT   "W/D"               // badge shown after the bank name when Wet/Dry mode is enabled for that bank
-#define MAIN_BANK_WET_DRY_COLOUR       WHITE               // text colour for the Wet/Dry badge
-#define MAIN_BANK_WET_DRY_BG_COLOUR    BLACK            // background colour for the Wet/Dry badge
 #define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_NAME       "SpcBtn" // fallback label shown ahead of the special-function-button state
 #define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_ACTIVE_TEXT "active" // fallback text shown when the special-function button mode is active
 #define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_INACTIVE_TEXT "bypass"   // fallback text shown when the special-function button mode is inactive
-#define MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_COLOUR     WHITE // text colour for the active special-function-button state
-#define MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_COLOUR   CHARCOAL // text colour for the inactive special-function-button state
-#define MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_BG         DARK_RED // highlight background behind the active special-function-button state
-#define MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_BG       DISPLAY_BG_COLOUR // background behind the inactive special-function-button state
-#define MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_COLOUR     MAIN_INFO_TEXT_COLOUR // colour of the special-function-button label prefix
-#define MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_BG         MAIN_INFO_TEXT_BG_COLOUR // background behind the special-function-button label prefix
-#define MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR     DISPLAY_BG_COLOUR // top/bottom border colour used to style the active special-function state
 #define MAIN_INFO_HIGHLIGHT_BORDER_H   2U                   // thickness of the top and bottom highlight bars around active state text
 
 #define MENU_ROOT_ITEM_COUNT            3U                   // number of top-level entries currently shown in the menu shell
@@ -240,8 +193,6 @@ void Display_ClearMainLayoutDirty(void)
 #define BPM_INTERNAL_VALUE_X            365U                 // x position of the internal BPM number block
 #define BPM_INTERNAL_VALUE_W            (BPM_FONT.width * 3U) // width reserved for the 3-digit internal BPM number
 #define BPM_INTERNAL_SUFFIX_X           (BPM_INTERNAL_VALUE_X + BPM_INTERNAL_VALUE_W) // x position where the internal BPM suffix would begin
-#define BPM_INTERNAL_COLOUR             GREEN_WEB           // colour used for internal BPM text
-#define BPM_BG_COLOUR                   DISPLAY_BG_COLOUR    // background colour behind all BPM text redraws
 #define BPM_EXT_PREFIX_X                305U                 // legacy anchor for the external BPM prefix
 #define BPM_EXT_VALUE_X                 365U                 // legacy anchor for the external BPM number block
 #define BPM_EXT_VALUE_W                 (BPM_FONT.width * 3U) // width reserved for the external BPM number block
@@ -259,211 +210,25 @@ void Display_ClearMainLayoutDirty(void)
 #define BPM_INTERNAL_HEAD_AREA_W        (BPM_INTERNAL_HEAD_TEXT_CHARS * BPM_FONT.width) // pixel width of the full internal prefix+value area
 #define BPM_EXT_TEXT_CHARS              13U                  // padded text width for external BPM strings like "EXT 120.0 BPM"
 #define BPM_EXT_TEXT_X                  ((uint16_t)(BPM_DISPLAY_AREA_X + BPM_DISPLAY_AREA_W - (BPM_EXT_TEXT_CHARS * BPM_FONT.width))) // right-aligned x position of the external BPM string
-#define EXT_BPM_COLOUR                  COBALT_BLUE         // colour used for external BPM text
 #define BPM_SYNC_LOST_TEXT              "EXT SYNC LOST"      // message shown when external MIDI clock times out
-#define BPM_SYNC_LOST_COLOUR            RED                 // colour used for the EXT SYNC LOST warning
 
 #define TRANSPORT_BARBEAT_TEXT_X        10U                  // top-left x position for bar.beat transport readout
 #define TRANSPORT_BARBEAT_TEXT_Y        7U                   // y position for the bar.beat transport readout
 #define TRANSPORT_BARBEAT_TEXT_CHARS    4U                   // fixed width for values like "64.4" or "-.-"
 #define TRANSPORT_BARBEAT_TEXT_W        (TRANSPORT_BARBEAT_TEXT_CHARS * MAIN_PRESET_FONT.width) // clear/update width of bar.beat readout
-#define TRANSPORT_BARBEAT_TEXT_COLOUR   MAIN_PRESET_COLOUR   // use preset font colour as requested
 
 #define LOADING_BAR_X                   10U                  // left edge of the startup loading bar
 #define LOADING_BAR_Y                   262U                 // top edge of the startup loading bar
 #define LOADING_BAR_W                   460U                 // total drawable width of the startup loading bar
 #define LOADING_BAR_H                   28U                  // height of the startup loading bar
-#define LOADING_BAR_COLOUR              DARK_RED            // fill colour of the progress portion of the startup loading bar
-#define LOADING_BAR_BG_COLOUR           DISPLAY_BG_COLOUR   // background colour behind the startup loading bar and its text row
 #define LOADING_BAR_TEXT_Y              246U                // y position of the loading-bar status text line
 #define LOADING_BAR_TEXT_FONT           Font_7x10           // font used for loading-bar status text
-#define LOADING_BAR_TEXT_COLOUR         WHITE               // colour used for loading-bar status text
 #define LOADING_BAR_PHASE_DIVISOR       3U                  // point where the first status-text phase change triggers
 #define LOADING_BAR_PHASE_HOLD_MS       1000U               // time each loading-bar status message is held on screen
 #define LOADING_BAR_WAIT_TEXT           "... waiting for DNA match" // first startup loading-bar message
 #define LOADING_BAR_MATCH_TEXT          "DNA match found"  // second startup loading-bar message
 #define LOADING_BAR_MARKERS_TEXT        "..accessing genetic markers" // third startup loading-bar message
 #define LOADING_BAR_DONE_TEXT           "mutation complete" // final message shown when startup loading completes
-
-/* Dynamic display updates should compose off-screen and reach the panel
- * through one blit. These local wrappers keep the existing call sites stable
- * while the shared scratch-buffer engine lives in display_compose.c. */
-static void Display_ComposeBlit(uint16_t x,
-                                uint16_t y,
-                                uint16_t width,
-                                uint16_t height);
-
-void Display_MenuRowComposeClear(uint16_t colour)
-{
-    DisplayCompose_Clear(ST7796_WIDTH,
-                         MAIN_INFO_FONT_CELL_HEIGHT,
-                         Display_MapThemeColour(colour));
-}
-
-static void Display_ComposeFillRect(uint16_t clip_width,
-                                    uint16_t clip_height,
-                                    uint16_t x,
-                                    uint16_t y,
-                                    uint16_t w,
-                                    uint16_t h,
-                                    uint16_t colour)
-{
-    DisplayCompose_FillRect(clip_width,
-                            clip_height,
-                            x,
-                            y,
-                            w,
-                            h,
-                            Display_MapThemeColour(colour));
-}
-
-static void Display_MenuRowComposeFillRect(uint16_t x,
-                                           uint16_t y,
-                                           uint16_t w,
-                                           uint16_t h,
-                                           uint16_t colour)
-{
-    Display_ComposeFillRect(ST7796_WIDTH,
-                            MAIN_INFO_FONT_CELL_HEIGHT,
-                            x,
-                            y,
-                            w,
-                            h,
-                            colour);
-}
-
-static void Display_ComposeChar32(uint16_t clip_width,
-                                  uint16_t clip_height,
-                                  uint16_t x,
-                                  uint16_t y,
-                                  char ch,
-                                  FontDef32 font,
-                                  uint16_t colour,
-                                  uint16_t background)
-{
-    DisplayCompose_Char32(clip_width,
-                          clip_height,
-                          x,
-                          y,
-                          ch,
-                          font,
-                          Display_MapThemeColour(colour),
-                          Display_MapThemeColour(background));
-}
-
-static void Display_ComposeString32(uint16_t clip_width,
-                                    uint16_t clip_height,
-                                    uint16_t x,
-                                    uint16_t y,
-                                    const char *text,
-                                    FontDef32 font,
-                                    uint16_t colour,
-                                    uint16_t background)
-{
-    DisplayCompose_String32(clip_width,
-                            clip_height,
-                            x,
-                            y,
-                            text,
-                            font,
-                            Display_MapThemeColour(colour),
-                            Display_MapThemeColour(background));
-}
-
-static void Display_MenuRowComposeString32(uint16_t x,
-                                           uint16_t y,
-                                           const char *text,
-                                           FontDef32 font,
-                                           uint16_t colour,
-                                           uint16_t background)
-{
-    Display_ComposeString32(ST7796_WIDTH,
-                            MAIN_INFO_FONT_CELL_HEIGHT,
-                            x,
-                            y,
-                            text,
-                            font,
-                            colour,
-                            background);
-}
-
-static void Display_ComposeString16(uint16_t clip_width,
-                                    uint16_t clip_height,
-                                    uint16_t x,
-                                    uint16_t y,
-                                    const char *text,
-                                    FontDef font,
-                                    uint16_t colour,
-                                    uint16_t background)
-{
-    DisplayCompose_String16(clip_width,
-                            clip_height,
-                            x,
-                            y,
-                            text,
-                            font,
-                            Display_MapThemeColour(colour),
-                            Display_MapThemeColour(background));
-}
-
-static void Display_RowComposeString16(uint16_t x,
-                                       uint16_t y,
-                                       const char *text,
-                                       FontDef font,
-                                       uint16_t colour,
-                                       uint16_t background)
-{
-    Display_ComposeString16(ST7796_WIDTH,
-                            MAIN_PRESET_FONT_CELL_HEIGHT,
-                            x,
-                            y,
-                            text,
-                            font,
-                            colour,
-                            background);
-}
-
-void Display_MenuRowComposeTextSegment32(uint16_t x,
-                                         const char *text,
-                                         uint16_t foreground,
-                                         uint16_t background)
-{
-    size_t text_length = text ? strlen(text) : 0U;
-
-    if (text_length == 0U)
-        return;
-
-    Display_MenuRowComposeFillRect(x,
-                                   0U,
-                                   (uint16_t)(text_length * MAIN_INFO_FONT.width),
-                                   MAIN_INFO_FONT.height,
-                                   background);
-    Display_MenuRowComposeString32(x,
-                                   0U,
-                                   text,
-                                   MAIN_INFO_FONT,
-                                   foreground,
-                                   background);
-}
-
-void Display_MenuRowComposeBlit(uint16_t row_y)
-{
-    Display_ComposeBlit(0U,
-                        row_y,
-                        ST7796_WIDTH,
-                        MAIN_INFO_FONT_CELL_HEIGHT);
-}
-
-static void Display_ComposeBlit(uint16_t x,
-                                uint16_t y,
-                                uint16_t width,
-                                uint16_t height)
-{
-    DisplayCompose_Blit(x,
-                        y,
-                        width,
-                        height);
-}
 
 static void Display_FormatSpecialFunctionPrefix(char *buffer, size_t buffer_size)
 {
@@ -582,182 +347,6 @@ static uint8_t Display_PresetEditFieldsMatch(DisplayPresetEditField_t first,
     return (first.type == second.type && first.itemIndex == second.itemIndex) ? 1U : 0U;
 }
 
-static uint8_t Display_GetPresetNameLength(const Preset_t *preset)
-{
-    if (!preset)
-        return 0U;
-
-    return (uint8_t)strnlen(preset->name, PRESET_NAME_LENGTH);
-}
-
-static uint8_t Display_GetPresetNameRenderLength(const Preset_t *preset)
-{
-    uint8_t name_length = Display_GetPresetNameLength(preset);
-
-    return (name_length > 0U) ? name_length : 1U;
-}
-
-static uint8_t Display_GetPresetNamePadLeft(const Preset_t *preset)
-{
-    return (uint8_t)((PRESET_NAME_LENGTH - Display_GetPresetNameRenderLength(preset)) / 2U);
-}
-
-static uint8_t Display_GetPresetNameEditMaxIndex(const Preset_t *preset)
-{
-    return (uint8_t)(PRESET_NAME_LENGTH - Display_GetPresetNamePadLeft(preset) - 1U);
-}
-
-/* The preset name stays visually centred even when the stored string is
- * shorter than PRESET_NAME_LENGTH. These helpers translate between the logical
- * edit index inside the compact string and the physical cell index on screen. */
-static uint16_t Display_GetPresetNameBaseX(void)
-{
-    return (uint16_t)((ST7796_WIDTH - (PRESET_NAME_LENGTH * MAIN_PRESET_FONT.width)) / 2U);
-}
-
-static void Display_PresetNameComposeFillRect(uint16_t x,
-                                              uint16_t y,
-                                              uint16_t w,
-                                              uint16_t h,
-                                              uint16_t colour)
-{
-    Display_ComposeFillRect(MAIN_PRESET_ROW_BUFFER_WIDTH,
-                            MAIN_PRESET_FONT_CELL_HEIGHT,
-                            x,
-                            y,
-                            w,
-                            h,
-                            colour);
-}
-
-static void Display_PresetNameComposeChar32(uint16_t x,
-                                            uint16_t y,
-                                            char ch,
-                                            uint16_t colour,
-                                            uint16_t background)
-{
-    Display_ComposeChar32(MAIN_PRESET_ROW_BUFFER_WIDTH,
-                          MAIN_PRESET_FONT_CELL_HEIGHT,
-                          x,
-                          y,
-                          ch,
-                          MAIN_PRESET_FONT,
-                          colour,
-                          background);
-}
-
-static void Display_UpdateTransportBarBeat(void)
-{
-    uint8_t bar;
-    uint8_t beat;
-    uint8_t external_signal_present;
-    uint8_t sync_lost;
-    uint8_t stop_latched;
-    char next_text[5];
-
-    external_signal_present = MidiClockIsExternalSignalPresent();
-    sync_lost = MidiClockIsSyncLost();
-    stop_latched = MidiTransportStopLatched();
-
-    if (MidiClockGetBarBeat(&bar, &beat))
-    {
-        if (bar > RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX)
-            bar = RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX;
-        if (beat > 9U)
-            beat = 9U;
-
-        if (bar >= 10U)
-        {
-            next_text[0] = (char)('0' + (bar / 10U));
-            next_text[1] = (char)('0' + (bar % 10U));
-            next_text[2] = '.';
-            next_text[3] = (char)('0' + beat);
-            next_text[4] = '\0';
-        }
-        else
-        {
-            next_text[0] = (char)('0' + bar);
-            next_text[1] = '.';
-            next_text[2] = (char)('0' + beat);
-            next_text[3] = '\0';
-        }
-    }
-    else if (external_signal_present || sync_lost || stop_latched)
-    {
-        strcpy(next_text, "-.-");
-    }
-    else
-    {
-        next_text[0] = '\0';
-    }
-
-    if (strcmp(next_text, transport_barbeat_text) == 0)
-        return;
-
-    Display_PresetNameComposeFillRect(0U,
-                                      0U,
-                                      TRANSPORT_BARBEAT_TEXT_W,
-                                      MAIN_PRESET_FONT.height,
-                                      DISPLAY_BG_COLOUR);
-
-    for (uint8_t index = 0U; index < TRANSPORT_BARBEAT_TEXT_CHARS; ++index)
-    {
-        char ch = next_text[index];
-
-        if (ch == '\0' || ch == ' ')
-            continue;
-
-        Display_PresetNameComposeChar32((uint16_t)(index * MAIN_PRESET_FONT.width),
-                                        0U,
-                                        ch,
-                                        TRANSPORT_BARBEAT_TEXT_COLOUR,
-                                        DISPLAY_BG_COLOUR);
-    }
-
-    Display_ComposeBlit(TRANSPORT_BARBEAT_TEXT_X,
-                        TRANSPORT_BARBEAT_TEXT_Y,
-                        TRANSPORT_BARBEAT_TEXT_W,
-                        MAIN_PRESET_FONT_CELL_HEIGHT);
-
-    strcpy(transport_barbeat_text, next_text);
-}
-
-typedef enum
-{
-    BPM_TEXT_MODE_INTERNAL = 0,
-    BPM_TEXT_MODE_EXTERNAL = 1
-} DisplayBpmTextMode_t;
-
-static void Display_FormatBpmText(char *buffer,
-                                  size_t buffer_size,
-                                  DisplayBpmTextMode_t mode,
-                                  uint16_t bpm_or_bpm_x10)
-{
-    char text[20];
-
-    if (mode == BPM_TEXT_MODE_EXTERNAL)
-    {
-        snprintf(text, sizeof(text), "EXT %u.%u BPM",
-                 (unsigned)(bpm_or_bpm_x10 / 10U),
-                 (unsigned)(bpm_or_bpm_x10 % 10U));
-
-        snprintf(buffer, buffer_size, "%*s", (int)BPM_EXT_TEXT_CHARS, text);
-        return;
-    }
-
-    snprintf(buffer, buffer_size, "INT %u", (unsigned)bpm_or_bpm_x10);
-}
-
-static uint16_t Display_GetExternalBpmHysteresisX10(uint16_t reference_bpm_x10)
-{
-    uint32_t hysteresis_x10 = (((uint32_t)reference_bpm_x10 * BPM_EXT_HYSTERESIS_BPS) + 5000U) / 10000U;
-
-    if (hysteresis_x10 < BPM_EXT_HYSTERESIS_MIN_X10)
-        hysteresis_x10 = BPM_EXT_HYSTERESIS_MIN_X10;
-
-    return (uint16_t)hysteresis_x10;
-}
-
 static uint8_t Display_GetMainInfoProgramScrollMax(void)
 {
     return (PRESET_DEVICE_SLOTS > MAIN_INFO_ROW_COUNT)
@@ -803,158 +392,14 @@ static void Display_ComposeMainInfoScrollIndicator(uint8_t point_up,
             : (uint16_t)(indicator_y + (MAIN_SCROLL_INDICATOR_H - 1U - row));
         uint16_t line_x0 = (uint16_t)(MAIN_SCROLL_INDICATOR_X + ((MAIN_SCROLL_INDICATOR_W / 2U) - row));
 
-        Display_MenuRowComposeFillRect(line_x0,
-                                       line_y,
-                                       (uint16_t)((row * 2U) + 1U),
-                                       1U,
-                                       MAIN_SCROLL_INDICATOR_COLOUR);
+        Display_ComposeFillRect(ST7796_WIDTH,
+                    MAIN_INFO_FONT_CELL_HEIGHT,
+                    line_x0,
+                    line_y,
+                    (uint16_t)((row * 2U) + 1U),
+                    1U,
+                    MAIN_SCROLL_INDICATOR_COLOUR);
     }
-}
-
-static const char *Display_GetFootbarLabel(uint8_t section_index)
-{
-    if (menu_mode_active)
-    {
-        if (menu_page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM
-         || menu_page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM
-         || menu_page == DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM)
-        {
-            switch (section_index)
-            {
-            case 0U:
-                return MAIN_FOOTBAR_CONFIRM_LEFT_TEXT;
-            case 1U:
-                return MAIN_FOOTBAR_CONFIRM_CENTER_TEXT;
-            case 2U:
-                return MAIN_FOOTBAR_CONFIRM_RIGHT_TEXT;
-            default:
-                return "";
-            }
-        }
-
-        switch (section_index)
-        {
-        case 0U:
-            return MAIN_FOOTBAR_MENU_LEFT_TEXT;
-        case 1U:
-            return MAIN_FOOTBAR_MENU_CENTER_TEXT;
-        case 2U:
-            return MAIN_FOOTBAR_MENU_RIGHT_TEXT;
-        default:
-            return "";
-        }
-    }
-
-    if (preset_edit_mode_active)
-    {
-        if (preset_init_confirm_active)
-        {
-            switch (section_index)
-            {
-            case 0U:
-                return MAIN_FOOTBAR_CONFIRM_LEFT_TEXT;
-            case 1U:
-                return MAIN_FOOTBAR_CONFIRM_CENTER_TEXT;
-            case 2U:
-                return MAIN_FOOTBAR_CONFIRM_RIGHT_TEXT;
-            default:
-                return "";
-            }
-        }
-
-        switch (section_index)
-        {
-        case 0U:
-            return MAIN_FOOTBAR_EDIT_LEFT_TEXT;
-        case 1U:
-            return MAIN_FOOTBAR_EDIT_CENTER_TEXT;
-        case 2U:
-            return MAIN_FOOTBAR_EDIT_RIGHT_TEXT;
-        default:
-            return "";
-        }
-    }
-
-    switch (section_index)
-    {
-    case 0U:
-        return MAIN_FOOTBAR_LEFT_TEXT;
-    case 1U:
-        return MAIN_FOOTBAR_CENTER_TEXT;
-    case 2U:
-        return MAIN_FOOTBAR_RIGHT_TEXT;
-    default:
-        return "";
-    }
-}
-
-void Display_DrawFootbar(void)
-{
-    Display_MenuRowComposeFillRect(0U,
-                                   0U,
-                                   ST7796_WIDTH,
-                                   MAIN_FOOTBAR_H,
-                                   MAIN_FOOTBAR_COLOR);
-
-    for (uint8_t section_index = 0U; section_index < MAIN_FOOTBAR_SECTION_COUNT; ++section_index)
-    {
-        const char *text = Display_GetFootbarLabel(section_index);
-        size_t text_len = strlen(text);
-        uint16_t section_x = (uint16_t)(section_index * MAIN_FOOTBAR_SECTION_WIDTH);
-        uint16_t text_w = (uint16_t)text_len * MAIN_FOOTBAR_FONT.width;
-        uint16_t text_x = (uint16_t)(section_x + ((MAIN_FOOTBAR_SECTION_WIDTH - text_w) / 2U));
-        uint16_t text_y = (uint16_t)((MAIN_FOOTBAR_H - MAIN_FOOTBAR_FONT.height) / 2U);
-
-        if (text_len == 0U)
-            continue;
-
-        Display_MenuRowComposeString32(text_x,
-                                       text_y,
-                                       text,
-                                       MAIN_FOOTBAR_FONT,
-                                       MAIN_FOOTBAR_TEXT_COLOUR,
-                                       MAIN_FOOTBAR_COLOR);
-    }
-
-    Display_ComposeBlit(0U,
-                        MAIN_FOOTBAR_Y,
-                        ST7796_WIDTH,
-                        MAIN_FOOTBAR_H);
-}
-
-static void Display_WriteCenteredPaddedText32WithBackground(uint16_t y,
-                                                            const char *text,
-                                                            uint8_t width_chars,
-                                                            FontDef32 font,
-                                                            uint16_t colour,
-                                                            uint16_t background)
-{
-    char padded[MAIN_PRESET_TEXT_CHARS + 1U];
-    uint16_t draw_w = (uint16_t)width_chars * font.width;
-    uint16_t draw_x = (uint16_t)((ST7796_WIDTH - draw_w) / 2U);
-    size_t max_chars = (size_t)width_chars;
-    size_t text_len = strnlen(text, max_chars);
-    size_t pad_left = (max_chars - text_len) / 2U;
-
-    memset(padded, ' ', max_chars);
-    memcpy(padded + pad_left, text, text_len);
-    padded[max_chars] = '\0';
-
-    Display_MenuRowComposeFillRect(0U,
-                                   0U,
-                                   draw_w,
-                                   font.height,
-                                   background);
-    Display_MenuRowComposeString32(0U,
-                                   0U,
-                                   padded,
-                                   font,
-                                   colour,
-                                   background);
-    Display_ComposeBlit(draw_x,
-                        y,
-                        draw_w,
-                        font.height);
 }
 
 void Display_MenuRedrawCurrentItem(void);
@@ -962,65 +407,6 @@ void Display_RedrawMenuCurrentValueItem(DisplayMenuPage_t page, uint8_t item_ind
 void Display_MenuRedrawCurrentValue(void);
 void Display_MenuRedrawSelectionChange(DisplayMenuPage_t page, uint8_t previous_selection);
 void Display_MenuRefreshBodyOnly(void);
-
-void Display_FormatMenuOptionalField(char *buffer,
-                                     size_t buffer_size,
-                                     uint8_t value,
-                                     uint8_t unused_value,
-                                     uint8_t digits,
-                                     uint8_t highlighted)
-{
-    char field_text[5];
-
-    if (!buffer || buffer_size == 0U || digits == 0U || digits >= sizeof(field_text))
-        return;
-
-    if (value == unused_value)
-    {
-        memset(field_text, '-', digits);
-        field_text[digits] = '\0';
-    }
-    else
-        (void)snprintf(field_text, sizeof(field_text), "%*u", digits, value);
-
-    (void)highlighted;
-    (void)snprintf(buffer, buffer_size, "%s", field_text);
-}
-
-static void Display_DrawBpmAreaComposed(uint16_t primary_text_x,
-                                        const char *primary_text,
-                                        uint16_t primary_colour,
-                                        uint16_t secondary_text_x,
-                                        const char *secondary_text,
-                                        uint16_t secondary_colour)
-{
-    Display_MenuRowComposeClear(BPM_BG_COLOUR);
-
-    if (primary_text && primary_text[0] != '\0')
-    {
-        Display_MenuRowComposeString32((uint16_t)(primary_text_x - BPM_DISPLAY_AREA_X),
-                                       0U,
-                                       primary_text,
-                                       BPM_FONT,
-                                       primary_colour,
-                                       BPM_BG_COLOUR);
-    }
-
-    if (secondary_text && secondary_text[0] != '\0')
-    {
-        Display_MenuRowComposeString32((uint16_t)(secondary_text_x - BPM_DISPLAY_AREA_X),
-                                       0U,
-                                       secondary_text,
-                                       BPM_FONT,
-                                       secondary_colour,
-                                       BPM_BG_COLOUR);
-    }
-
-    Display_ComposeBlit(BPM_DISPLAY_AREA_X,
-                        BPM_TEXT_Y,
-                        BPM_DISPLAY_AREA_W,
-                        BPM_FONT.height);
-}
 
 static void Display_ComposeCenteredBadgeRow(const char *text,
                                             uint16_t foreground,
@@ -1047,168 +433,6 @@ static void Display_ComposeCenteredBadgeRow(const char *text,
                                         badge_text,
                                         foreground,
                                         background);
-}
-
-static void Display_DrawCurrentBankNameLine(void)
-{
-    const char *bank_name = Presets_GetBankName(current_bank);
-    const RuntimeConfigBank_t *bank = RuntimeConfig_GetBank(current_bank);
-    uint16_t group_width;
-    uint16_t badge_x;
-    uint16_t draw_x;
-    uint16_t badge_width;
-    uint16_t gap_width = MAIN_BANK_FONT.width;
-    size_t bank_name_length;
-
-    if (!bank_name)
-        bank_name = "";
-
-    bank_name_length = strnlen(bank_name, MAIN_BANK_TEXT_CHARS);
-    group_width = (uint16_t)(bank_name_length * MAIN_BANK_FONT.width);
-    badge_width = 0U;
-
-    if (bank && bank->wet_dry_enabled)
-    {
-        badge_width = (uint16_t)(strlen(MAIN_BANK_WET_DRY_BADGE_TEXT) * MAIN_BANK_FONT.width);
-        group_width = (uint16_t)(group_width + gap_width + badge_width);
-    }
-
-    DisplayCompose_Clear(ST7796_WIDTH,
-                         MAIN_BANK_FONT.height,
-                         MAIN_BANK_BG_COLOUR);
-
-    if (group_width > ST7796_WIDTH)
-        group_width = ST7796_WIDTH;
-
-    draw_x = (uint16_t)((ST7796_WIDTH - group_width) / 2U);
-
-    Display_ComposeString32(ST7796_WIDTH,
-                            MAIN_BANK_FONT.height,
-                            draw_x,
-                            0U,
-                            bank_name,
-                            MAIN_BANK_FONT,
-                            MAIN_BANK_COLOUR,
-                            MAIN_BANK_BG_COLOUR);
-
-    if (badge_width > 0U)
-    {
-        badge_x = (uint16_t)(draw_x + (bank_name_length * MAIN_BANK_FONT.width) + gap_width);
-        Display_ComposeFillRect(ST7796_WIDTH,
-                                MAIN_BANK_FONT.height,
-                                badge_x,
-                                0U,
-                                badge_width,
-                                MAIN_BANK_FONT.height,
-                                MAIN_BANK_WET_DRY_BG_COLOUR);
-        Display_ComposeString32(ST7796_WIDTH,
-                                MAIN_BANK_FONT.height,
-                                badge_x,
-                                0U,
-                                MAIN_BANK_WET_DRY_BADGE_TEXT,
-                                MAIN_BANK_FONT,
-                                MAIN_BANK_WET_DRY_COLOUR,
-                                MAIN_BANK_WET_DRY_BG_COLOUR);
-    }
-
-    Display_ComposeBlit(0U,
-                        MAIN_BANK_TEXT_Y,
-                        ST7796_WIDTH,
-                        MAIN_BANK_FONT.height);
-}
-
-static void Display_DrawPresetInitConfirmPrompt(void)
-{
-    Display_WriteCenteredPaddedText32WithBackground(MAIN_BANK_TEXT_Y,
-                                                    MAIN_INFO_PRESET_INIT_CONFIRM_TEXT,
-                                                    MAIN_BANK_TEXT_CHARS,
-                                                    MAIN_BANK_FONT,
-                                                    RED,
-                                                    DISPLAY_BG_COLOUR);
-}
-
-uint16_t Display_MenuRowComposeValueSegment32(uint16_t x,
-                                              const char *text,
-                                              uint8_t highlighted)
-{
-    size_t text_length = text ? strlen(text) : 0U;
-
-    if (text_length == 0U)
-        return x;
-
-    Display_MenuRowComposeTextSegment32(x,
-                                        text,
-                                        highlighted ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR : MAIN_INFO_TEXT_COLOUR,
-                                        highlighted ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR : DISPLAY_BG_COLOUR);
-
-    return (uint16_t)(x + ((uint16_t)text_length * MAIN_INFO_FONT.width));
-}
-
-static void Display_DrawPresetName(const Preset_t *preset)
-{
-    DisplayPresetEditField_t edit_field;
-    uint8_t name_field_selected;
-    uint8_t name_char_edit_active;
-    uint8_t name_length;
-    uint8_t render_length;
-    uint8_t pad_left;
-    uint16_t base_x = Display_GetPresetNameBaseX();
-
-    if (!preset)
-        return;
-
-    edit_field = Display_PresetEditGetField();
-    name_field_selected = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_NAME && preset_edit_mode_active && !preset_name_edit_active) ? 1U : 0U;
-    name_char_edit_active = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_NAME && preset_edit_mode_active && preset_name_edit_active) ? 1U : 0U;
-    name_length = Display_GetPresetNameLength(preset);
-    render_length = Display_GetPresetNameRenderLength(preset);
-    pad_left = Display_GetPresetNamePadLeft(preset);
-
-    for (uint8_t cell_index = 0U; cell_index < PRESET_NAME_LENGTH; ++cell_index)
-    {
-        int16_t logical_index = (int16_t)cell_index - (int16_t)pad_left;
-        uint16_t char_x = (uint16_t)(cell_index * MAIN_PRESET_FONT.width);
-        uint16_t foreground = MAIN_PRESET_COLOUR;
-        uint16_t background = MAIN_PRESET_BG_COLOUR;
-        char ch = ' ';
-
-        if (logical_index >= 0 && logical_index < (int16_t)name_length)
-            ch = preset->name[logical_index];
-
-        if (name_field_selected
-            && logical_index >= 0
-            && logical_index < (int16_t)render_length)
-        {
-            foreground = MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR;
-            background = MAIN_INFO_EDIT_CURSOR_BG_COLOUR;
-        }
-
-        if (name_char_edit_active && logical_index == (int16_t)preset_name_edit_cursor_index)
-        {
-            foreground = MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR;
-            background = MAIN_INFO_EDIT_CURSOR_BG_COLOUR;
-        }
-
-        Display_PresetNameComposeFillRect(char_x,
-                                          0U,
-                                          MAIN_PRESET_FONT.width,
-                                          MAIN_PRESET_FONT.height,
-                                          background);
-
-        if (ch != ' ')
-        {
-            Display_PresetNameComposeChar32(char_x,
-                                            0U,
-                                            ch,
-                                            foreground,
-                                            background);
-        }
-    }
-
-    Display_ComposeBlit(base_x,
-                        MAIN_PRESET_TEXT_Y,
-                        MAIN_PRESET_ROW_BUFFER_WIDTH,
-                        MAIN_PRESET_FONT_CELL_HEIGHT);
 }
 
 static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
@@ -1516,16 +740,20 @@ static void Display_DrawMainInfoSpecialState(uint16_t row_y)
     if (!state_active)
         return;
 
-    Display_MenuRowComposeFillRect(state_x,
-                                   0U,
-                                   state_w,
-                                   MAIN_INFO_HIGHLIGHT_BORDER_H,
-                                   MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR);
-    Display_MenuRowComposeFillRect(state_x,
-                                   (uint16_t)(MAIN_INFO_FONT.height - MAIN_INFO_HIGHLIGHT_BORDER_H),
-                                   state_w,
-                                   MAIN_INFO_HIGHLIGHT_BORDER_H,
-                                   MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            state_x,
+                            0U,
+                            state_w,
+                            MAIN_INFO_HIGHLIGHT_BORDER_H,
+                            MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            state_x,
+                            (uint16_t)(MAIN_INFO_FONT.height - MAIN_INFO_HIGHLIGHT_BORDER_H),
+                            state_w,
+                            MAIN_INFO_HIGHLIGHT_BORDER_H,
+                            MAIN_SPECIAL_FUNCTION_BUTTON_BORDER_COLOUR);
 }
 
 static void Display_DrawMainInfoRightRow(const Preset_t *preset,
@@ -1565,7 +793,7 @@ static void Display_DrawMainInfoLeftRow(const Preset_t *preset,
     else if (info_index < MAIN_INFO_PRESET_INIT_ROW_INDEX)
         Display_DrawMainInfoCcRow(preset, (uint8_t)(info_index - PRESET_DEVICE_SLOTS), row_y);
     else if (info_index == MAIN_INFO_PRESET_INIT_ROW_INDEX)
-        Display_ComposeCenteredBadgeRow(MAIN_INFO_PRESET_INIT_TEXT, BLACK, RED);
+        Display_ComposeCenteredBadgeRow(MAIN_INFO_PRESET_INIT_TEXT, MAIN_ALERT_BADGE_TEXT_COLOUR, RED);
 }
 
 static void Display_DrawMainInfoComposedRow(const Preset_t *preset, uint8_t row_index)
@@ -1609,37 +837,49 @@ static void Display_DrawSavingPopup(void)
     uint16_t popup_x = (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
     uint16_t popup_y = main_info_row_y[MAIN_SAVING_POPUP_ROW_INDEX];
 
-    Display_MenuRowComposeFillRect(0U,
-                                   0U,
-                                   popup_w,
-                                   MAIN_INFO_FONT.height,
-                                   MAIN_SAVING_POPUP_BG_COLOUR);
-    Display_MenuRowComposeString32(0U,
-                                   0U,
-                                   MAIN_SAVING_POPUP_TEXT,
-                                   MAIN_INFO_FONT,
-                                   MAIN_SAVING_POPUP_TEXT_COLOUR,
-                                   MAIN_SAVING_POPUP_BG_COLOUR);
-    Display_MenuRowComposeFillRect(0U,
-                                   0U,
-                                   popup_w,
-                                   1U,
-                                   BLACK);
-    Display_MenuRowComposeFillRect(0U,
-                                   (uint16_t)(MAIN_INFO_FONT.height - 1U),
-                                   popup_w,
-                                   1U,
-                                   BLACK);
-    Display_MenuRowComposeFillRect(0U,
-                                   0U,
-                                   1U,
-                                   MAIN_INFO_FONT.height,
-                                   BLACK);
-    Display_MenuRowComposeFillRect((uint16_t)(popup_w - 1U),
-                                   0U,
-                                   1U,
-                                   MAIN_INFO_FONT.height,
-                                   BLACK);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            popup_w,
+                            MAIN_INFO_FONT.height,
+                            MAIN_SAVING_POPUP_BG_COLOUR);
+    Display_ComposeString32(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            MAIN_SAVING_POPUP_TEXT,
+                            MAIN_INFO_FONT,
+                            MAIN_SAVING_POPUP_TEXT_COLOUR,
+                            MAIN_SAVING_POPUP_BG_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            popup_w,
+                            1U,
+                            MAIN_SAVING_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            (uint16_t)(MAIN_INFO_FONT.height - 1U),
+                            popup_w,
+                            1U,
+                            MAIN_SAVING_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            1U,
+                            MAIN_INFO_FONT.height,
+                            MAIN_SAVING_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            (uint16_t)(popup_w - 1U),
+                            0U,
+                            1U,
+                            MAIN_INFO_FONT.height,
+                            MAIN_SAVING_POPUP_BORDER_COLOUR);
     Display_ComposeBlit(popup_x,
                         popup_y,
                         popup_w,
@@ -1684,7 +924,7 @@ void Display_HideSavingPopup(const Preset_t *preset)
             {
                 uint16_t clear_h = (uint16_t)(row_y - clear_y);
 
-                DisplayCompose_Clear(popup_w,
+                Display_ComposeClear(popup_w,
                                      clear_h,
                                      DISPLAY_BG_COLOUR);
                 Display_ComposeBlit(popup_x,
@@ -1702,7 +942,7 @@ void Display_HideSavingPopup(const Preset_t *preset)
         {
             uint16_t clear_h = (uint16_t)(popup_bottom - clear_y);
 
-            DisplayCompose_Clear(popup_w,
+            Display_ComposeClear(popup_w,
                                  clear_h,
                                  DISPLAY_BG_COLOUR);
             Display_ComposeBlit(popup_x,
@@ -2165,255 +1405,4 @@ void Display_RefreshPresetEditMode(const Preset_t *p, uint16_t bpm)
     Display_DrawMainInfoRows(p);
 }
 
-/* ?????? Display_UpdateBPM ?????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
- * Redraws only the BPM value in the top-right corner.
- * Called both from Display_DrawMainScreen and from BPM_Service()
- * (bpm_functions.c) on every tap so the number updates immediately without
- * redrawing the whole screen.
- * ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
-void Display_UpdateBPM(uint16_t bpm)
-{
-    if (menu_mode_active)
-        return;
-
-    uint16_t display_bpm_x10 = (uint16_t)(bpm * 10U);
-    uint8_t use_external = MidiClockGetExternalBpmX10(&display_bpm_x10);
-    uint8_t sync_lost = MidiClockIsSyncLost();
-    uint8_t was_sync_lost = bpm_display_sync_lost;
-    /* UI redraw throttling only; external BPM timing and sync-loss detection
-     * already use TIM2 inside midi_functions.c. */
-    uint32_t now_ms = HAL_GetTick();
-    uint8_t full_redraw;
-    char buf[20];
-
-    Display_UpdateTransportBarBeat();
-
-    if (sync_lost)
-    {
-        if (bpm_display_valid && bpm_display_sync_lost)
-        {
-            return;
-        }
-
-        Display_DrawBpmAreaComposed(BPM_SYNC_LOST_X,
-                                    BPM_SYNC_LOST_TEXT,
-                                    BPM_SYNC_LOST_COLOUR,
-                                    BPM_DISPLAY_AREA_X,
-                                    NULL,
-                                    BPM_SYNC_LOST_COLOUR);
-
-        bpm_display_valid = 1U;
-        bpm_display_external = 0U;
-        bpm_display_sync_lost = 1U;
-        bpm_display_value_x10 = 0U;
-        bpm_display_external_update_tick = 0U;
-        return;
-    }
-
-    bpm_display_sync_lost = 0U;
-
-    if (!use_external)
-    {
-        if (bpm_display_valid
-         && !was_sync_lost
-         && !bpm_display_external
-         && bpm_display_value_x10 == display_bpm_x10)
-        {
-            return;
-        }
-
-        Display_FormatBpmText(buf, sizeof(buf), BPM_TEXT_MODE_INTERNAL, bpm);
-        uint8_t internal_head_len = (uint8_t)strlen(buf);
-        uint16_t internal_head_x = (uint16_t)(BPM_INTERNAL_SUFFIX_TEXT_X - ((uint16_t)internal_head_len * BPM_FONT.width));
-
-        Display_DrawBpmAreaComposed(internal_head_x,
-                                    buf,
-                                    BPM_INTERNAL_COLOUR,
-                                    BPM_INTERNAL_SUFFIX_TEXT_X,
-                                    BPM_INTERNAL_SUFFIX_TEXT,
-                                    BPM_INTERNAL_COLOUR);
-
-        bpm_display_valid = 1U;
-        bpm_display_external = 0U;
-        bpm_display_sync_lost = 0U;
-        bpm_display_value_x10 = display_bpm_x10;
-        bpm_display_external_update_tick = 0U;
-        return;
-    }
-
-
-    full_redraw = (uint8_t)(!bpm_display_valid || was_sync_lost || !bpm_display_external);
-    if (!full_redraw)
-    {
-        if ((now_ms - bpm_display_external_update_tick) < BPM_EXT_UPDATE_MIN_INTERVAL_MS)
-        {
-            return;
-        }
-
-        uint16_t delta_x10;
-        uint16_t hysteresis_x10 = Display_GetExternalBpmHysteresisX10(bpm_display_value_x10);
-        uint16_t upper_threshold_x10 = (uint16_t)(bpm_display_value_x10 + hysteresis_x10);
-        uint16_t lower_threshold_x10 = (bpm_display_value_x10 > hysteresis_x10)
-            ? (uint16_t)(bpm_display_value_x10 - hysteresis_x10)
-            : 0U;
-
-        if (display_bpm_x10 <= upper_threshold_x10 && display_bpm_x10 >= lower_threshold_x10)
-        {
-            return;
-        }
-
-        delta_x10 = (display_bpm_x10 >= bpm_display_value_x10)
-            ? (uint16_t)(display_bpm_x10 - bpm_display_value_x10)
-            : (uint16_t)(bpm_display_value_x10 - display_bpm_x10);
-
-        if (delta_x10 < BPM_EXT_FORCE_UPDATE_DELTA_X10)
-        {
-            if (display_bpm_x10 > bpm_display_value_x10)
-            {
-                display_bpm_x10 = (uint16_t)(bpm_display_value_x10 + BPM_EXT_SLEW_STEP_X10);
-            }
-            else
-            {
-                display_bpm_x10 = (bpm_display_value_x10 > BPM_EXT_SLEW_STEP_X10)
-                    ? (uint16_t)(bpm_display_value_x10 - BPM_EXT_SLEW_STEP_X10)
-                    : 0U;
-            }
-        }
-    }
-
-    Display_FormatBpmText(buf, sizeof(buf), BPM_TEXT_MODE_EXTERNAL, display_bpm_x10);
-    Display_DrawBpmAreaComposed(BPM_EXT_TEXT_X,
-                                buf,
-                                EXT_BPM_COLOUR,
-                                BPM_DISPLAY_AREA_X,
-                                NULL,
-                                EXT_BPM_COLOUR);
-
-    bpm_display_valid = 1U;
-    bpm_display_external = 1U;
-    bpm_display_sync_lost = 0U;
-    bpm_display_value_x10 = display_bpm_x10;
-    bpm_display_external_update_tick = now_ms;
-}
-
-/* ?????? Loading bar ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
- * Draws a progress bar that fills left-to-right over duration_ms milliseconds.
- * This is a blocking call ??? it does not return until the timer expires.
- * Used during startup while the system waits for devices to power up.
- *
- * The bar is split into three text phases to keep the user entertained:
- *   0 %???33 % : "... waiting for DNA match"
- *   33%      : "DNA match found"         (shown for 1 s)
- *   33%+1 s  : "..accessing genetic markers"  (shown for 1 s)
- *   ~66%+    : text cleared
- *
- * Only the newly filled strip is drawn each iteration (fill > prev_fill),
- * so SPI traffic is proportional to progress not to loop frequency.
- */
-
-static void Display_LoadingBarClearTextRow(void)
-{
-    Display_MenuRowComposeFillRect(0U,
-                                   0U,
-                                   ST7796_WIDTH,
-                                   LOADING_BAR_TEXT_FONT.height,
-                                   LOADING_BAR_BG_COLOUR);
-    Display_ComposeBlit(0U,
-                        LOADING_BAR_TEXT_Y,
-                        ST7796_WIDTH,
-                        LOADING_BAR_TEXT_FONT.height);
-}
-
-static void Display_LoadingBarSetText(const char *text, uint16_t colour)
-{
-    size_t text_len = strlen(text);
-    uint16_t text_x = (uint16_t)(ST7796_WIDTH - ((uint16_t)text_len * LOADING_BAR_TEXT_FONT.width) - LOADING_BAR_X);
-
-    Display_MenuRowComposeFillRect(0U,
-                                   0U,
-                                   ST7796_WIDTH,
-                                   LOADING_BAR_TEXT_FONT.height,
-                                   LOADING_BAR_BG_COLOUR);
-    Display_RowComposeString16(text_x,
-                               0U,
-                               text,
-                               LOADING_BAR_TEXT_FONT,
-                               colour,
-                               LOADING_BAR_BG_COLOUR);
-    Display_ComposeBlit(0U,
-                        LOADING_BAR_TEXT_Y,
-                        ST7796_WIDTH,
-                        LOADING_BAR_TEXT_FONT.height);
-}
-
-void Display_LoadingBar(uint32_t duration_ms)
-{
-    Display_LoadingBarSetText(LOADING_BAR_WAIT_TEXT, LOADING_BAR_TEXT_COLOUR);
-
-    ST7796_DrawFilledRectangle(LOADING_BAR_X,
-                               LOADING_BAR_Y,
-                               LOADING_BAR_W,
-                               LOADING_BAR_H,
-                               Display_MapThemeColour(LOADING_BAR_BG_COLOUR));
-
-    uint32_t start     = HAL_GetTick();
-    uint16_t prev_fill = 0U;   /* tracks how many pixels have been filled so far */
-    uint8_t  phase     = 0U;   /* which text message is currently showing        */
-    uint32_t phase_ts  = 0U;   /* HAL tick when the current phase started        */
-
-    for (;;)
-    {
-        uint32_t elapsed = HAL_GetTick() - start;
-        if (elapsed >= duration_ms) elapsed = duration_ms;  /* clamp at end */
-
-        /* Fill only the new strip since last iteration ??? avoids redrawing
-         * pixels that are already the correct colour. */
-        uint16_t fill = (uint16_t)((elapsed * LOADING_BAR_W) / duration_ms);
-        if (fill > prev_fill)
-        {
-            ST7796_DrawFilledRectangle(LOADING_BAR_X + prev_fill, LOADING_BAR_Y,
-                                       fill - prev_fill, LOADING_BAR_H, Display_MapThemeColour(LOADING_BAR_COLOUR));
-            prev_fill = fill;
-        }
-
-        uint32_t now = HAL_GetTick();
-
-        /* Phase transitions ??? check sequentially so they can't be skipped */
-        if (phase == 0U && elapsed >= duration_ms / LOADING_BAR_PHASE_DIVISOR)
-        {
-            Display_LoadingBarSetText(LOADING_BAR_MATCH_TEXT, LOADING_BAR_TEXT_COLOUR);
-            phase    = 1U;
-            phase_ts = now;
-        }
-        if (phase == 1U && now - phase_ts >= LOADING_BAR_PHASE_HOLD_MS)
-        {
-            Display_LoadingBarSetText(LOADING_BAR_MARKERS_TEXT, LOADING_BAR_TEXT_COLOUR);
-            phase    = 2U;
-            phase_ts = now;
-        }
-        if (phase == 2U && now - phase_ts >= LOADING_BAR_PHASE_HOLD_MS)
-        {
-            Display_LoadingBarClearTextRow();
-            phase = 3U;  /* text cleared ??? stay here until bar finishes */
-        }
-
-        if (elapsed >= duration_ms) break;
-    }
-}
-
-/* ?????? Display_LoadingBarClear ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
- * Clears the loading bar and shows a brief "mutation complete" message.
- * Called after Display_LoadingBar() returns, just before the fade-out.
- * ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? */
-void Display_LoadingBarClear(void)
-{
-    ST7796_DrawFilledRectangle(LOADING_BAR_X,
-                               LOADING_BAR_Y,
-                               LOADING_BAR_W,
-                               LOADING_BAR_H,
-                               Display_MapThemeColour(LOADING_BAR_BG_COLOUR));
-    Display_LoadingBarSetText(LOADING_BAR_DONE_TEXT, LOADING_BAR_TEXT_COLOUR);
-    HAL_Delay(LOADING_BAR_PHASE_HOLD_MS);  /* leave message visible for 1 s before fade */
-    Display_LoadingBarClearTextRow();
-}
 

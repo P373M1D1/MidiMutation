@@ -64,6 +64,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Custom application sources
     Core/Src/display_compose.c
     Core/Src/display/display_backlight.c
+    Core/Src/display/display_compose_helpers.c
+    Core/Src/display/display_theme.c
+    Core/Src/display/display_main_title.c
     Core/Src/display/display_menu_controller.c
     Core/Src/display/display_menu_pages.c
     Core/Src/display/display_menu_row_render.c
@@ -80,6 +83,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/display/display_menu_text_edit.c
     Core/Src/display/display_menu_value.c
     Core/Src/display/display_value_helpers.c
+    Core/Src/display/display_loading_bar.c
+    Core/Src/display/display_status_strip.c
     Core/Src/display/display_screensaver.c
     Core/Src/display_functions.c
     Core/Src/bpm_functions.c

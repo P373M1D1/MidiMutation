@@ -3,6 +3,8 @@
 #include "display_functions.h"
 #include "display/display_internal.h"
 #include "display/display_menu_page_devices.h"
+#include "display/display_menu_redraw_utils.h"
+#include "display/display_menu_row_render.h"
 #include "midi_devices.h"
 #include "runtime_config.h"
 

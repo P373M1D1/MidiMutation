@@ -3,6 +3,9 @@
 #include "display_functions.h"
 #include "display/display_internal.h"
 #include "display/display_menu_page_global.h"
+#include "display/display_menu_redraw_utils.h"
+#include "display/display_menu_row_render.h"
+#include "display/display_theme.h"
 #include "display/display_value_helpers.h"
 #include "runtime_config.h"
 #include "st7796.h"
@@ -11,7 +14,7 @@ static const char * const menu_global_labels[MENU_GLOBAL_ITEM_COUNT] = {
     "Startup Delay",
     "Screen Saver",
     "Sync Style",
-    "Display",
+    "Theme",
     "Brightness",
     "Factory Reset",
 };
@@ -41,7 +44,7 @@ void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buff
         (void)snprintf(buffer,
                        buffer_size,
                        "%s",
-                       (global->display_mode == RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT) ? "Bright" : "Dark");
+                       Display_GetThemeName(global->display_mode));
         break;
     case 4U:
         (void)snprintf(buffer,
@@ -90,7 +93,7 @@ void Display_DrawMenuGlobalItem(uint8_t item_index)
     {
         Display_DrawMenuCenteredBadgeRowByIndex(row_index,
                                                 menu_global_labels[item_index],
-                                                BLACK,
+                                                MAIN_ALERT_BADGE_TEXT_COLOUR,
                                                 RED);
         return;
     }

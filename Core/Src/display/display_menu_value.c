@@ -332,16 +332,14 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
         {
             uint8_t display_mode = (uint8_t)global->display_mode;
 
-            changed = Display_AdjustDirectionalU8(&display_mode,
-                                                  (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_DARK,
-                                                  (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT,
-                                                  delta);
+            changed = Display_AdjustWrappedU8(&display_mode,
+                                              (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_DARK,
+                                              (uint8_t)(RUNTIME_CONFIG_DISPLAY_MODE_COUNT - 1U),
+                                              delta);
             if (changed)
             {
                 global->display_mode = (RuntimeConfigDisplayMode_t)display_mode;
                 full_redraw = 1U;
-                display_state.main_layout_dirty = 1U;
-                display_state.bpm_display_valid = 0U;
             }
             break;
         }

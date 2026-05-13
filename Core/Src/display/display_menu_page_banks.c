@@ -3,6 +3,8 @@
 #include "display_functions.h"
 #include "display/display_internal.h"
 #include "display/display_menu_page_banks.h"
+#include "display/display_menu_redraw_utils.h"
+#include "display/display_menu_row_render.h"
 #include "runtime_config.h"
 
 #define MENU_BANK_LABEL_PREFIX "Bank "

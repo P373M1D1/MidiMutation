@@ -3,6 +3,9 @@
 #include "display_functions.h"
 #include "display/display_internal.h"
 #include "display/display_menu_page_bank_edit.h"
+#include "display/display_menu_redraw_utils.h"
+#include "display/display_menu_row_render.h"
+#include "display/display_theme.h"
 #include "runtime_config.h"
 #include "st7796.h"
 
@@ -93,7 +96,7 @@ void Display_DrawMenuBankEditItem(uint8_t item_index)
     {
         Display_DrawMenuCenteredBadgeRowByIndex(row_index,
                                                 menu_bank_edit_labels[item_index],
-                                                BLACK,
+                                                MAIN_ALERT_BADGE_TEXT_COLOUR,
                                                 RED);
         return;
     }

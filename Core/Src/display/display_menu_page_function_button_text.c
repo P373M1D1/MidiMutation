@@ -3,6 +3,7 @@
 #include "display_functions.h"
 #include "display/display_internal.h"
 #include "display/display_menu_page_function_button.h"
+#include "display/display_menu_row_render.h"
 #include "runtime_config.h"
 
 void Display_FormatFunctionButtonValue(uint8_t item_index, char *buffer, size_t buffer_size)

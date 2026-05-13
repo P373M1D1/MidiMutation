@@ -3,6 +3,7 @@
 #include "display_functions.h"
 #include "display/display_internal.h"
 #include "display/display_menu_page_function_button_compare.h"
+#include "display/display_menu_row_render.h"
 #include "runtime_config.h"
 #include "display/display_menu_page_function_button.h"
 

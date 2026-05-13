@@ -2,6 +2,8 @@
 
 #include "display_functions.h"
 #include "display/display_internal.h"
+#include "display/display_menu_pages.h"
+#include "display/display_value_helpers.h"
 #include "midi_devices.h"
 #include "presets.h"
 #include "runtime_config.h"

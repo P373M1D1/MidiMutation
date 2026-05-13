@@ -3,6 +3,9 @@
 #include "display/display_menu_page_banks.h"
 #include "display/display_menu_page_devices.h"
 #include "display/display_menu_page_function_button_compare.h"
+#include "display/display_menu_pages.h"
+#include "display/display_menu_redraw_utils.h"
+#include "display/display_menu_row_render.h"
 
 typedef enum
 {

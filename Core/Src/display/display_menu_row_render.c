@@ -3,6 +3,7 @@
 
 #include "display/display_internal.h"
 #include "display/display_layout.h"
+#include "display/display_menu_row_render.h"
 #include "display/display_row_compose.h"
 
 #define MENU_ITEM_X 24U

@@ -1,6 +1,6 @@
-#include "display/display_internal.h"
 #include "display/display_layout.h"
 #include "display/display_menu_page_function_button_compare.h"
+#include "display/display_menu_redraw_utils.h"
 #include "midi_devices.h"
 #include "presets.h"
 #include "runtime_config.h"

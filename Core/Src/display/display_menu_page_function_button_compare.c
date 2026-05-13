@@ -4,15 +4,13 @@
 #include "display/display_internal.h"
 #include "display/display_menu_page_function_button.h"
 #include "display/display_menu_page_function_button_compare.h"
+#include "display/display_menu_row_render.h"
 #include "display/display_row_compose.h"
+#include "display/display_theme.h"
 #include "fonts.h"
 #include "runtime_config.h"
 #include "st7796.h"
 
-#define DISPLAY_BG_COLOUR BLACK
-#define MAIN_INFO_TEXT_COLOUR CHARCOAL
-#define MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR BLACK
-#define MAIN_INFO_EDIT_CURSOR_BG_COLOUR WHITE
 #define MENU_ITEM_X 24U
 
 static uint8_t Display_GetVisibleWindowStart(uint8_t item_count,
