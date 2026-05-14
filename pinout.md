@@ -34,6 +34,7 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PD15        | ST7796_DC  — data/command select (output) — Morpho CN11 | ST7796 DC / RS              |
 | PF12        | ST7796_RST — reset (output) — Morpho CN11             | ST7796 RST                    |
 | **MIDI UART Ports**                                                                           |
+| PD0         | UART4_RX (AF11) — Morpho CN11                         | MIDI In 2 monitor input |
 | PD1         | UART4_TX (AF11) — Morpho CN11                         | MIDI Out 1 — smart output (preset MIDI + internal/external clock) |
 | PC12        | UART5_TX (AF8) — Morpho CN11                          | Spare second MIDI out (currently unused in firmware) |
 | PD5         | USART2_TX (AF7) — Morpho CN11                         | MIDI Thru — soft-thru copy of MIDI In |
@@ -101,7 +102,7 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 
 > **EXTI4 / EXTI3 ownership:** PD4 now carries Encoder 2 switch on `EXTI4_IRQn`, and PD3 carries Encoder 3 switch on `EXTI3_IRQn`.
 
-> **Encoder push buttons status:** All three encoder switches are configured with pull-ups and routed through interrupts. Their actions are now mode-dependent in firmware: ENC1 enters/activates, ENC2 is bank/HOME/confirm, and ENC3 is MENU/BACK depending on whether the unit is in LIVE, MENU, or preset edit.
+> **Encoder push buttons status:** All three encoder switches are configured with pull-ups and routed through interrupts. Their actions are now mode-dependent in firmware: ENC1 enters/activates, ENC2 is bank/HOME/confirm in the general UI but becomes hold-preview in the USER theme editor and clear in MIDI MONITOR, and ENC3 is MENU/BACK or EXIT depending on whether the unit is in LIVE, MENU, preset edit, or MIDI MONITOR.
 
 > **Encoder input mode:** All three encoder A/B pairs are decoded from the shared `TIM7` interrupt sampler using the same transition-accumulator quadrature approach. The numbered preset buttons still use direct GPIO EXTI interrupts; encoder switch presses are edge-latched on EXTI and debounced/queued from the shared sampler path.
 

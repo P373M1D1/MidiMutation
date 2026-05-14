@@ -2,6 +2,7 @@
 
 #include "display_functions.h"
 #include "display/display_internal.h"
+#include "display/display_menu_page_midi_monitor.h"
 #include "display/display_menu_pages.h"
 #include "display/display_value_helpers.h"
 #include "midi_devices.h"
@@ -220,6 +221,7 @@ static void Display_ResetActiveDeviceToUnusedDefaults(RuntimeConfigDevice_t *dev
 void Display_MenuEnter(void)
 {
     display_state.menu_mode_active = 1U;
+    display_state.menu_preview_active = 0U;
     display_state.menu_draw_state_valid = 0U;
     display_state.menu_last_drawn_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT;
     display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT;
@@ -233,6 +235,8 @@ void Display_MenuEnter(void)
     display_state.menu_active_device_index = 0U;
     display_state.menu_device_edit_selection_index = 0U;
     display_state.menu_global_selection_index = 0U;
+    display_state.menu_user_theme_selection_index = 0U;
+    display_state.menu_active_user_theme_mode = (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_USER;
     display_state.main_layout_dirty = 1U;
     display_state.bpm_display_valid = 0U;
     Display_MenuRefresh();
@@ -241,6 +245,7 @@ void Display_MenuEnter(void)
 void Display_MenuExit(void)
 {
     Display_ResetMenuTransientEditors();
+    display_state.menu_preview_active = 0U;
     display_state.menu_draw_state_valid = 0U;
     display_state.menu_last_drawn_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT;
     display_state.menu_mode_active = 0U;
@@ -306,7 +311,11 @@ void Display_MenuHome(void)
     switch ((DisplayMenuPage_t)display_state.menu_page)
     {
     case DISPLAY_MENU_PAGE_GLOBAL:
+    case DISPLAY_MENU_PAGE_USER_THEME:
         display_state.menu_root_selection_index = 2U;
+        break;
+    case DISPLAY_MENU_PAGE_MIDI_MONITOR:
+        display_state.menu_root_selection_index = 3U;
         break;
     case DISPLAY_MENU_PAGE_DEVICE_EDIT:
     case DISPLAY_MENU_PAGE_DEVICES:
@@ -324,6 +333,38 @@ void Display_MenuHome(void)
     }
 
     display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT;
+    Display_MenuRefresh();
+}
+
+uint8_t Display_MenuPreviewCanShow(void)
+{
+    return (display_state.menu_mode_active
+         && (DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_USER_THEME) ? 1U : 0U;
+}
+
+uint8_t Display_MenuPreviewIsActive(void)
+{
+    return display_state.menu_preview_active;
+}
+
+void Display_MenuPreviewEnter(const Preset_t *p, uint16_t bpm)
+{
+    if (!Display_MenuPreviewCanShow() || display_state.menu_preview_active || !p)
+        return;
+
+    display_state.menu_preview_active = 1U;
+    display_state.main_layout_dirty = 1U;
+    display_state.bpm_display_valid = 0U;
+    Display_DrawMainScreen(p, bpm);
+}
+
+void Display_MenuPreviewExit(void)
+{
+    if (!display_state.menu_preview_active)
+        return;
+
+    display_state.menu_preview_active = 0U;
+    display_state.menu_draw_state_valid = 0U;
     Display_MenuRefresh();
 }
 
@@ -366,6 +407,16 @@ uint8_t Display_MenuBack(void)
         return 1U;
     case DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM:
         display_state.menu_global_selection_index = 5U;
+        display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
+        Display_MenuRefresh();
+        return 1U;
+    case DISPLAY_MENU_PAGE_MIDI_MONITOR:
+        display_state.menu_root_selection_index = 3U;
+        display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT;
+        Display_MenuRefresh();
+        return 1U;
+    case DISPLAY_MENU_PAGE_USER_THEME:
+        display_state.menu_global_selection_index = 3U;
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return 1U;
@@ -480,6 +531,7 @@ uint8_t Display_MenuMoveSelection(int8_t delta)
 uint8_t Display_MenuActivate(void)
 {
     DisplayMenuTextField_t text_field;
+    const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
 
     if (!display_state.menu_mode_active)
         return 0U;
@@ -507,6 +559,10 @@ uint8_t Display_MenuActivate(void)
             display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
             display_state.menu_global_selection_index = 0U;
             break;
+        case 3U:
+            Display_MenuMidiMonitorEnter();
+            display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_MIDI_MONITOR;
+            break;
         default:
             return 0U;
         }
@@ -519,6 +575,21 @@ uint8_t Display_MenuActivate(void)
             return 1U;
         }
 
+        if (display_state.menu_global_selection_index == 3U
+         && global
+         && RuntimeConfig_TryGetUserThemeIndex(global->display_mode, NULL))
+        {
+            display_state.menu_active_user_theme_mode = (uint8_t)global->display_mode;
+            display_state.menu_user_theme_selection_index = 0U;
+            display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_USER_THEME;
+            Display_MenuRefresh();
+            return 1U;
+        }
+
+        return 0U;
+    case DISPLAY_MENU_PAGE_MIDI_MONITOR:
+        return 0U;
+    case DISPLAY_MENU_PAGE_USER_THEME:
         return 0U;
     case DISPLAY_MENU_PAGE_BANKS:
         display_state.menu_active_bank_index = display_state.menu_bank_selection_index;

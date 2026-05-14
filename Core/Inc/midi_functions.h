@@ -42,12 +42,58 @@ typedef enum
     MIDI_TRANSPORT_EVENT_STOP,
 } MidiTransportEvent_t;
 
+#define MIDI_MONITOR_ENTRY_CAPACITY 50U
+#define MIDI_MONITOR_VALUE_UNUSED   0xFFU
+
+typedef enum
+{
+    MIDI_MONITOR_SOURCE_UART2 = 2,
+    MIDI_MONITOR_SOURCE_UART4 = 4,
+} MidiMonitorSource_t;
+
+typedef enum
+{
+    MIDI_MONITOR_MESSAGE_PROGRAM_CHANGE = 0,
+    MIDI_MONITOR_MESSAGE_CONTROL_CHANGE,
+    MIDI_MONITOR_MESSAGE_START,
+    MIDI_MONITOR_MESSAGE_CONTINUE,
+    MIDI_MONITOR_MESSAGE_STOP,
+} MidiMonitorMessageType_t;
+
+typedef struct
+{
+    uint8_t source_uart;
+    uint8_t channel;
+    uint8_t type;
+    uint8_t value1;
+    uint8_t value2;
+} MidiMonitorEntry_t;
+
 /**
  * @brief  Initialise MIDI input on USART2 and enable its soft-thru output.
  *         RX bytes are echoed on USART2 TX while the parser still filters
  *         sync traffic for the firmware's own clock handling.
  */
 void MidiInitInput(void);
+
+/**
+ * @brief  Clear the retained MIDI monitor history.
+ */
+void MidiMonitor_Clear(void);
+
+/**
+ * @brief  Return a monotonically increasing revision number for monitor data.
+ *         This changes whenever the retained message list is mutated.
+ */
+uint32_t MidiMonitor_GetRevision(void);
+
+/**
+ * @brief  Copy the retained MIDI monitor history into caller storage.
+ * @param  dest      Destination array for copied entries.
+ * @param  capacity  Number of entries dest can hold.
+ * @retval Number of entries copied, ordered oldest to newest.
+ */
+uint8_t MidiMonitor_CopyEntries(MidiMonitorEntry_t *dest, uint8_t capacity);
 
 /**
  * @brief  Register the one UART handle used for all outgoing MIDI traffic.

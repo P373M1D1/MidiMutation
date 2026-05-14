@@ -27,6 +27,7 @@
 #include "fonts.h"
 #include "image.h"
 #include "display_functions.h"
+#include "display/display_menu_page_midi_monitor.h"
 #include "button_functions.h"
 #include "bpm_functions.h"
 #include "led_functions.h"
@@ -71,6 +72,9 @@
 #define SYSTEM_CLOCK_PROMOTION_RETRY_MS 50U /* retry HSE promotion during the splash without stalling each frame on every loop */
 
 #define MIDI_OUTPUT_UART_INSTANCE      UART4 /* dedicated UART instance used for controller-managed MIDI output */
+#define MIDI_OUTPUT_RX_GPIO_PORT       GPIOD /* GPIO port for UART4 RX, used as the second monitored MIDI DIN input */
+#define MIDI_OUTPUT_RX_PIN             GPIO_PIN_0 /* GPIO pin number for UART4 RX monitor input */
+#define MIDI_OUTPUT_RX_AF              GPIO_AF11_UART4 /* alternate-function selection for the second monitored MIDI DIN input */
 #define MIDI_OUTPUT_TX_GPIO_PORT       GPIOD /* GPIO port for the dedicated MIDI output TX pin */
 #define MIDI_OUTPUT_TX_PIN             GPIO_PIN_1 /* GPIO pin number for the dedicated MIDI output TX pin */
 #define MIDI_OUTPUT_TX_AF              GPIO_AF11_UART4 /* alternate-function selection for the dedicated MIDI output TX pin */
@@ -239,6 +243,7 @@ static void App_HandlePeriodicUiServiceEvent(void);
 static void App_HandleRedrawActiveDisplayEvent(void);
 static void App_HandleRedrawMainScreenEvent(void);
 static void App_HandleSaveRequestEvent(uint8_t save_kind);
+static void App_ServiceMenuPreviewHold(void);
 static void App_SaveService(void);
 static void App_QueueEncoderPressEvent(uint8_t press_mask);
 static void App_QueueEncoderTurnEvent(uint8_t encoder_source, int8_t delta);
@@ -754,6 +759,30 @@ static const Preset_t *App_GetCurrentDisplayPreset(void)
   return active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK);
 }
 
+static uint8_t Encoder2_IsSwitchPressed(void)
+{
+  return (encoder_switch_stable_level[1] == 0U) ? 1U : 0U;
+}
+
+static void App_ServiceMenuPreviewHold(void)
+{
+  static uint8_t preview_visible = 0U;
+  uint8_t should_preview = (Display_MenuPreviewCanShow() && Encoder2_IsSwitchPressed()) ? 1U : 0U;
+
+  if (should_preview == preview_visible)
+    return;
+
+  preview_visible = should_preview;
+
+  if (should_preview)
+  {
+    Display_MenuPreviewEnter(App_GetCurrentDisplayPreset(), g_bpm);
+    return;
+  }
+
+  Display_MenuPreviewExit();
+}
+
 static uint8_t App_SaveRequestMaskForKind(uint8_t save_kind)
 {
   switch (save_kind)
@@ -1013,8 +1042,29 @@ static void App_HandleEncoderPressEvent(uint8_t press_mask)
 
   App_QueueScreensaverActivityEvent();
 
+  if (Display_MenuPreviewIsActive() && Display_MenuIsActive())
+    return;
+
+  if (Display_MenuMidiMonitorIsActive())
+  {
+    if (press_mask & 0x01U)
+    {
+      Display_MenuMidiMonitorTogglePause();
+      return;
+    }
+
+    if (press_mask & 0x02U)
+    {
+      Display_MenuMidiMonitorClear();
+      return;
+    }
+  }
+
   if ((press_mask & 0x02U) && Display_MenuIsActive())
   {
+    if (Display_MenuPreviewCanShow())
+      return;
+
     Display_MenuHome();
     Menu_SaveIfDirty();
     return;
@@ -1103,11 +1153,20 @@ static void App_HandleEncoderTurnEvent(uint8_t encoder_source, int8_t delta)
   if (delta == 0)
     return;
 
+  if (Display_MenuPreviewIsActive() && Display_MenuIsActive())
+    return;
+
   switch (encoder_source)
   {
   case APP_EVENT_SOURCE_ENC1:
     if (Display_MenuIsActive())
     {
+      if (Display_MenuMidiMonitorIsActive())
+      {
+        Display_MenuMidiMonitorScroll(delta);
+        return;
+      }
+
       if (Display_MenuTextEditIsActive())
         Display_MenuTextEditMoveCursor(delta);
       else
@@ -1164,6 +1223,9 @@ static void App_HandleEncoderTurnEvent(uint8_t encoder_source, int8_t delta)
   case APP_EVENT_SOURCE_ENC3:
     if (Display_MenuIsActive())
     {
+      if (Display_MenuMidiMonitorIsActive())
+        return;
+
       Display_MenuAdjustValue(delta);
       return;
     }
@@ -1280,6 +1342,7 @@ static void App_HandlePeriodicUiServiceEvent(void)
 {
   app_periodic_ui_service_event_pending = 0U;
   Display_UpdateBPM(g_bpm);
+  Display_MenuMidiMonitorService();
   LED_Update();
   if (Display_ScreensaverUpdate())
     App_QueueRedrawMainScreenEvent();
@@ -1588,6 +1651,7 @@ int main(void)
     TempoEncoder_ProcessPending();
     EncoderCheck_ProcessPending();
     App_ProcessPendingEvents();
+    App_ServiceMenuPreviewHold();
     MidiOutputSchedulerService();
     App_QueuePeriodicUiServiceEvent();
     BPM_Service();
@@ -1881,7 +1945,9 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-// This is the MIDI port used for outputting Program Change and CC messages to the connected MIDI devices. It is initialised separately from USART3 (which is used for debug prints) to ensure it is up and running before the UI starts sending MIDI messages. 
+// UART4 still carries the controller-managed MIDI output on PD1, and now also
+// listens on PD0 so the MIDI monitor can watch a second DIN input without
+// disturbing the existing smart-output scheduler.
 
 static void MX_MIDI_Output_UART_Init(void)
 {
@@ -1889,6 +1955,13 @@ static void MX_MIDI_Output_UART_Init(void)
 
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_UART4_CLK_ENABLE();
+
+  GPIO_InitStruct.Pin = MIDI_OUTPUT_RX_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Alternate = MIDI_OUTPUT_RX_AF;
+  HAL_GPIO_Init(MIDI_OUTPUT_RX_GPIO_PORT, &GPIO_InitStruct);
 
   GPIO_InitStruct.Pin = MIDI_OUTPUT_TX_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
@@ -1902,7 +1975,7 @@ static void MX_MIDI_Output_UART_Init(void)
   huart4.Init.WordLength = UART_WORDLENGTH_8B;
   huart4.Init.StopBits = UART_STOPBITS_1;
   huart4.Init.Parity = UART_PARITY_NONE;
-  huart4.Init.Mode = UART_MODE_TX;
+  huart4.Init.Mode = UART_MODE_TX_RX;
   huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart4.Init.OverSampling = UART_OVERSAMPLING_16;
   if (HAL_UART_Init(&huart4) != HAL_OK)
@@ -1912,6 +1985,8 @@ static void MX_MIDI_Output_UART_Init(void)
 
   HAL_NVIC_SetPriority(UART4_IRQn, MIDI_OUTPUT_UART_IRQ_PREEMPT_PRIORITY, MIDI_OUTPUT_UART_IRQ_SUBPRIORITY);
   HAL_NVIC_EnableIRQ(UART4_IRQn);
+  __HAL_UART_ENABLE_IT(&huart4, UART_IT_RXNE);
+  __HAL_UART_ENABLE_IT(&huart4, UART_IT_ERR);
 }
 
 // OWN EDIT: Using TIM2 for MIDI clock pulse instead of HAL(getTick) because HAL tick is too coarse (1 ms) for accurate BPM measurement at higher tempos.

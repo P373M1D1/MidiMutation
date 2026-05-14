@@ -177,7 +177,7 @@ void Display_UpdateBPM(uint16_t bpm)
     uint8_t full_redraw;
     char buf[20];
 
-    if (display_state.menu_mode_active)
+    if (display_state.menu_mode_active && !display_state.menu_preview_active)
         return;
 
     display_bpm_x10 = (uint16_t)(bpm * 10U);

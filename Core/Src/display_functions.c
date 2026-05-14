@@ -106,9 +106,8 @@
 #define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_INACTIVE_TEXT "bypass"   // fallback text shown when the special-function button mode is inactive
 #define MAIN_INFO_HIGHLIGHT_BORDER_H   2U                   // thickness of the top and bottom highlight bars around active state text
 
-#define MENU_ROOT_ITEM_COUNT            3U                   // number of top-level entries currently shown in the menu shell
+#define MENU_ROOT_ITEM_COUNT            4U                   // number of top-level entries currently shown in the menu shell
 #define MENU_VISIBLE_ROW_COUNT          4U                   // number of menu rows visible at one time in the current shell layout
-#define MENU_GLOBAL_ITEM_COUNT          6U                   // number of GLOBAL rows, including the factory-reset action
 #define MENU_BANK_EDIT_ITEM_COUNT       5U                   // number of items on the bank edit page
 #define MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT 3U              // number of editable text rows before the compare table starts
 #define MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT // first logical row index of the compare table
@@ -152,6 +151,7 @@ DisplayState display_state = {
 #define preset_name_edit_cursor_index                 (display_state.preset_name_edit_cursor_index)
 #define saving_popup_visible                          (display_state.saving_popup_visible)
 #define menu_mode_active                              (display_state.menu_mode_active)
+#define menu_preview_active                           (display_state.menu_preview_active)
 #define preset_init_confirm_active                    (display_state.preset_init_confirm_active)
 #define menu_root_selection_index                     (display_state.menu_root_selection_index)
 #define menu_bank_selection_index                     (display_state.menu_bank_selection_index)
@@ -1343,7 +1343,7 @@ uint8_t Display_PresetInitConfirmIsActive(void)
  * but this function remains the safe "rebuild the whole live screen" path. */
 void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
 {
-    if (menu_mode_active)
+    if (menu_mode_active && !menu_preview_active)
     {
         Display_MenuRefresh();
         return;
@@ -1367,7 +1367,7 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
 
 void Display_RefreshPresetEditMode(const Preset_t *p, uint16_t bpm)
 {
-    if (menu_mode_active)
+    if (menu_mode_active && !menu_preview_active)
     {
         Display_MenuRefresh();
         return;

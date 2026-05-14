@@ -26,6 +26,15 @@
 static UART_HandleTypeDef *midi_output_uart = NULL;
 static UART_HandleTypeDef midi_input_uart;
 
+typedef struct
+{
+    uint8_t running_status;
+    uint8_t data[2];
+    uint8_t data_count;
+    uint8_t expected_data_count;
+    uint8_t in_sysex;
+} MidiMonitorParserState_t;
+
 /* MIDI wire-format and UART settings. Keep these values visible because they
  * come directly from the MIDI spec or from how this firmware represents BPM. */
 #define MIDI_TX_TIMEOUT_MS                 10U          /* UART transmit timeout for short MIDI messages */
@@ -103,6 +112,12 @@ static volatile uint8_t   midi_transport_running = 0U;
 static volatile uint8_t   midi_transport_stop_latched = 0U;
 static volatile MidiTransportEvent_t midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
 static uint8_t            midi_input_expect_timecode_data = 0U;
+static MidiMonitorEntry_t  midi_monitor_entries[MIDI_MONITOR_ENTRY_CAPACITY];
+static volatile uint8_t   midi_monitor_head = 0U;
+static volatile uint8_t   midi_monitor_count = 0U;
+static volatile uint32_t  midi_monitor_revision = 0U;
+static MidiMonitorParserState_t midi_monitor_uart2_parser = { 0U };
+static MidiMonitorParserState_t midi_monitor_uart4_parser = { 0U };
 static void               midi_clock_reset_sync(void);
 static void               midi_clock_get_timing_snapshot(uint32_t *last_pulse_us,
                                                          uint32_t *pulse_interval_sum_us,
@@ -127,6 +142,15 @@ static void               midi_output_send_bytes(const uint8_t *bytes, uint16_t 
 static void               midi_output_send_realtime_byte(uint8_t byte);
 static uint8_t            midi_input_is_sync_byte(uint8_t byte);
 static uint8_t            midi_clock_get_bars_per_cycle(void);
+static void               midi_monitor_reset_parser(MidiMonitorParserState_t *parser);
+static uint8_t            midi_monitor_expected_data_count(uint8_t status);
+static MidiMonitorParserState_t *midi_monitor_get_parser(uint8_t source_uart);
+static void               midi_monitor_push_entry(uint8_t source_uart,
+                                                  uint8_t type,
+                                                  uint8_t channel,
+                                                  uint8_t value1,
+                                                  uint8_t value2);
+static void               midi_monitor_receive_byte(uint8_t source_uart, uint8_t byte);
 
 static uint8_t midi_clock_get_bars_per_cycle(void)
 {
@@ -138,6 +162,229 @@ static uint8_t midi_clock_get_bars_per_cycle(void)
         return RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_DEFAULT;
 
     return bars_per_cycle;
+}
+
+static void midi_monitor_reset_parser(MidiMonitorParserState_t *parser)
+{
+    if (!parser)
+        return;
+
+    parser->running_status = 0U;
+    parser->data[0] = 0U;
+    parser->data[1] = 0U;
+    parser->data_count = 0U;
+    parser->expected_data_count = 0U;
+    parser->in_sysex = 0U;
+}
+
+static uint8_t midi_monitor_expected_data_count(uint8_t status)
+{
+    switch (status & 0xF0U)
+    {
+    case 0x80U:
+    case 0x90U:
+    case 0xA0U:
+    case 0xB0U:
+    case 0xE0U:
+        return 2U;
+
+    case 0xC0U:
+    case 0xD0U:
+        return 1U;
+
+    default:
+        return 0U;
+    }
+}
+
+static MidiMonitorParserState_t *midi_monitor_get_parser(uint8_t source_uart)
+{
+    switch (source_uart)
+    {
+    case MIDI_MONITOR_SOURCE_UART2:
+        return &midi_monitor_uart2_parser;
+
+    case MIDI_MONITOR_SOURCE_UART4:
+        return &midi_monitor_uart4_parser;
+
+    default:
+        return NULL;
+    }
+}
+
+static void midi_monitor_push_entry(uint8_t source_uart,
+                                    uint8_t type,
+                                    uint8_t channel,
+                                    uint8_t value1,
+                                    uint8_t value2)
+{
+    uint8_t entry_index = midi_monitor_head;
+
+    midi_monitor_entries[entry_index].source_uart = source_uart;
+    midi_monitor_entries[entry_index].type = type;
+    midi_monitor_entries[entry_index].channel = channel;
+    midi_monitor_entries[entry_index].value1 = value1;
+    midi_monitor_entries[entry_index].value2 = value2;
+
+    midi_monitor_head = (uint8_t)((midi_monitor_head + 1U) % MIDI_MONITOR_ENTRY_CAPACITY);
+    if (midi_monitor_count < MIDI_MONITOR_ENTRY_CAPACITY)
+        midi_monitor_count++;
+
+    midi_monitor_revision++;
+}
+
+static void midi_monitor_receive_byte(uint8_t source_uart, uint8_t byte)
+{
+    MidiMonitorParserState_t *parser = midi_monitor_get_parser(source_uart);
+
+    if (!parser)
+        return;
+
+    if (byte >= MIDI_REALTIME_STATUS_FIRST)
+    {
+        if (byte == MIDI_REALTIME_START)
+        {
+            midi_monitor_push_entry(source_uart,
+                                    MIDI_MONITOR_MESSAGE_START,
+                                    0U,
+                                    MIDI_MONITOR_VALUE_UNUSED,
+                                    MIDI_MONITOR_VALUE_UNUSED);
+        }
+        else if (byte == MIDI_REALTIME_CONTINUE)
+        {
+            midi_monitor_push_entry(source_uart,
+                                    MIDI_MONITOR_MESSAGE_CONTINUE,
+                                    0U,
+                                    MIDI_MONITOR_VALUE_UNUSED,
+                                    MIDI_MONITOR_VALUE_UNUSED);
+        }
+        else if (byte == MIDI_REALTIME_STOP)
+        {
+            midi_monitor_push_entry(source_uart,
+                                    MIDI_MONITOR_MESSAGE_STOP,
+                                    0U,
+                                    MIDI_MONITOR_VALUE_UNUSED,
+                                    MIDI_MONITOR_VALUE_UNUSED);
+        }
+
+        return;
+    }
+
+    if (parser->in_sysex)
+    {
+        if (byte == 0xF7U)
+            parser->in_sysex = 0U;
+
+        return;
+    }
+
+    if ((byte & MIDI_STATUS_BIT) != 0U)
+    {
+        parser->data_count = 0U;
+        parser->expected_data_count = 0U;
+
+        if (byte == 0xF0U)
+        {
+            parser->running_status = 0U;
+            parser->in_sysex = 1U;
+            return;
+        }
+
+        if (byte >= 0xF0U)
+        {
+            parser->running_status = 0U;
+            return;
+        }
+
+        parser->running_status = byte;
+        parser->expected_data_count = midi_monitor_expected_data_count(byte);
+        if (parser->expected_data_count == 0U)
+            parser->running_status = 0U;
+
+        return;
+    }
+
+    if (parser->running_status == 0U || parser->expected_data_count == 0U)
+        return;
+
+    parser->data[parser->data_count++] = (uint8_t)(byte & MIDI_DATA_MASK);
+    if (parser->data_count < parser->expected_data_count)
+        return;
+
+    switch (parser->running_status & 0xF0U)
+    {
+    case MIDI_PROGRAM_CHANGE_STATUS:
+        midi_monitor_push_entry(source_uart,
+                                MIDI_MONITOR_MESSAGE_PROGRAM_CHANGE,
+                                (uint8_t)((parser->running_status & MIDI_CHANNEL_STATUS_MASK) + 1U),
+                                parser->data[0],
+                                MIDI_MONITOR_VALUE_UNUSED);
+        break;
+
+    case MIDI_CONTROL_CHANGE_STATUS:
+        midi_monitor_push_entry(source_uart,
+                                MIDI_MONITOR_MESSAGE_CONTROL_CHANGE,
+                                (uint8_t)((parser->running_status & MIDI_CHANNEL_STATUS_MASK) + 1U),
+                                parser->data[0],
+                                parser->data[1]);
+        break;
+
+    default:
+        break;
+    }
+
+    parser->data_count = 0U;
+}
+
+void MidiMonitor_Clear(void)
+{
+    uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
+    midi_monitor_head = 0U;
+    midi_monitor_count = 0U;
+    midi_monitor_revision++;
+    if (primask == 0U)
+        __enable_irq();
+}
+
+uint32_t MidiMonitor_GetRevision(void)
+{
+    uint32_t primask = __get_PRIMASK();
+    uint32_t revision;
+
+    __disable_irq();
+    revision = midi_monitor_revision;
+    if (primask == 0U)
+        __enable_irq();
+
+    return revision;
+}
+
+uint8_t MidiMonitor_CopyEntries(MidiMonitorEntry_t *dest, uint8_t capacity)
+{
+    uint32_t primask = __get_PRIMASK();
+    uint8_t count;
+    uint8_t head;
+    uint8_t start_index;
+
+    if (!dest || capacity == 0U)
+        return 0U;
+
+    __disable_irq();
+    count = midi_monitor_count;
+    head = midi_monitor_head;
+    if (count > capacity)
+        count = capacity;
+
+    start_index = (uint8_t)((MIDI_MONITOR_ENTRY_CAPACITY + head - count) % MIDI_MONITOR_ENTRY_CAPACITY);
+    for (uint8_t index = 0U; index < count; ++index)
+        dest[index] = midi_monitor_entries[(uint8_t)((start_index + index) % MIDI_MONITOR_ENTRY_CAPACITY)];
+
+    if (primask == 0U)
+        __enable_irq();
+
+    return count;
 }
 
 static void midi_uart_apply_standard_config(UART_HandleTypeDef *uart_handle,
@@ -178,6 +425,11 @@ void MidiInitInput(void)
 
     midi_thru_head = 0U;
     midi_thru_tail = 0U;
+    midi_monitor_head = 0U;
+    midi_monitor_count = 0U;
+    midi_monitor_revision = 0U;
+    midi_monitor_reset_parser(&midi_monitor_uart2_parser);
+    midi_monitor_reset_parser(&midi_monitor_uart4_parser);
     HAL_NVIC_SetPriority(USART2_IRQn, MIDI_UART_IRQ_PREEMPT_PRIORITY, MIDI_UART_IRQ_SUBPRIORITY);
     HAL_NVIC_EnableIRQ(USART2_IRQn);
     __HAL_UART_ENABLE_IT(&midi_input_uart, UART_IT_RXNE);
@@ -905,6 +1157,7 @@ void USART2_IRQHandler(void)
 
         if (status & USART_SR_RXNE)
         {
+            midi_monitor_receive_byte(MIDI_MONITOR_SOURCE_UART2, byte);
             midi_input_queue_thru_byte(byte);
             MidiReceive(byte);
         }
@@ -919,6 +1172,16 @@ void USART2_IRQHandler(void)
 void UART4_IRQHandler(void)
 {
     uint32_t status = UART4->SR;
+
+    if (status & (USART_SR_RXNE | USART_SR_ORE | USART_SR_NE | USART_SR_FE | USART_SR_PE))
+    {
+        uint8_t byte = (uint8_t)UART4->DR;
+
+        if (status & USART_SR_RXNE)
+            midi_monitor_receive_byte(MIDI_MONITOR_SOURCE_UART4, byte);
+
+        status = UART4->SR;
+    }
 
     if ((status & USART_SR_TXE) && ((UART4->CR1 & USART_CR1_TXEIE) != 0U))
         midi_output_service_tx();

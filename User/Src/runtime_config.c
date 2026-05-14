@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include "st7796_rgb565_colors.h"
 
 #define RUNTIME_CONFIG_INVALID_BANK_NAME                "(bank?)"
 #define RUNTIME_CONFIG_GLOBAL_STARTUP_DELAY_DEFAULT     1U
@@ -79,6 +80,12 @@ typedef struct {
     RuntimeConfigGlobalLegacyV4_t global;
 } RuntimeConfigLegacyV4_t;
 
+typedef struct {
+    RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
+    RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigGlobal_t global;
+} RuntimeConfigLegacyNoUserThemes_t;
+
 #define RUNTIME_CONFIG_FUNCTION_BUTTON_DEFAULT \
     { \
         .name = "SpcBtn", \
@@ -107,6 +114,32 @@ typedef struct {
         .level = RUNTIME_CONFIG_DEVICE_CC_UNUSED, \
         .tap_tempo = { .cc = tap_cc_value, .value = tap_data_value }, \
         .max_preset = max_preset_value, \
+    }
+
+#define RUNTIME_CONFIG_USER_THEME_ENTRY(display_bg_value, footbar_value, footbar_text_value, info_text_value, cursor_text_value, cursor_bg_value, cursor_shared_bg_value, popup_bg_value, popup_text_value, popup_border_value, header_value, header_edit_value, header_edit_bg_value, preset_value, bank_value, wet_dry_value, function_active_value, function_inactive_value, function_active_bg_value, alert_text_value, bpm_internal_value, ext_bpm_value) \
+    { \
+        .display_bg_colour = display_bg_value, \
+        .main_footbar_color = footbar_value, \
+        .main_footbar_text_colour = footbar_text_value, \
+        .main_info_text_colour = info_text_value, \
+        .main_info_edit_cursor_text_colour = cursor_text_value, \
+        .main_info_edit_cursor_bg_colour = cursor_bg_value, \
+        .main_info_edit_cursor_shared_bg_colour = cursor_shared_bg_value, \
+        .main_saving_popup_bg_colour = popup_bg_value, \
+        .main_saving_popup_text_colour = popup_text_value, \
+        .main_saving_popup_border_colour = popup_border_value, \
+        .main_mode_header_colour = header_value, \
+        .main_mode_header_edit_colour = header_edit_value, \
+        .main_mode_header_edit_bg_colour = header_edit_bg_value, \
+        .main_preset_colour = preset_value, \
+        .main_bank_colour = bank_value, \
+        .main_bank_wet_dry_colour = wet_dry_value, \
+        .main_special_function_button_active_colour = function_active_value, \
+        .main_special_function_button_inactive_colour = function_inactive_value, \
+        .main_special_function_button_active_bg = function_active_bg_value, \
+        .main_alert_badge_text_colour = alert_text_value, \
+        .bpm_internal_colour = bpm_internal_value, \
+        .ext_bpm_colour = ext_bpm_value, \
     }
 
 static const RuntimeConfigBank_t runtime_config_blank_bank = {
@@ -154,6 +187,11 @@ static const RuntimeConfig_t runtime_config_defaults = {
         .display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT,
         .backlight_brightness = RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_DEFAULT,
     },
+    .user_themes = {
+        RUNTIME_CONFIG_USER_THEME_ENTRY(BLACK, BLUE_SAPPHIRE, BABY_POWDER, AQUAMARINE, BLACK, CANTALOUPE_MELON, BRINK_PINK, BABY_POWDER, BLUE_SAPPHIRE, CANTALOUPE_MELON, BABY_POWDER, BLACK, CANTALOUPE_MELON, BABY_POWDER, PALE_AQUA, CANTALOUPE_MELON, BABY_POWDER, PALE_AQUA, BLUE_SAPPHIRE, BLACK, AQUA, CANTALOUPE_MELON),
+        RUNTIME_CONFIG_USER_THEME_ENTRY(BLACK, DARK_GOLDENROD, LIGHT_GOLDENROD_YELLOW, AMBER, BLACK, GOLDENROD, ORANGE, LIGHT_GOLDENROD_YELLOW, DARK_BROWN, GOLDEN_BROWN, LIGHT_GOLDENROD_YELLOW, BLACK, AMBER, LIGHT_GOLDENROD_YELLOW, GOLDENROD, AMBER, LIGHT_GOLDENROD_YELLOW, GOLD_FUSION, BROWN, BLACK, AMBER, GOLDENROD),
+        RUNTIME_CONFIG_USER_THEME_ENTRY(BLACK, TYRIAN_PURPLE, BABY_POWDER, CAPRI, BLACK, CAPRI, HOT_PINK, BABY_POWDER, TYRIAN_PURPLE, CAPRI, BABY_POWDER, BLACK, CAPRI, BABY_POWDER, CAPRI, CAPRI, BABY_POWDER, VIOLET_CRAYOLA, TYRIAN_PURPLE, BLACK, CAPRI, HOT_PINK),
+    },
 };
 
 typedef enum {
@@ -168,6 +206,13 @@ static uint8_t runtime_config_dirty = 0U;
 static RuntimeConfigPersistentStoreDiagnosticMode_t runtime_config_persistent_store_diag_mode = RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_DEFAULT;
 static uint8_t runtime_config_persistent_store_diag_slot = 0U;
 static uint32_t runtime_config_persistent_store_diag_generation = 0U;
+
+static void RuntimeConfig_ResetUserThemesToDefaults(void)
+{
+    memcpy(runtime_config_store.user_themes,
+           runtime_config_defaults.user_themes,
+           sizeof(runtime_config_store.user_themes));
+}
 
 static void RuntimeConfig_ResetPersistentStoreDiagnostic(void)
 {
@@ -231,9 +276,74 @@ static void RuntimeConfig_CopyLegacyDeviceV4(RuntimeConfigDevice_t *destination,
 static uint8_t RuntimeConfig_FlashHeaderV2HasSupportedConfigSize(uint32_t config_size)
 {
     return (config_size == sizeof(RuntimeConfig_t)
+         || config_size == sizeof(RuntimeConfigLegacyNoUserThemes_t)
          || config_size == sizeof(RuntimeConfigLegacyV4_t)
          || config_size == sizeof(RuntimeConfigLegacyV3_t)
          || config_size == sizeof(RuntimeConfigLegacyV2_t)) ? 1U : 0U;
+}
+
+static uint16_t *RuntimeConfig_GetMutableUserThemeFieldPointer(RuntimeConfigUserTheme_t *user_theme,
+                                                               RuntimeConfigUserThemeField_t field)
+{
+    if (!user_theme)
+        return NULL;
+
+    switch (field)
+    {
+    case RUNTIME_CONFIG_USER_THEME_FIELD_DISPLAY_BG:
+        return &user_theme->display_bg_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_FOOTBAR:
+        return &user_theme->main_footbar_color;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_FOOTBAR_TEXT:
+        return &user_theme->main_footbar_text_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_INFO_TEXT:
+        return &user_theme->main_info_text_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_INFO_EDIT_CURSOR_TEXT:
+        return &user_theme->main_info_edit_cursor_text_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_INFO_EDIT_CURSOR_BG:
+        return &user_theme->main_info_edit_cursor_bg_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_INFO_EDIT_CURSOR_SHARED_BG:
+        return &user_theme->main_info_edit_cursor_shared_bg_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_SAVING_POPUP_BG:
+        return &user_theme->main_saving_popup_bg_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_SAVING_POPUP_TEXT:
+        return &user_theme->main_saving_popup_text_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_SAVING_POPUP_BORDER:
+        return &user_theme->main_saving_popup_border_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_MODE_HEADER:
+        return &user_theme->main_mode_header_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_MODE_HEADER_EDIT:
+        return &user_theme->main_mode_header_edit_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_MODE_HEADER_EDIT_BG:
+        return &user_theme->main_mode_header_edit_bg_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_PRESET:
+        return &user_theme->main_preset_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_BANK:
+        return &user_theme->main_bank_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_BANK_WET_DRY:
+        return &user_theme->main_bank_wet_dry_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE:
+        return &user_theme->main_special_function_button_active_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE:
+        return &user_theme->main_special_function_button_inactive_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_BG:
+        return &user_theme->main_special_function_button_active_bg;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_MAIN_ALERT_BADGE_TEXT:
+        return &user_theme->main_alert_badge_text_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_BPM_INTERNAL:
+        return &user_theme->bpm_internal_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_EXT_BPM:
+        return &user_theme->ext_bpm_colour;
+    case RUNTIME_CONFIG_USER_THEME_FIELD_COUNT:
+    default:
+        return NULL;
+    }
+}
+
+static const uint16_t *RuntimeConfig_GetUserThemeFieldPointer(const RuntimeConfigUserTheme_t *user_theme,
+                                                              RuntimeConfigUserThemeField_t field)
+{
+    return RuntimeConfig_GetMutableUserThemeFieldPointer((RuntimeConfigUserTheme_t *)user_theme, field);
 }
 
 static uint8_t RuntimeConfig_NormalizeMidiClockBarCount(uint8_t bar_count)
@@ -255,15 +365,106 @@ static uint16_t RuntimeConfig_NormalizeBacklightBrightness(uint16_t brightness)
     return brightness;
 }
 
-static RuntimeConfigDisplayMode_t RuntimeConfig_NormalizeDisplayMode(uint8_t display_mode)
+RuntimeConfigDisplayMode_t RuntimeConfig_NormalizeDisplayMode(uint8_t display_mode)
 {
-    /* This only clamps corrupt/out-of-range values. It does NOT remap legacy
-     * theme ids, so any theme removal/reordering must be handled explicitly
-     * before this point if old persisted snapshots need a stable migration. */
     if (display_mode >= (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_COUNT)
         return RUNTIME_CONFIG_DISPLAY_MODE_DARK;
 
     return (RuntimeConfigDisplayMode_t)display_mode;
+}
+
+static RuntimeConfigDisplayMode_t RuntimeConfig_MigrateLegacyDisplayMode(uint8_t display_mode)
+{
+    switch (display_mode)
+    {
+    case 0U:
+        return RUNTIME_CONFIG_DISPLAY_MODE_DARK;
+    case 1U:
+        return RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT;
+    case 2U:
+        return RUNTIME_CONFIG_DISPLAY_MODE_USER;
+    case 4U:
+        return RUNTIME_CONFIG_DISPLAY_MODE_BLUESCREEN;
+    case 6U:
+        return RUNTIME_CONFIG_DISPLAY_MODE_TRIPPING;
+    case 7U:
+        return RUNTIME_CONFIG_DISPLAY_MODE_USER2;
+    case 8U:
+        return RUNTIME_CONFIG_DISPLAY_MODE_USER3;
+    case 9U:
+        return RUNTIME_CONFIG_DISPLAY_MODE_C64;
+    case 10U:
+        return RUNTIME_CONFIG_DISPLAY_MODE_BIOS;
+    case 3U: /* removed Weed theme */
+    case 5U: /* removed Midnight theme */
+    default:
+        return RUNTIME_CONFIG_DISPLAY_MODE_DARK;
+    }
+}
+
+static RuntimeConfigDisplayMode_t RuntimeConfig_DecodePersistedDisplayMode(uint8_t display_mode,
+                                                                           uint32_t persistent_version)
+{
+    if (persistent_version >= PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC_COMPACT_DISPLAY_MODES)
+        return RuntimeConfig_NormalizeDisplayMode(display_mode);
+
+    return RuntimeConfig_MigrateLegacyDisplayMode(display_mode);
+}
+
+static uint8_t RuntimeConfig_FindDisplayModeSelectionIndex(RuntimeConfigDisplayMode_t display_mode)
+{
+    static const RuntimeConfigDisplayMode_t display_mode_selection_order[] = {
+        RUNTIME_CONFIG_DISPLAY_MODE_DARK,
+        RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT,
+        RUNTIME_CONFIG_DISPLAY_MODE_TRIPPING,
+        RUNTIME_CONFIG_DISPLAY_MODE_BLUESCREEN,
+        RUNTIME_CONFIG_DISPLAY_MODE_C64,
+        RUNTIME_CONFIG_DISPLAY_MODE_BIOS,
+        RUNTIME_CONFIG_DISPLAY_MODE_USER,
+        RUNTIME_CONFIG_DISPLAY_MODE_USER2,
+        RUNTIME_CONFIG_DISPLAY_MODE_USER3,
+    };
+
+    for (uint8_t index = 0U; index < (uint8_t)(sizeof(display_mode_selection_order) / sizeof(display_mode_selection_order[0])); ++index)
+    {
+        if (display_mode_selection_order[index] == display_mode)
+            return index;
+    }
+
+    return 0U;
+}
+
+RuntimeConfigDisplayMode_t RuntimeConfig_StepDisplayMode(RuntimeConfigDisplayMode_t display_mode, int8_t delta)
+{
+    static const RuntimeConfigDisplayMode_t display_mode_selection_order[] = {
+        RUNTIME_CONFIG_DISPLAY_MODE_DARK,
+        RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT,
+        RUNTIME_CONFIG_DISPLAY_MODE_TRIPPING,
+        RUNTIME_CONFIG_DISPLAY_MODE_BLUESCREEN,
+        RUNTIME_CONFIG_DISPLAY_MODE_C64,
+        RUNTIME_CONFIG_DISPLAY_MODE_BIOS,
+        RUNTIME_CONFIG_DISPLAY_MODE_USER,
+        RUNTIME_CONFIG_DISPLAY_MODE_USER2,
+        RUNTIME_CONFIG_DISPLAY_MODE_USER3,
+    };
+    uint8_t selection_index = RuntimeConfig_FindDisplayModeSelectionIndex(
+        RuntimeConfig_NormalizeDisplayMode((uint8_t)display_mode));
+    uint8_t selection_count = (uint8_t)(sizeof(display_mode_selection_order) / sizeof(display_mode_selection_order[0]));
+    uint8_t remaining_steps;
+
+    if (delta == 0)
+        return display_mode_selection_order[selection_index];
+
+    remaining_steps = (delta > 0) ? (uint8_t)delta : (uint8_t)(-delta);
+    while (remaining_steps-- > 0U)
+    {
+        if (delta > 0)
+            selection_index = (selection_index + 1U < selection_count) ? (uint8_t)(selection_index + 1U) : 0U;
+        else
+            selection_index = (selection_index > 0U) ? (uint8_t)(selection_index - 1U) : (uint8_t)(selection_count - 1U);
+    }
+
+    return display_mode_selection_order[selection_index];
 }
 
 static void RuntimeConfig_NormalizeLoadedStore(void)
@@ -284,6 +485,8 @@ static void RuntimeConfig_ApplyLegacyV2Snapshot(const RuntimeConfigLegacyV2_t *l
 {
     if (!legacy_store)
         return;
+
+    RuntimeConfig_ResetUserThemesToDefaults();
 
     for (uint8_t bank_index = 0U; bank_index < PRESET_BANK_COUNT; ++bank_index)
     {
@@ -311,6 +514,8 @@ static void RuntimeConfig_ApplyLegacyV3Snapshot(const RuntimeConfigLegacyV3_t *l
     if (!legacy_store)
         return;
 
+    RuntimeConfig_ResetUserThemesToDefaults();
+
     memcpy(runtime_config_store.banks,
            legacy_store->banks,
            sizeof(runtime_config_store.banks));
@@ -331,6 +536,8 @@ static void RuntimeConfig_ApplyLegacyV4Snapshot(const RuntimeConfigLegacyV4_t *l
     if (!legacy_store)
         return;
 
+    RuntimeConfig_ResetUserThemesToDefaults();
+
     memcpy(runtime_config_store.banks,
            legacy_store->banks,
            sizeof(runtime_config_store.banks));
@@ -344,6 +551,21 @@ static void RuntimeConfig_ApplyLegacyV4Snapshot(const RuntimeConfigLegacyV4_t *l
     runtime_config_store.global.sync_style = legacy_store->global.sync_style;
     runtime_config_store.global.display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT;
     runtime_config_store.global.backlight_brightness = legacy_store->global.backlight_brightness;
+}
+
+static void RuntimeConfig_ApplyLegacyNoUserThemesSnapshot(const RuntimeConfigLegacyNoUserThemes_t *legacy_store)
+{
+    if (!legacy_store)
+        return;
+
+    memcpy(runtime_config_store.banks,
+           legacy_store->banks,
+           sizeof(runtime_config_store.banks));
+    memcpy(runtime_config_store.devices,
+           legacy_store->devices,
+           sizeof(runtime_config_store.devices));
+    runtime_config_store.global = legacy_store->global;
+    RuntimeConfig_ResetUserThemesToDefaults();
 }
 
 static uint32_t RuntimeConfig_FlashChecksum(const uint8_t *data, size_t size)
@@ -388,7 +610,9 @@ static uint8_t RuntimeConfig_FlashHeaderV3IsValid(const PersistentStoreHeaderV3_
         return 0U;
 
     if (header->magic != PERSISTENT_STORE_MAGIC_V3
-     || header->version != PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC
+            || (header->version != PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC
+                && header->version != PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC_COMPACT_DISPLAY_MODES
+                && header->version != PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC_USER_THEMES)
      || header->commit_marker != PERSISTENT_STORE_COMMIT_MARKER
      || header->bank_count != PRESET_BANK_COUNT
      || header->presets_per_bank != PRESETS_PER_BANK
@@ -476,7 +700,19 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
                        + header_v3->payload_size;
 
         if (header_v3->config_size == sizeof(runtime_config_store))
+        {
             memcpy(&runtime_config_store, config_payload, sizeof(runtime_config_store));
+            runtime_config_store.global.display_mode = RuntimeConfig_DecodePersistedDisplayMode(
+                (uint8_t)runtime_config_store.global.display_mode,
+                header_v3->version);
+        }
+        else if (header_v3->config_size == sizeof(RuntimeConfigLegacyNoUserThemes_t))
+        {
+            RuntimeConfigLegacyNoUserThemes_t legacy_store;
+
+            memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+            RuntimeConfig_ApplyLegacyNoUserThemesSnapshot(&legacy_store);
+        }
         else if (header_v3->config_size == sizeof(RuntimeConfigLegacyV4_t))
         {
             RuntimeConfigLegacyV4_t legacy_store;
@@ -516,7 +752,19 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
     runtime_config_persistent_store_diag_mode = RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_LEGACY_V2;
 
     if (header->config_size == sizeof(runtime_config_store))
+    {
         memcpy(&runtime_config_store, config_payload, sizeof(runtime_config_store));
+        runtime_config_store.global.display_mode = RuntimeConfig_DecodePersistedDisplayMode(
+            (uint8_t)runtime_config_store.global.display_mode,
+            header->version);
+    }
+    else if (header->config_size == sizeof(RuntimeConfigLegacyNoUserThemes_t))
+    {
+        RuntimeConfigLegacyNoUserThemes_t legacy_store;
+
+        memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+        RuntimeConfig_ApplyLegacyNoUserThemesSnapshot(&legacy_store);
+    }
     else if (header->config_size == sizeof(RuntimeConfigLegacyV4_t))
     {
         RuntimeConfigLegacyV4_t legacy_store;
@@ -645,6 +893,72 @@ RuntimeConfigGlobal_t *RuntimeConfig_GetMutableGlobal(void)
 {
     RuntimeConfig_EnsureInitialized();
     return &runtime_config_store.global;
+}
+
+uint8_t RuntimeConfig_TryGetUserThemeIndex(RuntimeConfigDisplayMode_t display_mode, uint8_t *theme_index)
+{
+    switch (RuntimeConfig_NormalizeDisplayMode((uint8_t)display_mode))
+    {
+    case RUNTIME_CONFIG_DISPLAY_MODE_USER:
+        if (theme_index)
+            *theme_index = 0U;
+        return 1U;
+    case RUNTIME_CONFIG_DISPLAY_MODE_USER2:
+        if (theme_index)
+            *theme_index = 1U;
+        return 1U;
+    case RUNTIME_CONFIG_DISPLAY_MODE_USER3:
+        if (theme_index)
+            *theme_index = 2U;
+        return 1U;
+    default:
+        return 0U;
+    }
+}
+
+const RuntimeConfigUserTheme_t *RuntimeConfig_GetUserTheme(RuntimeConfigDisplayMode_t display_mode)
+{
+    uint8_t theme_index;
+
+    RuntimeConfig_EnsureInitialized();
+
+    if (!RuntimeConfig_TryGetUserThemeIndex(display_mode, &theme_index))
+        return NULL;
+
+    return &runtime_config_store.user_themes[theme_index];
+}
+
+RuntimeConfigUserTheme_t *RuntimeConfig_GetMutableUserTheme(RuntimeConfigDisplayMode_t display_mode)
+{
+    uint8_t theme_index;
+
+    RuntimeConfig_EnsureInitialized();
+
+    if (!RuntimeConfig_TryGetUserThemeIndex(display_mode, &theme_index))
+        return NULL;
+
+    return &runtime_config_store.user_themes[theme_index];
+}
+
+uint16_t RuntimeConfig_GetUserThemeColour(const RuntimeConfigUserTheme_t *user_theme,
+                                          RuntimeConfigUserThemeField_t field)
+{
+    const uint16_t *colour = RuntimeConfig_GetUserThemeFieldPointer(user_theme, field);
+
+    return colour ? *colour : 0U;
+}
+
+uint8_t RuntimeConfig_SetUserThemeColour(RuntimeConfigUserTheme_t *user_theme,
+                                         RuntimeConfigUserThemeField_t field,
+                                         uint16_t colour)
+{
+    uint16_t *target = RuntimeConfig_GetMutableUserThemeFieldPointer(user_theme, field);
+
+    if (!target || *target == colour)
+        return 0U;
+
+    *target = colour;
+    return 1U;
 }
 
 void RuntimeConfig_MarkDirty(void)

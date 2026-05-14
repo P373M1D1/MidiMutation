@@ -203,11 +203,15 @@ static void Display_MenuFlushDirtyRows(DisplayMenuPage_t page,
 
 void Display_MenuRefreshBodyOnly(void)
 {
+    uint8_t current_is_midi_monitor = ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_MIDI_MONITOR) ? 1U : 0U;
+    uint8_t previous_is_midi_monitor = ((DisplayMenuPage_t)display_state.menu_last_drawn_page == DISPLAY_MENU_PAGE_MIDI_MONITOR) ? 1U : 0U;
+
     /* Freeform bodies and page transitions can rearrange headers/badges in ways
      * the row-diff path cannot express, so fall back to a full body clear. */
     if (!display_state.menu_draw_state_valid
-     || Display_MenuPageUsesFreeformBody((DisplayMenuPage_t)display_state.menu_page)
-     || Display_MenuPageUsesFreeformBody((DisplayMenuPage_t)display_state.menu_last_drawn_page))
+     || ((Display_MenuPageUsesFreeformBody((DisplayMenuPage_t)display_state.menu_page)
+       || Display_MenuPageUsesFreeformBody((DisplayMenuPage_t)display_state.menu_last_drawn_page))
+      && !(current_is_midi_monitor && previous_is_midi_monitor)))
     {
         Display_ClearMenuBody();
     }
@@ -364,34 +368,48 @@ void Display_MenuRedrawSelectionChange(DisplayMenuPage_t page, uint8_t previous_
 
 void Display_MenuRefresh(void)
 {
+    DisplayMenuPage_t current_page = (DisplayMenuPage_t)display_state.menu_page;
+    DisplayMenuPage_t previous_page = (DisplayMenuPage_t)display_state.menu_last_drawn_page;
+    uint8_t header_changed = 0U;
+    uint8_t current_uses_monitor_chrome = (current_page == DISPLAY_MENU_PAGE_MIDI_MONITOR) ? 1U : 0U;
+    uint8_t previous_uses_monitor_chrome = (previous_page == DISPLAY_MENU_PAGE_MIDI_MONITOR) ? 1U : 0U;
+
     if (!display_state.menu_mode_active)
         return;
 
     display_state.main_layout_dirty = 0U;
 
+    if (display_state.menu_draw_state_valid)
+        header_changed = Display_MenuHeaderChanged(previous_page, current_page);
+
     if (!display_state.menu_draw_state_valid)
     {
-        ST7796_DrawFilledRectangle(TRANSPORT_BARBEAT_TEXT_X,
-                                   TRANSPORT_BARBEAT_TEXT_Y,
-                                   TRANSPORT_BARBEAT_TEXT_W,
-                                   MAIN_PRESET_FONT_CELL_HEIGHT,
-                                   Display_GetBackgroundColour());
-        ST7796_DrawFilledRectangle(BPM_DISPLAY_AREA_X,
-                                   BPM_TEXT_Y,
-                                   BPM_DISPLAY_AREA_W,
-                                   BPM_FONT.height,
-                                   Display_GetBackgroundColour());
+        ST7796_DrawFilledRectangle(0U,
+                                   0U,
+                                   ST7796_WIDTH,
+                                   MAIN_PRESET_TEXT_Y,
+                                   current_uses_monitor_chrome ? BLACK : Display_GetBackgroundColour());
         Display_DrawFootbar();
         Display_DrawMainModeHeader();
     }
     else
     {
+        if (header_changed || current_uses_monitor_chrome || previous_uses_monitor_chrome)
+        {
+            ST7796_DrawFilledRectangle(0U,
+                                       0U,
+                                       ST7796_WIDTH,
+                                       MAIN_PRESET_TEXT_Y,
+                                       current_uses_monitor_chrome ? BLACK : Display_GetBackgroundColour());
+        }
+
         if (Display_MenuPageUsesConfirmFootbar((DisplayMenuPage_t)display_state.menu_last_drawn_page)
-            != Display_MenuPageUsesConfirmFootbar((DisplayMenuPage_t)display_state.menu_page))
+            != Display_MenuPageUsesConfirmFootbar(current_page)
+         || current_uses_monitor_chrome
+         || previous_uses_monitor_chrome)
             Display_DrawFootbar();
 
-        if (Display_MenuHeaderChanged((DisplayMenuPage_t)display_state.menu_last_drawn_page,
-                                      (DisplayMenuPage_t)display_state.menu_page))
+        if (header_changed || current_uses_monitor_chrome || previous_uses_monitor_chrome)
             Display_DrawMainModeHeader();
     }
 

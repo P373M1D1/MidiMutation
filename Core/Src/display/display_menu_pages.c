@@ -9,9 +9,12 @@
 #include "display/display_menu_page_devices.h"
 #include "display/display_menu_page_function_button.h"
 #include "display/display_menu_page_global.h"
+#include "display/display_menu_page_midi_monitor.h"
+#include "display/display_menu_page_user_theme.h"
 #include "display/display_menu_pages.h"
 #include "display/display_menu_row_render.h"
 #include "display/display_strings.h"
+#include "display/display_theme.h"
 
 /* Menu page registry and shared menu chrome.
  *
@@ -26,6 +29,21 @@ typedef struct
     void (*draw_body)(void);
     void (*draw_item)(uint8_t item_index);
 } DisplayMenuPageSpec_t;
+
+static const char *Display_GetMidiMonitorFootbarLabel(uint8_t section_index)
+{
+    switch (section_index)
+    {
+    case 0U:
+        return Display_MenuMidiMonitorIsPaused() ? "SCROLL / READ" : "SCROLL / STOP";
+    case 1U:
+        return "CLEAR";
+    case 2U:
+        return "EXIT";
+    default:
+        return "";
+    }
+}
 
 static const char *Display_GetConfirmFootbarLabel(uint8_t section_index)
 {
@@ -44,8 +62,11 @@ static const char *Display_GetConfirmFootbarLabel(uint8_t section_index)
 
 static const char *Display_GetFootbarLabel(uint8_t section_index)
 {
-    if (display_state.menu_mode_active)
+    if (display_state.menu_mode_active && !display_state.menu_preview_active)
     {
+        if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_MIDI_MONITOR)
+            return Display_GetMidiMonitorFootbarLabel(section_index);
+
         /* Menu footers take precedence over preset-edit/live-mode copy because
          * the soft-button hints should always describe the currently modal UI. */
         if (Display_MenuPageUsesConfirmFootbar((DisplayMenuPage_t)display_state.menu_page))
@@ -97,9 +118,15 @@ static const char *Display_GetFootbarLabel(uint8_t section_index)
 
 void Display_DrawFootbar(void)
 {
+    uint8_t midi_monitor_chrome_active = (display_state.menu_mode_active
+                                       && !display_state.menu_preview_active
+                                       && (DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_MIDI_MONITOR) ? 1U : 0U;
+    uint16_t footbar_background = midi_monitor_chrome_active ? BLACK : MAIN_FOOTBAR_COLOR;
+    uint16_t footbar_text_colour = midi_monitor_chrome_active ? WHITE : MAIN_FOOTBAR_TEXT_COLOUR;
+
     Display_ComposeClear(ST7796_WIDTH,
                          MAIN_FOOTBAR_H,
-                         MAIN_FOOTBAR_COLOR);
+                         footbar_background);
 
     for (uint8_t section_index = 0U; section_index < MAIN_FOOTBAR_SECTION_COUNT; ++section_index)
     {
@@ -119,8 +146,8 @@ void Display_DrawFootbar(void)
                            text_y,
                            text,
                            MAIN_FOOTBAR_FONT,
-                           MAIN_FOOTBAR_TEXT_COLOUR,
-                           MAIN_FOOTBAR_COLOR);
+                           footbar_text_colour,
+                           footbar_background);
     }
 
     Display_ComposeBlit(0U,
@@ -198,6 +225,7 @@ static void Display_DrawMenuRootItem(uint8_t item_index)
         "Banks",
         "Devices",
         "Global",
+        "MIDI Monitor",
     };
 
     if (item_index >= MENU_ROOT_ITEM_COUNT)
@@ -273,6 +301,10 @@ static const char *Display_GetMenuHeaderTextForPage(DisplayMenuPage_t page, char
         return "CONFIRM";
     case DISPLAY_MENU_PAGE_GLOBAL:
         return "GLOBAL";
+    case DISPLAY_MENU_PAGE_MIDI_MONITOR:
+        return "MIDI MONITOR";
+    case DISPLAY_MENU_PAGE_USER_THEME:
+        return Display_GetThemeName((RuntimeConfigDisplayMode_t)display_state.menu_active_user_theme_mode);
     case DISPLAY_MENU_PAGE_ROOT:
     default:
         return "MENU";
@@ -290,13 +322,14 @@ uint8_t Display_MenuPageUsesFreeformBody(DisplayMenuPage_t page)
 {
     return (page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM
          || page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM
-         || page == DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM) ? 1U : 0U;
+            || page == DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM
+            || page == DISPLAY_MENU_PAGE_MIDI_MONITOR) ? 1U : 0U;
 }
 
 uint8_t Display_MenuHeaderChanged(DisplayMenuPage_t previous_page, DisplayMenuPage_t current_page)
 {
-    char previous_text[12];
-    char current_text[12];
+        char previous_text[16];
+        char current_text[16];
     const char *previous_header = Display_GetMenuHeaderTextForPage(previous_page, previous_text, sizeof(previous_text));
     const char *current_header = Display_GetMenuHeaderTextForPage(current_page, current_text, sizeof(current_text));
 
@@ -307,7 +340,8 @@ static uint8_t Display_GetModeHeaderWidthChars(const char *text)
 {
     size_t text_len = strlen(text);
 
-    if (display_state.menu_mode_active || display_state.preset_init_confirm_active)
+    if ((display_state.menu_mode_active && !display_state.menu_preview_active)
+     || display_state.preset_init_confirm_active)
     {
         uint8_t width_chars = (uint8_t)(text_len + MAIN_MODE_HEADER_MENU_PAD_CHARS);
 
@@ -322,9 +356,9 @@ static uint8_t Display_GetModeHeaderWidthChars(const char *text)
 
 static const char *Display_GetCurrentHeaderText(void)
 {
-    static char menu_header_text[12];
+    static char menu_header_text[16];
 
-    if (display_state.menu_mode_active)
+    if (display_state.menu_mode_active && !display_state.menu_preview_active)
         return Display_GetMenuHeaderTextForPage((DisplayMenuPage_t)display_state.menu_page,
                                                 menu_header_text,
                                                 sizeof(menu_header_text));
@@ -338,17 +372,27 @@ static const char *Display_GetCurrentHeaderText(void)
 void Display_DrawMainModeHeader(void)
 {
     const char *header_text = Display_GetCurrentHeaderText();
+    uint8_t midi_monitor_chrome_active = (display_state.menu_mode_active
+                                       && !display_state.menu_preview_active
+                                       && (DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_MIDI_MONITOR) ? 1U : 0U;
     uint8_t header_width_chars = Display_GetModeHeaderWidthChars(header_text);
     uint16_t clear_w = (uint16_t)(MAIN_MODE_HEADER_MAX_TEXT_CHARS * MAIN_MODE_HEADER_FONT.width);
     uint16_t clear_x = (uint16_t)((ST7796_WIDTH - clear_w) / 2U);
     uint16_t text_w = (uint16_t)(header_width_chars * MAIN_MODE_HEADER_FONT.width);
     uint16_t text_x = (uint16_t)((clear_w - text_w) / 2U);
-    uint16_t foreground = (display_state.preset_edit_mode_active || display_state.menu_mode_active)
+    uint16_t foreground = midi_monitor_chrome_active
+        ? WHITE
+        : ((display_state.preset_edit_mode_active
+         || (display_state.menu_mode_active && !display_state.menu_preview_active))
         ? MAIN_MODE_HEADER_EDIT_COLOUR
-        : MAIN_MODE_HEADER_COLOUR;
-    uint16_t background = (display_state.preset_edit_mode_active || display_state.menu_mode_active)
+        : MAIN_MODE_HEADER_COLOUR);
+    uint16_t background = midi_monitor_chrome_active
+        ? BLACK
+        : ((display_state.preset_edit_mode_active
+         || (display_state.menu_mode_active && !display_state.menu_preview_active))
         ? MAIN_MODE_HEADER_EDIT_BG_COLOUR
-        : DISPLAY_BG_COLOUR;
+        : DISPLAY_BG_COLOUR);
+    uint16_t clear_background = midi_monitor_chrome_active ? BLACK : DISPLAY_BG_COLOUR;
     char padded[MAIN_MODE_HEADER_MAX_TEXT_CHARS + 1U];
     size_t text_len = strnlen(header_text, header_width_chars);
     size_t pad_left = ((size_t)header_width_chars - text_len) / 2U;
@@ -359,7 +403,7 @@ void Display_DrawMainModeHeader(void)
 
     Display_ComposeClear(clear_w,
                          MAIN_MODE_HEADER_FONT.height,
-                         DISPLAY_BG_COLOUR);
+                         clear_background);
     Display_ComposeString32(clear_w,
                             MAIN_MODE_HEADER_FONT.height,
                             text_x,
@@ -431,6 +475,10 @@ static DisplayMenuPageSpec_t Display_GetMenuPageSpec(DisplayMenuPage_t page)
         return (DisplayMenuPageSpec_t){ NULL, 0U, Display_DrawMenuFactoryResetConfirm, NULL };
     case DISPLAY_MENU_PAGE_GLOBAL:
         return (DisplayMenuPageSpec_t){ &display_state.menu_global_selection_index, MENU_GLOBAL_ITEM_COUNT, Display_DrawMenuGlobal, Display_DrawMenuGlobalItem };
+    case DISPLAY_MENU_PAGE_MIDI_MONITOR:
+        return (DisplayMenuPageSpec_t){ NULL, 0U, Display_DrawMenuMidiMonitor, NULL };
+    case DISPLAY_MENU_PAGE_USER_THEME:
+        return (DisplayMenuPageSpec_t){ &display_state.menu_user_theme_selection_index, MENU_USER_THEME_ITEM_COUNT, Display_DrawMenuUserTheme, Display_DrawMenuUserThemeItem };
     default:
         return (DisplayMenuPageSpec_t){ NULL, 0U, NULL, NULL };
     }

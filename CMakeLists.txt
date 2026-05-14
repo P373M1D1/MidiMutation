@@ -65,6 +65,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/display_compose.c
     Core/Src/display/display_backlight.c
     Core/Src/display/display_compose_helpers.c
+    Core/Src/display/display_palette_registry.c
     Core/Src/display/display_theme.c
     Core/Src/display/display_main_title.c
     Core/Src/display/display_menu_controller.c
@@ -76,6 +77,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/display/display_menu_page_device_edit.c
     Core/Src/display/display_menu_page_bank_edit.c
     Core/Src/display/display_menu_page_global.c
+    Core/Src/display/display_menu_page_midi_monitor.c
+    Core/Src/display/display_menu_page_user_theme.c
     Core/Src/display/display_menu_page_banks.c
     Core/Src/display/display_menu_page_function_button_text.c
     Core/Src/display/display_menu_page_function_button_compare.c

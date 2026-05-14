@@ -1,5 +1,6 @@
 #include "display_functions.h"
 #include "display/display_internal.h"
+#include "display/display_palette_registry.h"
 #include "display/display_menu_page_device_edit.h"
 #include "display/display_menu_page_function_button_compare.h"
 #include "display/display_value_helpers.h"
@@ -214,6 +215,7 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
     RuntimeConfigDevice_t *device = RuntimeConfig_GetMutableDevice(display_state.menu_active_device_index);
     uint8_t changed = 0U;
     uint8_t full_redraw = 0U;
+    uint8_t menu_refresh = 0U;
 
     if (!display_state.menu_mode_active || delta == 0)
         return 0U;
@@ -342,18 +344,13 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
 
         case 3U:
         {
-            uint8_t display_mode = (uint8_t)global->display_mode;
+            RuntimeConfigDisplayMode_t next_display_mode = RuntimeConfig_StepDisplayMode(global->display_mode,
+                                                                                         delta);
 
-            /* Theme selection is multi-valued, so it must wrap across the full
-             * enum range rather than use the older two-endpoint directional
-             * helper that was suitable only for binary choices. */
-            changed = Display_AdjustWrappedU8(&display_mode,
-                                              (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_DARK,
-                                              (uint8_t)(RUNTIME_CONFIG_DISPLAY_MODE_COUNT - 1U),
-                                              delta);
+            changed = next_display_mode != global->display_mode;
             if (changed)
             {
-                global->display_mode = (RuntimeConfigDisplayMode_t)display_mode;
+                global->display_mode = next_display_mode;
                 full_redraw = 1U;
             }
             break;
@@ -379,6 +376,25 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
             break;
         }
     }
+    else if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_USER_THEME)
+    {
+        RuntimeConfigDisplayMode_t user_theme_mode = RuntimeConfig_NormalizeDisplayMode(display_state.menu_active_user_theme_mode);
+        RuntimeConfigUserTheme_t *user_theme = RuntimeConfig_GetMutableUserTheme(user_theme_mode);
+        RuntimeConfigUserThemeField_t field = (RuntimeConfigUserThemeField_t)display_state.menu_user_theme_selection_index;
+        uint16_t current_palette_index;
+        uint16_t next_palette_index;
+
+        if (!user_theme)
+            return 0U;
+
+        current_palette_index = DisplayPalette_FindIndexByValue(RuntimeConfig_GetUserThemeColour(user_theme, field));
+        next_palette_index = DisplayPalette_StepIndex(current_palette_index, delta);
+        changed = RuntimeConfig_SetUserThemeColour(user_theme,
+                                                   field,
+                                                   DisplayPalette_GetValue(next_palette_index));
+        if (changed && global && global->display_mode == user_theme_mode)
+            menu_refresh = 1U;
+    }
     else
         return 0U;
 
@@ -386,6 +402,15 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
         return 0U;
 
     RuntimeConfig_MarkDirty();
+
+    if (menu_refresh)
+    {
+        /* USER-theme colour edits happen inside menu mode, so repainting the
+         * current menu shell is sufficient; a full display reset is overkill. */
+        display_state.menu_draw_state_valid = 0U;
+        Display_MenuRefresh();
+        return 1U;
+    }
 
     if (full_redraw)
     {

@@ -52,6 +52,8 @@ uint8_t Display_GetMenuSelectionIndexForPage(DisplayMenuPage_t page)
         return display_state.menu_device_edit_selection_index;
     case DISPLAY_MENU_PAGE_GLOBAL:
         return display_state.menu_global_selection_index;
+    case DISPLAY_MENU_PAGE_USER_THEME:
+        return display_state.menu_user_theme_selection_index;
     default:
         return 0U;
     }
@@ -63,6 +65,8 @@ uint8_t Display_GetMenuFirstVisibleIndexForPage(DisplayMenuPage_t page, uint8_t 
     {
     case DISPLAY_MENU_PAGE_GLOBAL:
         return Display_GetMenuFirstVisibleIndex(MENU_GLOBAL_ITEM_COUNT, selection_index);
+    case DISPLAY_MENU_PAGE_USER_THEME:
+        return Display_GetMenuFirstVisibleIndex(MENU_USER_THEME_ITEM_COUNT, selection_index);
     case DISPLAY_MENU_PAGE_BANKS:
         return Display_GetMenuFirstVisibleIndex(PRESET_BANK_COUNT, selection_index);
     case DISPLAY_MENU_PAGE_BANK_EDIT:
@@ -99,6 +103,7 @@ uint8_t Display_GetMenuVisibleRowIndex(DisplayMenuPage_t page, uint8_t item_inde
         return 1U;
 
     case DISPLAY_MENU_PAGE_GLOBAL:
+    case DISPLAY_MENU_PAGE_USER_THEME:
     case DISPLAY_MENU_PAGE_BANKS:
     case DISPLAY_MENU_PAGE_BANK_EDIT:
     case DISPLAY_MENU_PAGE_DEVICES:

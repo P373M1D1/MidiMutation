@@ -87,7 +87,7 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
         },
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_USER] = {
-        .name = "User",
+        .name = "USER1",
         .footbar_font = &Font_Consolas8x21,
         .info_font = &Font_Consolas15x35,
         .preset_font = &Font_Consolas23x49,
@@ -114,36 +114,6 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
             .main_alert_badge_text_colour = BLACK,
             .bpm_internal_colour = AQUA,
             .ext_bpm_colour = CANTALOUPE_MELON,
-        },
-    },
-    [RUNTIME_CONFIG_DISPLAY_MODE_WEED] = {
-        .name = "Weed",
-        .footbar_font = &Font_Consolas8x21,
-        .info_font = &Font_Consolas15x35,
-        .preset_font = &Font_Consolas23x49,
-        .theme = {
-            .display_bg_colour = DARK_JUNGLE_GREEN,
-            .main_footbar_color = PAKISTAN_GREEN,
-            .main_footbar_text_colour = LIGHT_GOLDENROD_YELLOW,
-            .main_info_text_colour = MOSS_GREEN,
-            .main_info_edit_cursor_text_colour = BLACK,
-            .main_info_edit_cursor_bg_colour = LIGHT_GOLDENROD_YELLOW,
-            .main_info_edit_cursor_shared_bg_colour = OLD_GOLD,
-            .main_saving_popup_bg_colour = LIGHT_GOLDENROD_YELLOW,
-            .main_saving_popup_text_colour = PAKISTAN_GREEN,
-            .main_saving_popup_border_colour = HUNTER_GREEN,
-            .main_mode_header_colour = LIGHT_GOLDENROD_YELLOW,
-            .main_mode_header_edit_colour = BLACK,
-            .main_mode_header_edit_bg_colour = OLD_GOLD,
-            .main_preset_colour = BABY_POWDER,
-            .main_bank_colour = MOSS_GREEN,
-            .main_bank_wet_dry_colour = LIGHT_GOLDENROD_YELLOW,
-            .main_special_function_button_active_colour = LIGHT_GOLDENROD_YELLOW,
-            .main_special_function_button_inactive_colour = MOSS_GREEN,
-            .main_special_function_button_active_bg = SAP_GREEN,
-            .main_alert_badge_text_colour = BLACK,
-            .bpm_internal_colour = SAP_GREEN,
-            .ext_bpm_colour = OLD_GOLD,
         },
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_BLUESCREEN] = {
@@ -173,36 +143,6 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
             .main_special_function_button_active_bg = RUSSIAN_VIOLET,
             .main_alert_badge_text_colour = BABY_POWDER,
             .bpm_internal_colour = BEAU_BLUE,
-            .ext_bpm_colour = BLUE_YONDER,
-        },
-    },
-    [RUNTIME_CONFIG_DISPLAY_MODE_MIDNIGHT] = {
-        .name = "Midnight",
-        .footbar_font = &Font_Consolas8x21,
-        .info_font = &Font_Consolas15x35,
-        .preset_font = &Font_Consolas23x49,
-        .theme = {
-            .display_bg_colour = NAVY_BLUE,
-            .main_footbar_color = DARK_BLUE,
-            .main_footbar_text_colour = BLUE_YONDER,
-            .main_info_text_colour = BLUE_YONDER,
-            .main_info_edit_cursor_text_colour = BABY_POWDER,
-            .main_info_edit_cursor_bg_colour = MIDNIGHT_BLUE,
-            .main_info_edit_cursor_shared_bg_colour = PERSIAN_INDIGO,
-            .main_saving_popup_bg_colour = INDIGO_DYE,
-            .main_saving_popup_text_colour = BEAU_BLUE,
-            .main_saving_popup_border_colour = BLUE_SAPPHIRE,
-            .main_mode_header_colour = BEAU_BLUE,
-            .main_mode_header_edit_colour = BABY_POWDER,
-            .main_mode_header_edit_bg_colour = MIDNIGHT_BLUE,
-            .main_preset_colour = BEAU_BLUE,
-            .main_bank_colour = BLUE_YONDER,
-            .main_bank_wet_dry_colour = BEAU_BLUE,
-            .main_special_function_button_active_colour = BABY_POWDER,
-            .main_special_function_button_inactive_colour = BLUE_SAPPHIRE,
-            .main_special_function_button_active_bg = MIDNIGHT_BLUE,
-            .main_alert_badge_text_colour = BABY_POWDER,
-            .bpm_internal_colour = BLUE_SAPPHIRE,
             .ext_bpm_colour = BLUE_YONDER,
         },
     },
@@ -364,12 +304,37 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
 
 static RuntimeConfigDisplayMode_t Display_NormalizeThemeMode(RuntimeConfigDisplayMode_t display_mode)
 {
-    /* Normalization is a last-resort guard for corrupt or future flash data.
-     * It is not a migration layer for intentionally removed/reordered themes. */
-    if ((uint8_t)display_mode >= (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_COUNT)
-        return RUNTIME_CONFIG_DISPLAY_MODE_DARK;
+    return RuntimeConfig_NormalizeDisplayMode((uint8_t)display_mode);
+}
 
-    return display_mode;
+static void Display_LoadRuntimeUserTheme(DisplayTheme_t *destination,
+                                         const RuntimeConfigUserTheme_t *source)
+{
+    if (!destination || !source)
+        return;
+
+    destination->display_bg_colour = source->display_bg_colour;
+    destination->main_footbar_color = source->main_footbar_color;
+    destination->main_footbar_text_colour = source->main_footbar_text_colour;
+    destination->main_info_text_colour = source->main_info_text_colour;
+    destination->main_info_edit_cursor_text_colour = source->main_info_edit_cursor_text_colour;
+    destination->main_info_edit_cursor_bg_colour = source->main_info_edit_cursor_bg_colour;
+    destination->main_info_edit_cursor_shared_bg_colour = source->main_info_edit_cursor_shared_bg_colour;
+    destination->main_saving_popup_bg_colour = source->main_saving_popup_bg_colour;
+    destination->main_saving_popup_text_colour = source->main_saving_popup_text_colour;
+    destination->main_saving_popup_border_colour = source->main_saving_popup_border_colour;
+    destination->main_mode_header_colour = source->main_mode_header_colour;
+    destination->main_mode_header_edit_colour = source->main_mode_header_edit_colour;
+    destination->main_mode_header_edit_bg_colour = source->main_mode_header_edit_bg_colour;
+    destination->main_preset_colour = source->main_preset_colour;
+    destination->main_bank_colour = source->main_bank_colour;
+    destination->main_bank_wet_dry_colour = source->main_bank_wet_dry_colour;
+    destination->main_special_function_button_active_colour = source->main_special_function_button_active_colour;
+    destination->main_special_function_button_inactive_colour = source->main_special_function_button_inactive_colour;
+    destination->main_special_function_button_active_bg = source->main_special_function_button_active_bg;
+    destination->main_alert_badge_text_colour = source->main_alert_badge_text_colour;
+    destination->bpm_internal_colour = source->bpm_internal_colour;
+    destination->ext_bpm_colour = source->ext_bpm_colour;
 }
 
 static const DisplayThemeSpec_t *Display_GetThemeSpec(void)
@@ -386,7 +351,18 @@ static const DisplayThemeSpec_t *Display_GetThemeSpec(void)
 
 const DisplayTheme_t *Display_GetTheme(void)
 {
-    return &Display_GetThemeSpec()->theme;
+    static DisplayTheme_t runtime_user_theme;
+    const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
+    RuntimeConfigDisplayMode_t mode = global ? global->display_mode : RUNTIME_CONFIG_DISPLAY_MODE_DARK;
+    const RuntimeConfigUserTheme_t *user_theme;
+
+    mode = Display_NormalizeThemeMode(mode);
+    user_theme = RuntimeConfig_GetUserTheme(mode);
+    if (!user_theme)
+        return &display_theme_specs[(uint8_t)mode].theme;
+
+    Display_LoadRuntimeUserTheme(&runtime_user_theme, user_theme);
+    return &runtime_user_theme;
 }
 
 const char *Display_GetThemeName(RuntimeConfigDisplayMode_t display_mode)
