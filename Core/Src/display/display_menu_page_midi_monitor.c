@@ -9,17 +9,20 @@
 #include "midi_functions.h"
 #include "st7796.h"
 
-#define MIDI_MONITOR_FONT                  Font_Consolas8x21
-#define MIDI_MONITOR_FONT_CHAR_WIDTH       8U
-#define MIDI_MONITOR_FONT_LINE_HEIGHT      21U
+#define MIDI_MONITOR_FONT                  (*Display_GetThemeInfoFont())
+#define MIDI_MONITOR_FONT_CHAR_WIDTH       15U
+#define MIDI_MONITOR_FONT_LINE_HEIGHT      35U
 #define MIDI_MONITOR_BG_COLOUR             BLACK
 #define MIDI_MONITOR_TEXT_COLOUR           WHITE
 #define MIDI_MONITOR_TEXT_X                8U
 #define MIDI_MONITOR_LINE_NUMBER_CHARS     2U
-#define MIDI_MONITOR_GUTTER_SCROLL_CHARS   1U
+#define MIDI_MONITOR_LINE_GUTTER_CHARS     (1U + MIDI_MONITOR_LINE_NUMBER_CHARS)
+#define MIDI_MONITOR_DATA_COLUMN_CHARS     4U
+#define MIDI_MONITOR_HEADER_DATA_PAD_CHARS MIDI_MONITOR_DATA_COLUMN_CHARS
+#define MIDI_MONITOR_ROW_DATA_PAD_CHARS    (MIDI_MONITOR_DATA_COLUMN_CHARS - MIDI_MONITOR_LINE_GUTTER_CHARS)
 #define MIDI_MONITOR_LINE_TEXT_CHARS       ((ST7796_WIDTH - MIDI_MONITOR_TEXT_X) / MIDI_MONITOR_FONT_CHAR_WIDTH)
-#define MIDI_MONITOR_CLOCK_Y               MAIN_PRESET_TEXT_Y
-#define MIDI_MONITOR_COLUMNS_Y             (MIDI_MONITOR_CLOCK_Y + MIDI_MONITOR_FONT_LINE_HEIGHT)
+#define MIDI_MONITOR_CLOCK_Y               (MAIN_PRESET_TEXT_Y - MIDI_MONITOR_FONT_LINE_HEIGHT)
+#define MIDI_MONITOR_COLUMNS_Y             MAIN_PRESET_TEXT_Y
 #define MIDI_MONITOR_MESSAGES_Y            (MIDI_MONITOR_COLUMNS_Y + MIDI_MONITOR_FONT_LINE_HEIGHT)
 #define MIDI_MONITOR_VISIBLE_MESSAGE_COUNT ((MAIN_FOOTBAR_Y - MIDI_MONITOR_MESSAGES_Y) / MIDI_MONITOR_FONT_LINE_HEIGHT)
 #define MIDI_MONITOR_REFRESH_MS            50U
@@ -107,7 +110,7 @@ static void Display_FormatMidiMonitorEntry(const MidiMonitorEntry_t *entry,
     char channel_text[4] = "--";
     char value1_text[8] = "---";
     char value2_text[8] = "---";
-    const char *type_text = "";
+    const char *type_text = "--";
 
     if (!entry || !buffer || buffer_size == 0U)
         return;
@@ -115,8 +118,8 @@ static void Display_FormatMidiMonitorEntry(const MidiMonitorEntry_t *entry,
     switch ((MidiMonitorMessageType_t)entry->type)
     {
     case MIDI_MONITOR_MESSAGE_PROGRAM_CHANGE:
-        type_text = "Prg";
-        (void)snprintf(channel_text, sizeof(channel_text), "%2u", entry->channel);
+        type_text = "Program";
+        (void)snprintf(channel_text, sizeof(channel_text), "%02u", entry->channel);
         /* MIDI Program Change is encoded on the wire as 0..127, but most DAWs
          * and patch lists present it as 1..128. Show that user-facing number
          * here so monitor output matches what Ableton labels in its UI. */
@@ -124,8 +127,8 @@ static void Display_FormatMidiMonitorEntry(const MidiMonitorEntry_t *entry,
         break;
 
     case MIDI_MONITOR_MESSAGE_CONTROL_CHANGE:
-        type_text = "CC";
-        (void)snprintf(channel_text, sizeof(channel_text), "%2u", entry->channel);
+        type_text = "Control";
+        (void)snprintf(channel_text, sizeof(channel_text), "%02u", entry->channel);
         (void)snprintf(value1_text, sizeof(value1_text), "%3u", entry->value1);
         (void)snprintf(value2_text, sizeof(value2_text), "%3u", entry->value2);
         break;
@@ -143,13 +146,13 @@ static void Display_FormatMidiMonitorEntry(const MidiMonitorEntry_t *entry,
         break;
 
     default:
-        type_text = "";
+        type_text = "--";
         break;
     }
 
     (void)snprintf(buffer,
                    buffer_size,
-                   "%4u %3s %-8s %6s %6s",
+                   "%u: %s %-8s %3s %3s",
                    (unsigned)entry->source_uart,
                    channel_text,
                    type_text,
@@ -177,10 +180,12 @@ static void Display_FormatMidiMonitorMessageLine(const MidiMonitorEntry_t *entry
     Display_FormatMidiMonitorEntry(entry, data_text, sizeof(data_text));
     (void)snprintf(buffer,
                    buffer_size,
-                   "%c %0*u %s",
+                   "%c%0*u%*s%s",
                    scroll_marker,
                    MIDI_MONITOR_LINE_NUMBER_CHARS,
                    (unsigned)line_number,
+                   (int)MIDI_MONITOR_ROW_DATA_PAD_CHARS,
+                   "",
                    data_text);
 }
 
@@ -250,7 +255,10 @@ void Display_MenuMidiMonitorScroll(int8_t delta)
         Display_DrawFootbar();
     }
 
-    next_scroll = (int16_t)midi_monitor_scroll_offset + (int16_t)delta;
+    /* MIDI monitor browsing is intentionally inverted relative to the normal
+     * menu list so CW walks down toward larger line numbers and CCW returns
+     * toward older/top entries. */
+    next_scroll = (int16_t)midi_monitor_scroll_offset - (int16_t)delta;
     if (next_scroll < 0)
         next_scroll = 0;
     if (next_scroll > (int16_t)max_scroll)
@@ -319,14 +327,20 @@ void Display_DrawMenuMidiMonitor(void)
 
     (void)snprintf(line,
                    sizeof(line),
-                   "Clock Signal IN: %s",
+                   "CLK SIGNAL IN: %s",
                    clock_present ? "YES" : "NO");
     Display_MenuMidiMonitorDrawLineIfChanged(MIDI_MONITOR_CLOCK_Y,
                                              line,
                                              midi_monitor_cached_clock_line,
                                              force_redraw);
+
+    (void)snprintf(line,
+                   sizeof(line),
+                   "%*sU: Ch Type     V1  V2",
+                   (int)MIDI_MONITOR_HEADER_DATA_PAD_CHARS,
+                   "");
     Display_MenuMidiMonitorDrawLineIfChanged(MIDI_MONITOR_COLUMNS_Y,
-                                             "  Ln UART  Ch Type      Val1   Val2",
+                                             line,
                                              midi_monitor_cached_column_line,
                                              force_redraw);
 
