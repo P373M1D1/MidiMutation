@@ -61,7 +61,7 @@ static void Display_LoadingBarSetText(const char *text, uint16_t colour)
                         LOADING_BAR_TEXT_FONT.height);
 }
 
-void Display_LoadingBar(uint32_t duration_ms)
+void Display_LoadingBar(uint32_t duration_ms, void (*service_hook)(void))
 {
     Display_LoadingBarSetText(LOADING_BAR_WAIT_TEXT, LOADING_SCREEN_TEXT_COLOUR);
 
@@ -78,6 +78,9 @@ void Display_LoadingBar(uint32_t duration_ms)
 
     for (;;)
     {
+        if (service_hook)
+            service_hook();
+
         uint32_t elapsed = HAL_GetTick() - start;
         if (elapsed >= duration_ms)
             elapsed = duration_ms;

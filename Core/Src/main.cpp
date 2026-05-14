@@ -55,11 +55,20 @@
 #define STARTUP_SPLASH_Y                 0U /* y origin for the startup splash image */
 #define STARTUP_STATUS_TEXT_X           10U /* x position of the startup flash-status text */
 #define STARTUP_STATUS_TEXT_Y           10U /* y position of the startup flash-status text */
+#define STARTUP_STATUS_SUBTEXT_Y       (STARTUP_STATUS_TEXT_Y + STARTUP_STATUS_FONT.height + 2U) /* second status line positioned just below the persistent-store diagnostic */
 #define STARTUP_STATUS_FONT             Font_7x10 /* font used for the startup flash-status text */
 #define STARTUP_STATUS_FG_COLOUR        CHARCOAL /* foreground colour of the startup flash-status text */
 #define STARTUP_STATUS_BG_COLOUR        BLACK /* background colour behind the startup splash/status area */
 #define STARTUP_STATUS_TEXT_BUFFER_SIZE 16U /* small fixed buffer for startup persistent-store diagnostics */
 #define STARTUP_LOADING_BAR_MS_DEFAULT 1000U /* startup loading-bar duration before the main screen appears */
+
+#define SYSTEM_CLOCK_PLL_N            384U /* shared PLL multiplier used for both startup and runtime clocks */
+#define SYSTEM_CLOCK_PLL_P            RCC_PLLP_DIV4 /* 96 MHz SYSCLK target on STM32F413 */
+#define SYSTEM_CLOCK_PLL_Q            8U /* 48 MHz peripheral clock target */
+#define SYSTEM_CLOCK_PLL_R            2U /* unused by this firmware, kept aligned with Cube-generated config */
+#define SYSTEM_CLOCK_HSI_PLL_M        16U /* 16 MHz HSI / 16 * 384 / 4 = 96 MHz */
+#define SYSTEM_CLOCK_HSE_PLL_M        8U /* 8 MHz HSE / 8 * 384 / 4 = 96 MHz */
+#define SYSTEM_CLOCK_PROMOTION_RETRY_MS 50U /* retry HSE promotion during the splash without stalling each frame on every loop */
 
 #define MIDI_OUTPUT_UART_INSTANCE      UART4 /* dedicated UART instance used for controller-managed MIDI output */
 #define MIDI_OUTPUT_TX_GPIO_PORT       GPIOD /* GPIO port for the dedicated MIDI output TX pin */
@@ -122,6 +131,7 @@ static volatile uint8_t  tap_head  = 0U;        /* circular write pointer   */
 volatile uint16_t g_bpm     = BPM_DEFAULT; /* live BPM value         */
 volatile uint8_t         bpm_dirty    = 0U;  /* set by ISR, read by main */
 volatile uint32_t bpm_save_tick = 0U;  /* HAL_GetTick target to save BPM to Flash */
+static uint8_t system_clock_uses_hse = 0U; /* latched once the runtime clock has been promoted to the external source */
 
 static uint32_t App_GetStartupLoadingBarDurationMs(void)
 {
@@ -186,6 +196,15 @@ static void MX_SPI1_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_USB_OTG_FS_PCD_Init(void);
 /* USER CODE BEGIN PFP */
+static HAL_StatusTypeDef SystemClock_ApplyClockTree(uint32_t sysclk_source);
+static uint8_t SystemClock_HardwareUsesHse(void);
+static HAL_StatusTypeDef SystemClock_ConfigureHsiPll(void);
+static HAL_StatusTypeDef SystemClock_ConfigureHsePll(void);
+static HAL_StatusTypeDef SystemClock_RestoreHsiPll(void);
+static HAL_StatusTypeDef SystemClock_PromoteToHse(void);
+static void SystemClock_AttemptStartupPromotion(void);
+static void StartupStatus_DrawClockSource(void);
+static void SystemClock_ServiceStartupPromotion(void);
 static void MX_MIDI_Output_UART_Init(void);
 static uint32_t MidiClockTimerPeriodForBpm(uint16_t bpm);
 static uint32_t MidiClockTimerCountsForPulseIntervalUs(uint32_t pulse_interval_us);
@@ -253,6 +272,167 @@ extern "C" int __io_putchar(int ch)
     HAL_UART_Transmit(&huart3, &byte, 1U, 10U);
 
   return ch;
+}
+
+static const char *SystemClock_GetSourceStatusText(void)
+{
+  return SystemClock_HardwareUsesHse() ? "clock source: HSE" : "clock source: HSI";
+}
+
+static uint8_t SystemClock_HardwareUsesHse(void)
+{
+  if ((RCC->CFGR & RCC_CFGR_SWS) != RCC_CFGR_SWS_PLL)
+    return 0U;
+
+  if ((RCC->PLLCFGR & RCC_PLLCFGR_PLLSRC) != RCC_PLLCFGR_PLLSRC_HSE)
+    return 0U;
+
+  return (RCC->CR & RCC_CR_HSERDY) != 0U ? 1U : 0U;
+}
+
+static void StartupStatus_DrawClockSource(void)
+{
+  ST7796_WriteString(STARTUP_STATUS_TEXT_X, STARTUP_STATUS_SUBTEXT_Y,
+    SystemClock_GetSourceStatusText(),
+    STARTUP_STATUS_FONT, STARTUP_STATUS_FG_COLOUR, STARTUP_STATUS_BG_COLOUR);
+}
+
+static HAL_StatusTypeDef SystemClock_ApplyClockTree(uint32_t sysclk_source)
+{
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK
+                              | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = sysclk_source;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+
+  return HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3);
+}
+
+static HAL_StatusTypeDef SystemClock_ConfigureHsiPll(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = SYSTEM_CLOCK_HSI_PLL_M;
+  RCC_OscInitStruct.PLL.PLLN = SYSTEM_CLOCK_PLL_N;
+  RCC_OscInitStruct.PLL.PLLP = SYSTEM_CLOCK_PLL_P;
+  RCC_OscInitStruct.PLL.PLLQ = SYSTEM_CLOCK_PLL_Q;
+  RCC_OscInitStruct.PLL.PLLR = SYSTEM_CLOCK_PLL_R;
+
+  return HAL_RCC_OscConfig(&RCC_OscInitStruct);
+}
+
+static HAL_StatusTypeDef SystemClock_ConfigureHsePll(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = SYSTEM_CLOCK_HSE_PLL_M;
+  RCC_OscInitStruct.PLL.PLLN = SYSTEM_CLOCK_PLL_N;
+  RCC_OscInitStruct.PLL.PLLP = SYSTEM_CLOCK_PLL_P;
+  RCC_OscInitStruct.PLL.PLLQ = SYSTEM_CLOCK_PLL_Q;
+  RCC_OscInitStruct.PLL.PLLR = SYSTEM_CLOCK_PLL_R;
+
+  return HAL_RCC_OscConfig(&RCC_OscInitStruct);
+}
+
+static HAL_StatusTypeDef SystemClock_RestoreHsiPll(void)
+{
+  HAL_StatusTypeDef status;
+
+  status = SystemClock_ConfigureHsiPll();
+  if (status != HAL_OK)
+    return status;
+
+  status = SystemClock_ApplyClockTree(RCC_SYSCLKSOURCE_PLLCLK);
+  if (status == HAL_OK)
+    system_clock_uses_hse = 0U;
+
+  return status;
+}
+
+static HAL_StatusTypeDef SystemClock_PromoteToHse(void)
+{
+  HAL_StatusTypeDef status;
+
+  if (SystemClock_HardwareUsesHse())
+  {
+    system_clock_uses_hse = 1U;
+    return HAL_OK;
+  }
+
+  status = SystemClock_ApplyClockTree(RCC_SYSCLKSOURCE_HSI);
+  if (status != HAL_OK)
+    return status;
+
+  status = SystemClock_ConfigureHsePll();
+  if (status != HAL_OK)
+  {
+    (void)SystemClock_RestoreHsiPll();
+    return status;
+  }
+
+  status = SystemClock_ApplyClockTree(RCC_SYSCLKSOURCE_PLLCLK);
+  if (status != HAL_OK)
+  {
+    (void)SystemClock_ApplyClockTree(RCC_SYSCLKSOURCE_HSI);
+    (void)SystemClock_RestoreHsiPll();
+    return status;
+  }
+
+  system_clock_uses_hse = 1U;
+  return HAL_OK;
+}
+
+static void SystemClock_AttemptStartupPromotion(void)
+{
+  (void)SystemClock_PromoteToHse();
+}
+
+static void SystemClock_ServiceStartupPromotion(void)
+{
+  static uint32_t last_promotion_attempt_tick = 0U;
+  static uint8_t last_drawn_clock_source = 0xFFU;
+  uint8_t hardware_uses_hse = SystemClock_HardwareUsesHse();
+  uint32_t now = HAL_GetTick();
+
+  if (hardware_uses_hse)
+    system_clock_uses_hse = 1U;
+
+  if (last_drawn_clock_source != hardware_uses_hse)
+  {
+    StartupStatus_DrawClockSource();
+    last_drawn_clock_source = hardware_uses_hse;
+  }
+
+  if (hardware_uses_hse)
+    return;
+
+  if ((now - last_promotion_attempt_tick) < SYSTEM_CLOCK_PROMOTION_RETRY_MS)
+    return;
+
+  last_promotion_attempt_tick = now;
+  (void)SystemClock_PromoteToHse();
+
+  hardware_uses_hse = SystemClock_HardwareUsesHse();
+  if (hardware_uses_hse)
+    system_clock_uses_hse = 1U;
+
+  if (last_drawn_clock_source != hardware_uses_hse)
+  {
+    StartupStatus_DrawClockSource();
+    last_drawn_clock_source = hardware_uses_hse;
+  }
 }
 
 static const char PresetEdit_NameCharset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ";
@@ -1345,11 +1525,7 @@ int main(void)
   RuntimeConfig_Init();
   AppEvent_Init();
   Display_BL_Init();
-  MidiInitInput();
-  MX_MIDI_Output_UART_Init();
-  MidiSetOutputUart(&huart4);
   ST7796_Init();
-  MX_TIM2_Init();
   char startup_status_text[STARTUP_STATUS_TEXT_BUFFER_SIZE];
     /* The splash asset is stored with swapped red/blue channels. */
     ST7796_DrawImageSwapRB(STARTUP_SPLASH_X, STARTUP_SPLASH_Y, IMAGE_WIDTH, IMAGE_HEIGHT, image_data);
@@ -1359,12 +1535,19 @@ int main(void)
     ST7796_WriteString(STARTUP_STATUS_TEXT_X, STARTUP_STATUS_TEXT_Y,
       startup_status_text,
       STARTUP_STATUS_FONT, STARTUP_STATUS_FG_COLOUR, STARTUP_STATUS_BG_COLOUR);
+    StartupStatus_DrawClockSource();
   //Display_LoadingBar(7000U);
-    Display_LoadingBar(App_GetStartupLoadingBarDurationMs());
+    Display_LoadingBar(App_GetStartupLoadingBarDurationMs(), SystemClock_ServiceStartupPromotion);
   Display_LoadingBarClear();
+  SystemClock_AttemptStartupPromotion();
+    StartupStatus_DrawClockSource();
   Display_BL_FadeOut();
     ST7796_FillScreen(STARTUP_STATUS_BG_COLOUR);  /* clear while backlight is off ??? invisible */
   Display_BL_FadeIn();
+  MX_TIM2_Init();
+  MidiInitInput();
+  MX_MIDI_Output_UART_Init();
+  MidiSetOutputUart(&huart4);
     /* Restore persisted tempo, but always boot into bank 1 / preset 1 so the
      * first main screen is deterministic regardless of the last live state. */
   g_bpm = BPM_Flash_Load();
@@ -1458,38 +1641,13 @@ static void MX_SPI1_Init(void)
   */
 void SystemClock_Config(void)
 {
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-
   /** Configure the main internal regulator output voltage */
   __HAL_RCC_PWR_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-  /** Initializes the RCC Oscillators */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 8;
-  RCC_OscInitStruct.PLL.PLLN = 384;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
-  RCC_OscInitStruct.PLL.PLLQ = 8;
-  RCC_OscInitStruct.PLL.PLLR = 2;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
+  /* Boot from HSI first so standalone E5V startup does not depend on the
+   * ST-LINK-side MCO becoming ready before main() runs. */
+  if (SystemClock_RestoreHsiPll() != HAL_OK)
   {
     Error_Handler();
   }

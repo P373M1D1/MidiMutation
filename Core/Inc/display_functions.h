@@ -93,8 +93,10 @@ uint8_t Display_MenuAdjustValue(int8_t delta);
 
 /* -- Screensaver/loading ------------------------------------------------------- */
 
-/** Draws a progress bar in the lower quarter and blocks for duration_ms. */
-void Display_LoadingBar(uint32_t duration_ms);
+/** Draws a progress bar in the lower quarter and blocks for duration_ms.
+ * The optional service_hook is called from the blocking loop so startup code
+ * can poll hardware or refresh small status text while the splash is visible. */
+void Display_LoadingBar(uint32_t duration_ms, void (*service_hook)(void));
 /** Clears the loading bar area to the current theme background. */
 void Display_LoadingBarClear(void);
 
