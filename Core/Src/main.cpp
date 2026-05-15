@@ -1167,6 +1167,12 @@ static void App_HandleEncoderTurnEvent(uint8_t encoder_source, int8_t delta)
         return;
       }
 
+      if (Display_MenuUserThemeEditIsActive())
+      {
+        Display_MenuMoveSelection(delta);
+        return;
+      }
+
       if (Display_MenuTextEditIsActive())
         Display_MenuTextEditMoveCursor(delta);
       else
@@ -1199,7 +1205,14 @@ static void App_HandleEncoderTurnEvent(uint8_t encoder_source, int8_t delta)
     return;
 
   case APP_EVENT_SOURCE_ENC2:
-    if (Display_MenuIsActive() || Display_PresetEditIsActive())
+    if (Display_MenuIsActive())
+    {
+      if (Display_MenuUserThemeEditIsActive())
+        Display_MenuAdjustUserThemeHue(delta);
+      return;
+    }
+
+    if (Display_PresetEditIsActive())
       return;
 
     {
@@ -1225,6 +1238,12 @@ static void App_HandleEncoderTurnEvent(uint8_t encoder_source, int8_t delta)
     {
       if (Display_MenuMidiMonitorIsActive())
         return;
+
+      if (Display_MenuUserThemeEditIsActive())
+      {
+        Display_MenuAdjustUserThemeBrightness(delta);
+        return;
+      }
 
       Display_MenuAdjustValue(delta);
       return;

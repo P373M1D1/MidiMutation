@@ -60,12 +60,31 @@ static const char *Display_GetConfirmFootbarLabel(uint8_t section_index)
     }
 }
 
+static const char *Display_GetUserThemeEditFootbarLabel(uint8_t section_index)
+{
+    switch (section_index)
+    {
+    case 0U:
+        return MAIN_FOOTBAR_MENU_USER_THEME_EDIT_LEFT_TEXT;
+    case 1U:
+        return MAIN_FOOTBAR_MENU_USER_THEME_EDIT_CENTER_TEXT;
+    case 2U:
+        return MAIN_FOOTBAR_MENU_USER_THEME_EDIT_RIGHT_TEXT;
+    default:
+        return "";
+    }
+}
+
 static const char *Display_GetFootbarLabel(uint8_t section_index)
 {
     if (display_state.menu_mode_active && !display_state.menu_preview_active)
     {
         if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_MIDI_MONITOR)
             return Display_GetMidiMonitorFootbarLabel(section_index);
+
+        if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_USER_THEME
+         && display_state.menu_user_theme_edit_active)
+            return Display_GetUserThemeEditFootbarLabel(section_index);
 
         /* Menu footers take precedence over preset-edit/live-mode copy because
          * the soft-button hints should always describe the currently modal UI. */
@@ -77,6 +96,8 @@ static const char *Display_GetFootbarLabel(uint8_t section_index)
         case 0U:
             return MAIN_FOOTBAR_MENU_LEFT_TEXT;
         case 1U:
+            if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_USER_THEME)
+                return MAIN_FOOTBAR_MENU_PREVIEW_CENTER_TEXT;
             return MAIN_FOOTBAR_MENU_CENTER_TEXT;
         case 2U:
             return MAIN_FOOTBAR_MENU_RIGHT_TEXT;

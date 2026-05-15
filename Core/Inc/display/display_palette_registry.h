@@ -7,15 +7,18 @@
 extern "C" {
 #endif
 
-/* Named access to the full ST7796 RGB565 palette.
- * The registry is generated from the driver's color macro list so menu code
- * can step by user-visible names without duplicating palette definitions. */
+/* Named access to the ST7796 RGB565 palette browse order.
+ * The registry is generated from the driver's color macro list, then exposed
+ * as a deduped USER-theme browse list that stays grouped by colour family and
+ * sorted dark-to-bright within each family. */
 
 uint16_t DisplayPalette_GetCount(void);
 const char *DisplayPalette_GetName(uint16_t index);
 uint16_t DisplayPalette_GetValue(uint16_t index);
 uint16_t DisplayPalette_FindIndexByValue(uint16_t value);
 uint16_t DisplayPalette_StepIndex(uint16_t current_index, int8_t delta);
+uint16_t DisplayPalette_StepHueIndex(uint16_t current_index, int8_t delta);
+uint16_t DisplayPalette_StepBrightnessIndex(uint16_t current_index, int8_t delta);
 
 #ifdef __cplusplus
 }

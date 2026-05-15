@@ -201,7 +201,8 @@ uint8_t Display_MenuAdjustTextCharacter(int8_t delta)
 
 uint8_t Display_MenuSubEditorIsActive(void)
 {
-    return (display_state.menu_text_edit_field != (uint8_t)DISPLAY_MENU_TEXT_FIELD_NONE) ? 1U : 0U;
+    return (display_state.menu_text_edit_field != (uint8_t)DISPLAY_MENU_TEXT_FIELD_NONE
+         || display_state.menu_user_theme_edit_active) ? 1U : 0U;
 }
 
 uint8_t Display_MenuTextEditIsActive(void)

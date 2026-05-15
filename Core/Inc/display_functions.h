@@ -84,6 +84,7 @@ uint8_t Display_MenuPreviewIsActive(void);
 void Display_MenuPreviewEnter(const Preset_t *p, uint16_t bpm);
 void Display_MenuPreviewExit(void);
 uint8_t Display_MenuSubEditorIsActive(void);
+uint8_t Display_MenuUserThemeEditIsActive(void);
 uint8_t Display_MenuMoveSelection(int8_t delta);
 uint8_t Display_MenuActivate(void);
 uint8_t Display_MenuBack(void);
@@ -94,6 +95,8 @@ uint8_t Display_MenuTextEditMoveCursor(int8_t delta);
  * redraw for theme changes, so callers should treat this as more than a pure
  * formatting helper. */
 uint8_t Display_MenuAdjustValue(int8_t delta);
+uint8_t Display_MenuAdjustUserThemeHue(int8_t delta);
+uint8_t Display_MenuAdjustUserThemeBrightness(int8_t delta);
 
 /* -- Screensaver/loading ------------------------------------------------------- */
 

@@ -208,6 +208,69 @@ static uint8_t Display_AdjustFunctionButtonMessageValue(int8_t delta)
     }
 }
 
+static uint8_t Display_MenuApplyUserThemePaletteIndex(uint16_t next_palette_index)
+{
+    RuntimeConfigGlobal_t *global = RuntimeConfig_GetMutableGlobal();
+    RuntimeConfigDisplayMode_t user_theme_mode = RuntimeConfig_NormalizeDisplayMode(display_state.menu_active_user_theme_mode);
+    RuntimeConfigUserTheme_t *user_theme = RuntimeConfig_GetMutableUserTheme(user_theme_mode);
+    RuntimeConfigUserThemeField_t field = (RuntimeConfigUserThemeField_t)display_state.menu_user_theme_selection_index;
+    uint8_t changed;
+
+    if (!display_state.menu_mode_active || (DisplayMenuPage_t)display_state.menu_page != DISPLAY_MENU_PAGE_USER_THEME)
+        return 0U;
+
+    if (!user_theme)
+        return 0U;
+
+    changed = RuntimeConfig_SetUserThemeColour(user_theme,
+                                               field,
+                                               DisplayPalette_GetValue(next_palette_index));
+    if (!changed)
+        return 0U;
+
+    RuntimeConfig_MarkDirty();
+
+    if (global && global->display_mode == user_theme_mode)
+    {
+        /* USER-theme colour edits happen inside menu mode, so repainting the
+         * current menu shell is sufficient; a full display reset is overkill. */
+        display_state.menu_draw_state_valid = 0U;
+        Display_MenuRefresh();
+        return 1U;
+    }
+
+    Display_MenuRedrawCurrentValue();
+    return 1U;
+}
+
+uint8_t Display_MenuAdjustUserThemeHue(int8_t delta)
+{
+    RuntimeConfigDisplayMode_t user_theme_mode = RuntimeConfig_NormalizeDisplayMode(display_state.menu_active_user_theme_mode);
+    const RuntimeConfigUserTheme_t *user_theme = RuntimeConfig_GetUserTheme(user_theme_mode);
+    RuntimeConfigUserThemeField_t field = (RuntimeConfigUserThemeField_t)display_state.menu_user_theme_selection_index;
+    uint16_t current_palette_index;
+
+    if (!display_state.menu_user_theme_edit_active || delta == 0 || !user_theme)
+        return 0U;
+
+    current_palette_index = DisplayPalette_FindIndexByValue(RuntimeConfig_GetUserThemeColour(user_theme, field));
+    return Display_MenuApplyUserThemePaletteIndex(DisplayPalette_StepHueIndex(current_palette_index, delta));
+}
+
+uint8_t Display_MenuAdjustUserThemeBrightness(int8_t delta)
+{
+    RuntimeConfigDisplayMode_t user_theme_mode = RuntimeConfig_NormalizeDisplayMode(display_state.menu_active_user_theme_mode);
+    const RuntimeConfigUserTheme_t *user_theme = RuntimeConfig_GetUserTheme(user_theme_mode);
+    RuntimeConfigUserThemeField_t field = (RuntimeConfigUserThemeField_t)display_state.menu_user_theme_selection_index;
+    uint16_t current_palette_index;
+
+    if (!display_state.menu_user_theme_edit_active || delta == 0 || !user_theme)
+        return 0U;
+
+    current_palette_index = DisplayPalette_FindIndexByValue(RuntimeConfig_GetUserThemeColour(user_theme, field));
+    return Display_MenuApplyUserThemePaletteIndex(DisplayPalette_StepBrightnessIndex(current_palette_index, delta));
+}
+
 uint8_t Display_MenuAdjustValue(int8_t delta)
 {
     RuntimeConfigGlobal_t *global = RuntimeConfig_GetMutableGlobal();
@@ -215,7 +278,6 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
     RuntimeConfigDevice_t *device = RuntimeConfig_GetMutableDevice(display_state.menu_active_device_index);
     uint8_t changed = 0U;
     uint8_t full_redraw = 0U;
-    uint8_t menu_refresh = 0U;
 
     if (!display_state.menu_mode_active || delta == 0)
         return 0U;
@@ -379,7 +441,7 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
     else if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_USER_THEME)
     {
         RuntimeConfigDisplayMode_t user_theme_mode = RuntimeConfig_NormalizeDisplayMode(display_state.menu_active_user_theme_mode);
-        RuntimeConfigUserTheme_t *user_theme = RuntimeConfig_GetMutableUserTheme(user_theme_mode);
+        const RuntimeConfigUserTheme_t *user_theme = RuntimeConfig_GetUserTheme(user_theme_mode);
         RuntimeConfigUserThemeField_t field = (RuntimeConfigUserThemeField_t)display_state.menu_user_theme_selection_index;
         uint16_t current_palette_index;
         uint16_t next_palette_index;
@@ -389,11 +451,7 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
 
         current_palette_index = DisplayPalette_FindIndexByValue(RuntimeConfig_GetUserThemeColour(user_theme, field));
         next_palette_index = DisplayPalette_StepIndex(current_palette_index, delta);
-        changed = RuntimeConfig_SetUserThemeColour(user_theme,
-                                                   field,
-                                                   DisplayPalette_GetValue(next_palette_index));
-        if (changed && global && global->display_mode == user_theme_mode)
-            menu_refresh = 1U;
+        return Display_MenuApplyUserThemePaletteIndex(next_palette_index);
     }
     else
         return 0U;
@@ -402,15 +460,6 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
         return 0U;
 
     RuntimeConfig_MarkDirty();
-
-    if (menu_refresh)
-    {
-        /* USER-theme colour edits happen inside menu mode, so repainting the
-         * current menu shell is sufficient; a full display reset is overkill. */
-        display_state.menu_draw_state_valid = 0U;
-        Display_MenuRefresh();
-        return 1U;
-    }
 
     if (full_redraw)
     {

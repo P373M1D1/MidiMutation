@@ -169,6 +169,7 @@ static void Display_ResetMenuTransientEditors(void)
     display_state.menu_device_cc_field_edit_active = 0U;
     display_state.menu_text_edit_field = (uint8_t)DISPLAY_MENU_TEXT_FIELD_NONE;
     display_state.menu_text_edit_cursor_index = 0U;
+    display_state.menu_user_theme_edit_active = 0U;
 }
 
 static void Display_RestoreFactorySettings(void)
@@ -347,6 +348,13 @@ uint8_t Display_MenuPreviewIsActive(void)
     return display_state.menu_preview_active;
 }
 
+uint8_t Display_MenuUserThemeEditIsActive(void)
+{
+    return (display_state.menu_mode_active
+         && (DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_USER_THEME
+         && display_state.menu_user_theme_edit_active) ? 1U : 0U;
+}
+
 void Display_MenuPreviewEnter(const Preset_t *p, uint16_t bpm)
 {
     if (!Display_MenuPreviewCanShow() || display_state.menu_preview_active || !p)
@@ -372,6 +380,14 @@ uint8_t Display_MenuBack(void)
 {
     if (!display_state.menu_mode_active)
         return 0U;
+
+    if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_USER_THEME
+     && display_state.menu_user_theme_edit_active)
+    {
+        display_state.menu_user_theme_edit_active = 0U;
+        Display_DrawFootbar();
+        return 1U;
+    }
 
     switch ((DisplayMenuPage_t)display_state.menu_page)
     {
@@ -590,7 +606,9 @@ uint8_t Display_MenuActivate(void)
     case DISPLAY_MENU_PAGE_MIDI_MONITOR:
         return 0U;
     case DISPLAY_MENU_PAGE_USER_THEME:
-        return 0U;
+        display_state.menu_user_theme_edit_active = display_state.menu_user_theme_edit_active ? 0U : 1U;
+        Display_DrawFootbar();
+        return 1U;
     case DISPLAY_MENU_PAGE_BANKS:
         display_state.menu_active_bank_index = display_state.menu_bank_selection_index;
         display_state.menu_bank_edit_selection_index = 0U;

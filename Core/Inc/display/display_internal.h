@@ -69,6 +69,7 @@ typedef struct DisplayState {
 	uint8_t menu_global_selection_index;
 	uint8_t menu_user_theme_selection_index;
 	uint8_t menu_active_user_theme_mode;
+	uint8_t menu_user_theme_edit_active;
 	uint8_t menu_function_button_message_selection_index;
 	uint8_t menu_function_button_message_field_index;
 	uint8_t menu_function_button_message_field_edit_active;
