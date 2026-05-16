@@ -2,40 +2,65 @@ MidiMutation - High-Level Overview
 
 1. Product summary
 
-- MidiMutation is a foot controller for hybrid guitar rigs that combine MIDI effects and conventional amplifier switching.
-- The current system combines preset recall, Program Change transmission, CC transmission, relay switching, tempo control, MIDI clock handling, and on-device editing.
-- The hardware design also includes provision for 2 TRS MIDI connectors. These are not yet hooked up electrically in the current build.
+- MidiMutation is a foot controller for hybrid guitar rigs that combine MIDI effects, relay-switched amplifier functions, onboard editing, and transport/tempo control.
+- The current firmware covers live preset recall, Program Change and CC transmission, relay switching, internal and external MIDI clock handling, preset editing, configuration menus, MIDI monitoring, and theme editing.
+- The hardware still includes provision for 2 TRS MIDI connectors, but that expansion is not yet wired into the active firmware path on the current build.
 
 2. Functional scope
 
 - 64 preset locations via 8 banks x 8 presets.
 - Up to 8 MIDI device slots are addressed per preset.
-- Each preset stores 8 device Program Change values, 8 additional CC slots, and 2 relay states.
-- The relay outputs are intended for amplifier control, including channel switching and built-in spring reverb tank on/off.
-- MIDI In, smart MIDI Out, and soft-thru are part of the current design.
-- Preset names are editable on the controller.
+- Each preset stores a name, 8 per-device Program Change slots, 8 CC slots, and 2 relay states.
+- Relay outputs are intended for amplifier control such as channel switching and onboard spring reverb switching.
+- The controller supports MIDI In, smart MIDI Out, soft-thru, tap tempo, internal clock, external clock following, random preset selection, mute, and special-function behavior.
+- The editable runtime layer now covers bank names, device names and routing fields, function-button labels/messages, global settings, and 3 persisted USER display themes.
 
-3. Workflow summary
+3. User-facing modes
 
-- In LIVE mode, the controller selects presets, changes banks, controls tempo, and enters MENU or preset edit.
-- In preset edit mode, the user can scroll device preset numbers from the controller, resend the current combination, and audition changes without touching the connected FX pedals.
-- When a useful combination is found, it can be stored as a named preset. Names can be descriptive, functional, or emotion-based.
-- A random preset function is also available. Its practical use is to expose combinations that are otherwise easy to ignore when pedals contain many internal presets.
+LIVE mode
+
+- Main performance surface for selecting presets, stepping banks, scrolling the information area, and controlling tempo.
+- Current encoder model in LIVE is: ENC1 scrolls the info area, ENC2 steps presets within the active bank, and ENC3 adjusts tempo.
+- Footswitches handle direct preset recall plus random, special-function, mute, and tap behavior.
+
+PRESET EDIT mode
+
+- Used to audition and adjust the active preset without leaving the controller.
+- Supports preset-name editing, per-device program editing, relay state edits, CC edits, resend, and preset init confirmation.
+- Edits apply in RAM first and are saved through the existing dirty-save flow.
+
+MENU mode
+
+- Root branches currently implemented: BANKS, DEVICES, GLOBAL, and MIDI MONITOR.
+- BANKS and DEVICES are full editors rather than placeholders; both include init/reset confirmation flows.
+- GLOBAL includes startup delay, screensaver timeout, sync style, display mode, brightness, and factory reset.
+- GLOBAL -> Theme opens the dedicated USER theme editor when a USER theme is active.
+
+MIDI MONITOR page
+
+- Dedicated freeform menu page for retained MIDI message history.
+- Supports stop/read toggle, clear, and scrolling through stored entries.
+
+USER theme editor
+
+- Each USER theme exposes individual colour fields with a live swatch and live-theme application when the edited USER theme is active.
+- ENC2 SW on this page acts as a press-and-hold LIVE preview instead of HOME.
+- The page now also supports an optional palette-backed colour edit mode: ENC1 press toggles edit mode for the current row, ENC1 turn still scrolls rows, ENC2 turn steps hue families, ENC3 turn steps brightness within the current family, and ENC3 SW exits/back behaves normally.
 
 4. Practical use case
 
-- The main use case is a rig with several MIDI pedals plus an amplifier that still requires relay-based switching.
-- The controller is intended to reduce the need for separate MIDI controllers, amp switchers, and external MIDI utility boxes.
-- The planned TRS MIDI provision addresses a current gap in many foot controllers, since modern FX pedals increasingly use TRS MIDI while many controllers still assume external adapter or junction hardware.
+- The main target rig is several MIDI-capable pedals plus an amplifier that still needs relay-based switching.
+- MidiMutation is intended to replace a stack of separate MIDI controllers, amp switchers, MIDI utility boxes, and ad hoc tempo routing.
+- The long-term TRS MIDI provision is aimed at newer pedals that increasingly ship with TRS MIDI instead of 5-pin DIN.
 
 5. Current I/O summary
 
-- Smart MIDI Out 1: UART4 TX on PD1.
-- MIDI In: USART2 RX on PD6.
-- Soft-thru: USART2 TX on PD5.
-- Spare MIDI-capable output path: UART5 TX on PC12, currently unused by firmware.
-- Display: ST7796 TFT over SPI1.
-- User controls: preset/select footswitches, tap footswitch, and 3 rotary encoders with pushbuttons.
+- Smart MIDI Out: UART4 TX.
+- MIDI In: USART2 RX.
+- Soft-thru: USART2 TX.
+- Spare MIDI-capable output path: UART5 TX, currently unused by firmware.
+- Display: ST7796 480x320 TFT over SPI1.
+- User controls: 11 footswitches plus 3 rotary encoders with pushbuttons.
 - Control outputs: 2 relay outputs for amp functions.
 - Debug path: USART3 over ST-LINK VCP plus SWD.
 - Planned expansion: 2 TRS MIDI connectors, not yet electrically active.
@@ -45,65 +70,164 @@ MidiMutation - High-Level Overview
 Hardware architecture
 
 - MCU: STM32F413ZH on Nucleo-144.
-- Display subsystem: ST7796 480x320 SPI display with DAC-controlled backlight.
-- Display bulk transfers use a manual SPI1 TX DMA path on DMA2 Stream3.
-- Input subsystem: preset/select footswitches are handled on GPIO EXTI lines; tap is on its own EXTI input; all 3 rotary encoder A/B pairs are sampled from TIM7; encoder pushbuttons are edge-latched on EXTI and debounced in the shared sampler path.
-- MIDI subsystem: UART4 is the smart MIDI output, USART2 handles MIDI input and soft-thru, USART3 is reserved for debug/VCP, and UART5 TX is currently unused in firmware.
-- Relay subsystem: 2 relay control states are stored per preset and intended for amplifier channel and spring reverb switching.
-- TRS MIDI subsystem: board provision exists for 2 TRS MIDI connectors, but the current hardware build does not yet wire them into the active MIDI path.
+- Display subsystem: ST7796 SPI display with DAC-controlled backlight.
+- Display bulk transfers use the manual SPI1 TX DMA path on DMA2 Stream3.
+- Input subsystem: footswitches use EXTI-backed event capture; all encoder quadrature inputs are sampled from TIM7; encoder pushbuttons are edge-latched and debounced in the shared sampler path.
+- MIDI subsystem: UART4 is the smart MIDI output, USART2 handles MIDI input and soft-thru, USART3 is the debug/VCP path, and UART5 TX is available but currently unused by application logic.
+- Relay subsystem: 2 relay states are stored per preset and applied on preset activation.
 
 Software architecture
 
-- main.cpp: boot sequence, peripheral init, timer init, encoder handling, and top-level mode dispatch.
-- button_functions.c: footswitch event queue, preset button handling, tap, random preset, special function, and mute behavior.
-- presets.c / presets.h: preset store, active preset selection, random preset generation, and preset persistence hooks.
-- midi_functions.c: MIDI parser, smart-output scheduling, transport state, external clock measurement, and sync discipline.
-- display_functions.c and display_compose.c: main screen, preset edit UI, menu UI, and display compose/blit pipeline.
-- runtime_config.c / runtime_config.h: editable bank, device, function-button, and global configuration data.
-- led_functions.c: beat and activity LED behavior.
-- bpm_functions.c: BPM persistence and periodic background service support.
+- main.cpp: boot sequence, peripheral initialization, timer bring-up, encoder handling, app event dispatch, redraw/save service flow, and top-level mode routing.
+- button_functions.c: footswitch event queue, preset-button handling, tap timing input, random preset, special-function, and mute behavior.
+- presets.c / presets.h: preset storage, active preset selection, preset reset/default handling, dirty tracking, and persistence integration.
+- midi_functions.c: MIDI parser, smart-output scheduling, realtime queueing, external clock measurement, and sync discipline.
+- runtime_config.c / runtime_config.h: editable runtime model for banks, devices, function-button settings, global settings, and 3 USER themes.
+- led_functions.c: activity, beat, and indicator LED behavior.
+- bpm_functions.c: BPM restore/save support and related background timing helpers.
 
-Data model
+Display architecture
 
-- Preset store: 8 banks x 8 presets.
+- display_functions.c remains the public facade and still owns parts of the main-screen and preset-edit flow.
+- Core/Src/display now carries most extracted display responsibilities, including:
+	- display_menu_controller.c for menu lifecycle and page transitions.
+	- display_menu_pages.c plus page-family files for BANKS, DEVICES, GLOBAL, MIDI MONITOR, FUNCTION BUTTON, and USER THEME rendering.
+	- display_menu_redraw.c, display_menu_redraw_utils.c, and display_menu_row_render.c for targeted menu redraws and row/window math.
+	- display_menu_text_edit.c and display_menu_value.c for text/value editing logic.
+	- display_theme.c and display_palette_registry.c for theme lookup and palette-backed colour browsing.
+	- display_status_strip.c, display_main_title.c, display_loading_bar.c, display_backlight.c, and display_screensaver.c for the remaining display feature slices.
+- The display path is now intentionally modular, but still centered on shared display state plus row-level redraw helpers rather than a full scene graph.
+
+7. Data model
+
+Preset store
+
+- 8 banks x 8 presets.
 - Each preset contains a name, 8 per-device Program Change slots, 8 CC slots, and 2 relay states.
-- Program slots map directly to the configured MIDI device table.
-- Runtime configuration stores editable bank names, optional device names, device channel/max-preset fields, function-button labels/messages, startup delay, screensaver timeout, sync style, and brightness.
+- Program slots map directly onto the configured runtime device table.
 
-Timing and interrupt model
+Runtime configuration
 
-- TIM2: free-running 1 MHz microsecond counter used for external MIDI clock interval measurement and timeout tracking.
-- TIM6: internal MIDI clock engine. Outgoing F8 bytes are generated from the TIM6 IRQ path, and the beat LED is pulsed once per quarter note.
+- Bank layer: editable bank names, wet/dry enable, and MIDI clock bar count.
+- Function-button layer: editable name, active/inactive labels, and per-state program/CC message tables.
+- Device layer: editable short name, channel, max preset, and CC mappings for active, bypass, level, and tap tempo.
+- Global layer: startup delay, screensaver timeout, sync style, display mode, and brightness.
+- Theme layer: 3 editable USER themes, each storing raw RGB565 colour fields for the main display palette.
+- Display modes currently include DARK, BRIGHT, USER1, BLUESCREEN, TRIPPING, USER2, USER3, C64, and BIOS.
+
+8. Timing and interrupt model
+
+- TIM2: free-running 1 MHz microsecond counter for MIDI clock interval measurement and timeout tracking.
+- TIM6: internal MIDI clock engine. Outgoing F8 bytes are produced from the TIM6 IRQ path, and the beat LED is pulsed on quarter notes.
 - TIM7: 2 kHz shared encoder sampler for quadrature decoding and encoder-switch debounce support.
-- EXTI: used for footswitch edges, tap input, and encoder pushbutton edge detection.
-- DMA2 Stream3: used for SPI1 display bulk transfers.
+- EXTI: footswitch edges, tap input, and encoder pushbutton edge detection.
+- DMA2 Stream3: SPI1 display bulk transfers.
 
-Persistence model
+9. Persistence model
 
-- Sector 11 stores BPM/runtime state. Boot currently restores BPM but starts from bank 1 / preset 1 rather than restoring the last active preset location.
-- Sector 12 stores a versioned combined image containing the editable preset store and runtime configuration.
-- If the stored image is invalid, the firmware falls back to compiled defaults.
-- Preset edits mark the runtime preset store dirty and are committed on preset edit exit.
-- Runtime configuration shares the same combined persistence image so preset and config saves do not erase each other.
+- Sector 11 stores BPM/runtime state.
+- Sector 12 stores the versioned combined image containing preset data plus runtime configuration.
+- Runtime configuration and preset data share the same combined persistence image so one save path does not erase the other.
+- USER themes are part of that runtime configuration image and persist alongside the other editable menu data.
+- If stored data is invalid or incompatible, firmware falls back to compiled defaults and migration logic seeds newer fields where possible.
 
-Runtime flow
+10. Runtime flow
 
-- Boot flow:
-	system clock init -> GPIO/UART/SPI/display init -> runtime config load -> preset store load -> timer start -> draw main screen.
-- Footswitch flow:
-	EXTI edge -> button event queue -> foreground processing in button_functions.c -> preset/random/special/mute/tap action -> display and LED update.
-- Encoder flow:
-	TIM7 sample -> quadrature accumulation -> pending step/button flags -> foreground processing in main.cpp -> mode-specific action for LIVE, MENU, or preset edit.
-- Preset activation flow:
-	preset selection -> fetch preset data -> send Program Changes and CC messages through the MIDI output path -> apply relay states -> refresh display.
-- MIDI clock flow:
-	external clock bytes arrive on USART2 -> interval measured with TIM2 -> TIM6 pulse interval and phase are updated -> outgoing clock continues from TIM6 -> soft-thru continues on USART2 TX.
-- Edit flow:
-	menu or preset edit changes mutate RAM structures first -> dirty flags are set -> data is saved on mode exit rather than on every encoder step.
+Boot flow
 
-Implementation notes
+- System clock and peripherals initialize first, then runtime config and preset data are loaded, timers are started, and the main screen is drawn.
 
-- The current software architecture separates live control data from editable runtime configuration.
-- The display path is optimized around off-screen composition and row-level blits to reduce visible redraw artifacts.
-- The smart MIDI output path uses a dedicated realtime queue plus a separate message queue so clock bytes are not blocked by longer Program Change or CC traffic.
-- The random preset path is part of the runtime preset system rather than a separate external tool.
+Footswitch flow
+
+- EXTI edge -> button event queue -> foreground processing in button_functions.c -> preset/random/special/mute/tap action -> display and LED update.
+
+Encoder flow
+
+- TIM7 sample -> quadrature accumulation -> pending step/button flags -> foreground processing in main.cpp -> mode-specific action for LIVE, PRESET EDIT, MENU, MIDI MONITOR, or USER theme edit mode.
+
+Preset activation flow
+
+- Preset selection -> fetch preset data -> send Program Changes and CC messages through the smart MIDI output path -> apply relay states -> refresh display.
+
+Clock flow
+
+- External clock bytes arrive on USART2 -> interval is measured with TIM2 -> TIM6 interval/phase is updated -> outgoing internal/smart clock continues from TIM6 while soft-thru continues on USART2 TX.
+
+Edit/save flow
+
+- Menu and preset edits mutate RAM first -> dirty flags are raised -> save service decides when to show the saving popup and commit the combined image -> redraw restores the current visible surface afterward.
+
+11. Current implementation notes
+
+- The firmware now cleanly separates preset data from editable runtime configuration while still saving them through a shared flash image.
+- The menu system is incremental rather than full-screen redraw driven; same-page interactions try to redraw only the affected row, value area, or small popup region.
+- The smart MIDI output path uses separated realtime and normal message handling so clock traffic is not blocked by longer Program Change or CC sequences.
+- USER theme palette browsing is deduped and ordered by broad colour family with dark-to-bright ordering inside each family.
+- The optional USER theme edit mode is still palette-backed, so all existing theme colours remain reachable even though the page now exposes a more X/Y-style control scheme.
+
+12. Engineer-facing architecture notes
+
+System style
+
+- The firmware is a single-process, no-RTOS design with interrupt-driven input capture and a foreground main loop that owns semantic dispatch, redraw decisions, and flash-save sequencing.
+- There is no dynamic allocation in the main control path. Core runtime state lives in static module-owned storage.
+- Most modules communicate through explicit function calls and a small number of shared state structs rather than a generic message bus.
+
+Ownership map
+
+- main.cpp owns startup sequencing, peripheral bring-up, top-level app state, encoder routing, event dispatch, redraw/save service coordination, and mode selection.
+- app_event.c owns the ISR-safe ring buffer used to move semantic app events from interrupt context into the foreground loop.
+- button_functions.c owns footswitch interpretation and button-originated action routing.
+- presets.c owns the preset store, active preset selection, default-reset behavior, and preset dirty tracking.
+- runtime_config.c owns editable non-preset configuration, including bank/device/function-button settings, global settings, USER themes, and runtime-config dirty tracking.
+- midi_functions.c owns MIDI parsing, outbound scheduling, realtime queue handling, and clock/sync discipline.
+- The display subsystem owns UI state and rendering. Non-display modules should use the public facade in Core/Inc/display_functions.h rather than reaching into display internals.
+
+Display layering
+
+- display_functions.h is the public boundary for the app layer.
+- Core/Inc/display/display_internal.h is private display-only infrastructure shared across extracted display modules.
+- display_menu_controller.c owns page transitions, menu enter/back/home behavior, and selection focus rules.
+- display_menu_pages.c plus the page-family files own page body rendering and page-specific item formatting.
+- display_menu_redraw.c, display_menu_redraw_utils.c, and display_menu_row_render.c own incremental redraw behavior, windowing, and row-surface composition.
+- display_menu_text_edit.c and display_menu_value.c own mutation logic for text editors, numeric fields, palette stepping, and USER-theme edit behavior.
+- display_theme.c owns theme lookup; display_palette_registry.c owns the deduped palette browse order used by the USER-theme editor.
+- display_backlight.c, display_screensaver.c, display_status_strip.c, display_loading_bar.c, and display_main_title.c are specialized slices pulled out of the older monolithic display implementation.
+
+State ownership and mutation rules
+
+- DisplayState is display-owned UI scratch state. It should be treated as renderer/controller state, not as a general application data model.
+- Preset_t data represents musical content to be recalled and transmitted.
+- RuntimeConfig_t represents editable device, bank, global, and theme configuration that survives reboot.
+- Menu edits and preset edits mutate RAM first, then mark the relevant store dirty. Save occurs later through the foreground save service rather than on every encoder tick.
+- Theme edits are special because they can require immediate visual application. When the currently active USER theme is edited, the display layer forces the necessary menu redraw path immediately.
+
+Execution model
+
+- Interrupt handlers should do the minimum necessary work: sample, latch, timestamp, queue, or set pending flags.
+- Semantic handling happens in foreground code. This keeps interrupt latency predictable and localizes mode-dependent logic in main.cpp and the subsystem facades.
+- Encoder motion is captured continuously, then interpreted according to the active mode in App_HandleEncoderTurnEvent.
+- The app_event queue is the primary semantic handoff for higher-level actions such as encoder turns, presses, redraw requests, and save requests.
+
+Persistence architecture
+
+- Preset data and runtime config share one combined flash image, even though they have separate ownership in RAM.
+- Dirty tracking is separate, but persistence is coordinated so one save operation does not accidentally wipe the other data set.
+- Schema changes to runtime config or persisted presets need matching migration/default-seeding logic so older flash images remain readable.
+- USER themes are part of runtime config and therefore follow the same migration and dirty-save rules as the rest of the menu-edited configuration.
+
+How to extend the system safely
+
+- To add a new menu page: add page enum/state, page renderer, selection/item-count hook, controller enter/back behavior, and value/text edit handling if the page mutates data.
+- To add a new runtime-config field: extend RuntimeConfig_t and defaults, update persistence migration if needed, add menu rendering/value edit support, and mark dirty on mutation.
+- To add a new theme field: extend RuntimeConfigUserTheme_t, theme load/application paths, USER-theme rendering/value handling, and migration/default initialization.
+- To add a new display mode: update RuntimeConfigDisplayMode_t, display_theme.c, menu formatting/selection flow, and persistence assumptions about stored mode ids.
+- Avoid including display private headers outside the display subsystem. If app-layer code needs something, expose a narrow public function instead.
+
+Practical debugging notes
+
+- If behavior depends on current mode, start in main.cpp and trace the relevant App_Handle* path before reading renderer code.
+- If a menu issue is visual only, check the page renderer and redraw modules before changing controller logic.
+- If a menu issue changes stored values incorrectly, check display_menu_value.c or display_menu_text_edit.c before changing rendering.
+- If a save or restore issue appears, inspect both presets.c and runtime_config.c because the flash image is shared.
+- Current focused builds are expected to succeed with one known pre-existing linker warning about an RWX LOAD segment.

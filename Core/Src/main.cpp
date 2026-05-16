@@ -81,9 +81,7 @@
 #define MIDI_OUTPUT_UART_IRQ_PREEMPT_PRIORITY 1U /* keep UART4 TXE service ahead of clock-discipline and input IRQ work */
 #define MIDI_OUTPUT_UART_IRQ_SUBPRIORITY     0U /* no secondary offset needed for the dedicated MIDI output IRQ */
 
-#define TIM6_TICK_HZ                  100000U /* target counter frequency used for internal MIDI clock timing */
 #define TIM6_PRESCALER_DIVISOR           960U /* timer prescaler divisor used to derive TIM6_TICK_HZ */
-#define TIM6_COUNTS_PER_MINUTE     (TIM6_TICK_HZ * 60U) /* number of TIM6 ticks that elapse in one minute */
 #define TIM7_TICK_HZ                 1000000U /* shared encoder-sampler timer tick rate */
 #define TIM7_PRESCALER_DIVISOR            96U /* 96 MHz APB1 timer clock divided down to 1 MHz */
 #define ENCODER_SAMPLE_HZ              2000U /* shared interrupt rate for encoder quadrature sampling */
@@ -148,7 +146,7 @@ static uint32_t App_GetStartupLoadingBarDurationMs(void)
 }
 const Preset_t   *active_preset = NULL; /* current preset, needed by screensaver wake */
 uint8_t active_preset_index = PRESET_DEFAULT;
-static volatile uint8_t encoder_button_press_pending_mask = 0U; /* queued encoder switch press events waiting for serial test output */
+static volatile uint8_t encoder_button_log_pending_mask = 0U; /* queued encoder switch press logs waiting for optional foreground serial output */
 static uint8_t encoder_switch_raw_level[3] = {1U, 1U, 1U}; /* last sampled raw GPIO level for each encoder pushbutton */
 static uint8_t encoder_switch_stable_level[3] = {1U, 1U, 1U}; /* current debounced level so one physical press only queues once */
 static uint32_t encoder_switch_last_change_tick[3] = {0U, 0U, 0U}; /* HAL tick when the raw encoder switch level last changed */
@@ -210,8 +208,6 @@ static void SystemClock_AttemptStartupPromotion(void);
 static void StartupStatus_DrawClockSource(void);
 static void SystemClock_ServiceStartupPromotion(void);
 static void MX_MIDI_Output_UART_Init(void);
-static uint32_t MidiClockTimerPeriodForBpm(uint16_t bpm);
-static uint32_t MidiClockTimerCountsForPulseIntervalUs(uint32_t pulse_interval_us);
 static void MX_TIM2_Init(void);
 static void MX_TIM6_Init(uint16_t bpm);
 static void MX_TIM7_Init(void);
@@ -226,6 +222,8 @@ static void TempoEncoder_Init(void);
 static void TempoEncoder_ProcessPending(void);
 static void TempoEncoder_ApplyBpmStep(int8_t step);
 static void ExternalClockHoldoverMirror_Service(void);
+static void App_ApplyInternalTempoBpm(uint16_t bpm, uint8_t pulse_led);
+static void App_ApplyMirroredTempoBpm(uint16_t bpm);
 static void AppEventDiagnosticService(void);
 static const Preset_t *App_GetCurrentDisplayPreset(void);
 static void App_ProcessPendingEvents(void);
@@ -245,8 +243,8 @@ static void App_HandleRedrawMainScreenEvent(void);
 static void App_HandleSaveRequestEvent(uint8_t save_kind);
 static void App_ServiceMenuPreviewHold(void);
 static void App_SaveService(void);
-static void App_QueueEncoderPressEvent(uint8_t press_mask);
-static void App_QueueEncoderTurnEvent(uint8_t encoder_source, int8_t delta);
+static void App_QueueEncoderPressEvent(uint8_t press_mask, uint32_t tick);
+static void App_QueueEncoderTurnEvent(uint8_t encoder_source, int8_t delta, uint32_t tick);
 static void App_QueueBankStepEvent(int8_t delta, uint8_t step_mode);
 static void App_QueuePresetActivateEvent(uint8_t preset_index);
 static void App_QueueScreensaverWakeEvent(void);
@@ -816,7 +814,7 @@ static void App_SaveServiceRegisterRequest(uint8_t save_kind)
   app_save_service_requested_mask |= App_SaveRequestMaskForKind(save_kind);
 }
 
-static void App_QueueEncoderPressEvent(uint8_t press_mask)
+static void App_QueueEncoderPressEvent(uint8_t press_mask, uint32_t tick)
 {
   AppEvent_t event;
 
@@ -826,11 +824,11 @@ static void App_QueueEncoderPressEvent(uint8_t press_mask)
   event.type = APP_EVENT_TYPE_ENCODER_PRESS;
   event.source = APP_EVENT_SOURCE_NONE;
   event.value = (int16_t)press_mask;
-  event.tick = HAL_GetTick();
+  event.tick = tick;
   (void)AppEvent_Push(&event);
 }
 
-static void App_QueueEncoderTurnEvent(uint8_t encoder_source, int8_t delta)
+static void App_QueueEncoderTurnEvent(uint8_t encoder_source, int8_t delta, uint32_t tick)
 {
   AppEvent_t event;
 
@@ -840,7 +838,7 @@ static void App_QueueEncoderTurnEvent(uint8_t encoder_source, int8_t delta)
   event.type = APP_EVENT_TYPE_ENCODER_TURN;
   event.source = encoder_source;
   event.value = (int16_t)delta;
-  event.tick = HAL_GetTick();
+  event.tick = tick;
   (void)AppEvent_Push(&event);
 }
 
@@ -958,6 +956,7 @@ static void App_HandleTapPressEvent(uint32_t now)
 {
   uint8_t screensaver_was_active = Display_ScreensaverIsActive();
 
+  LED_TapPressPulse();
   App_QueueScreensaverWakeEvent();
 
   if (screensaver_was_active)
@@ -1019,14 +1018,7 @@ static void App_HandleTapPressEvent(uint32_t now)
   if (new_bpm < BPM_MIN || new_bpm > BPM_MAX)
     return;
 
-  g_bpm = (uint16_t)new_bpm;
-  MidiClockUseInternalTempo();
-  TIM6->ARR = MidiClockTimerPeriodForBpm((uint16_t)new_bpm);
-  TIM6->CNT = 0U;
-  LED_BeatPulse();
-
-  bpm_dirty = 1U;
-  bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
+  App_ApplyInternalTempoBpm((uint16_t)new_bpm, 1U);
 }
 
 static void App_HandleEncoderPressEvent(uint8_t press_mask)
@@ -1652,6 +1644,7 @@ int main(void)
   MX_TIM7_Init();
   HAL_TIM_Base_Start_IT(&htim7);
   EncoderCheck_Init();
+  Button_MonitorInit();
 
   /* USER CODE END 2 */
 
@@ -1838,8 +1831,10 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(ST7796_CS_GPIO_Port,  ST7796_CS_Pin,  GPIO_PIN_SET);   /* CS high = deselected */
   HAL_GPIO_WritePin(ST7796_DC_GPIO_Port,  ST7796_DC_Pin,  GPIO_PIN_SET);   /* DC high = data */
   HAL_GPIO_WritePin(GPIOF, PRESET_LED1_Pin | PRESET_LED2_Pin | PRESET_LED3_Pin | PRESET_LED4_Pin |
-                           PRESET_LED5_Pin | PRESET_LED6_Pin | PRESET_LED7_Pin | PRESET_LED8_Pin,
+              PRESET_LED5_Pin | PRESET_LED6_Pin | PRESET_LED7_Pin | PRESET_LED8_Pin |
+              PRESET_LED9_Pin | PRESET_LED10_Pin | PRESET_LED11_Pin,
                     GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(TAP_FEEDBACK_LED_GPIO_Port, TAP_FEEDBACK_LED_Pin, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_RESET);
 
   /* Configure the Nucleo user button as a second falling-edge random trigger. */
@@ -1921,11 +1916,18 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(MIDI_IN_LED_GPIO_Port, &GPIO_InitStruct);
 
   GPIO_InitStruct.Pin = PRESET_LED1_Pin | PRESET_LED2_Pin | PRESET_LED3_Pin | PRESET_LED4_Pin |
-                        PRESET_LED5_Pin | PRESET_LED6_Pin | PRESET_LED7_Pin | PRESET_LED8_Pin;
+                        PRESET_LED5_Pin | PRESET_LED6_Pin | PRESET_LED7_Pin | PRESET_LED8_Pin |
+                        PRESET_LED9_Pin | PRESET_LED10_Pin | PRESET_LED11_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = TAP_FEEDBACK_LED_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(TAP_FEEDBACK_LED_GPIO_Port, &GPIO_InitStruct);
 
   /* Rotary 1 A/B stay on plain inputs because EXTI11/12 are already needed by PE11/12. */
   GPIO_InitStruct.Pin = ENC1_CLK_Pin | ENC1_DT_Pin;
@@ -2032,80 +2034,19 @@ void MX_TIM2_Init(void)
  * The TIM6 ISR asks midi_functions whether this pulse completed a quarter note
  * so the green beat LED still blinks once per beat.
  */
-static uint32_t MidiClockTimerPeriodForBpm(uint16_t bpm)
-{
-  uint32_t denominator = (uint32_t)bpm * MIDI_CLOCK_PULSES_PER_QUARTER_NOTE;
-  uint32_t pulse_counts = (TIM6_COUNTS_PER_MINUTE + (denominator / 2U)) / denominator;
-
-  if (pulse_counts == 0U)
-    pulse_counts = 1U;
-
-  return pulse_counts - 1U;
-}
-
-static uint32_t MidiClockTimerCountsForPulseIntervalUs(uint32_t pulse_interval_us)
-{
-  uint64_t pulse_counts;
-
-  if (pulse_interval_us == 0U)
-    return 1U;
-
-  pulse_counts = (((uint64_t)TIM6_TICK_HZ * (uint64_t)pulse_interval_us) + 500000ULL) / 1000000ULL;
-  if (pulse_counts == 0U)
-    pulse_counts = 1U;
-  else if (pulse_counts > 0x10000ULL)
-    pulse_counts = 0x10000ULL;
-
-  return (uint32_t)pulse_counts;
-}
-
 static void MX_TIM6_Init(uint16_t bpm)
 {
   __HAL_RCC_TIM6_CLK_ENABLE();
   htim6.Instance               = TIM6;
   htim6.Init.Prescaler         = TIM6_PRESCALER_DIVISOR - 1U;
   htim6.Init.CounterMode       = TIM_COUNTERMODE_UP;
-  htim6.Init.Period            = MidiClockTimerPeriodForBpm(bpm);
+  htim6.Init.Period            = MidiClockOutputTimerPeriodForBpm(bpm);
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
     Error_Handler();
   __HAL_TIM_CLEAR_FLAG(&htim6, TIM_FLAG_UPDATE); /* clear UIF set by UG during init */
   HAL_NVIC_SetPriority(TIM6_DAC_IRQn, 2U, 0U);
   HAL_NVIC_EnableIRQ(TIM6_DAC_IRQn);
-}
-
-extern "C" void MidiClockOutputResetPhase(void)
-{
-  uint32_t primask = __get_PRIMASK();
-
-  __disable_irq();
-  TIM6->CNT = 0U;
-  if (primask == 0U)
-    __enable_irq();
-}
-
-extern "C" void MidiClockOutputTrackExternalPulse(uint32_t interval_us)
-{
-  uint32_t pulse_counts = MidiClockTimerCountsForPulseIntervalUs(interval_us);
-
-  if (interval_us != 0U)
-  {
-    uint64_t denominator = (uint64_t)interval_us * (uint64_t)MIDI_CLOCK_PULSES_PER_QUARTER_NOTE;
-    uint32_t external_bpm = (uint32_t)((60000000ULL + (denominator / 2ULL)) / denominator);
-
-    if (external_bpm >= BPM_MIN && external_bpm <= BPM_MAX)
-      g_bpm = (uint16_t)external_bpm;
-  }
-
-  {
-    uint32_t primask = __get_PRIMASK();
-
-    __disable_irq();
-    TIM6->ARR = pulse_counts - 1U;
-    TIM6->CNT = 0U;
-    if (primask == 0U)
-      __enable_irq();
-  }
 }
 
 static void MX_TIM7_Init(void)
@@ -2166,7 +2107,7 @@ static void AppEventDiagnosticService(void)
 static void EncoderCheck_QueueButtonPress(uint8_t encoder_index)
 {
   uint8_t event_index = (uint8_t)(encoder_index - 1U);
-  encoder_button_press_pending_mask |= (uint8_t)(1U << event_index);
+  encoder_button_log_pending_mask |= (uint8_t)(1U << event_index);
 }
 
 /* Accept a button press only after the sampled level has stayed put for the
@@ -2194,6 +2135,7 @@ static void EncoderCheck_UpdateSwitchState(uint8_t event_index,
   if (raw_level == 0U)
   {
     *activity_pending_flag = 1U;
+    App_QueueEncoderPressEvent((uint8_t)(1U << event_index), now);
     EncoderCheck_QueueButtonPress((uint8_t)(event_index + 1U));
   }
 }
@@ -2222,8 +2164,8 @@ static void EncoderCheck_ProcessPending(void)
 
   primask = __get_PRIMASK();
   __disable_irq();
-  press_mask = encoder_button_press_pending_mask;
-  encoder_button_press_pending_mask = 0U;
+  press_mask = encoder_button_log_pending_mask;
+  encoder_button_log_pending_mask = 0U;
   if (primask == 0U)
     __enable_irq();
 
@@ -2237,8 +2179,6 @@ static void EncoderCheck_ProcessPending(void)
 #else
   (void)press_mask;
 #endif
-
-  App_QueueEncoderPressEvent(press_mask);
 }
 
 static uint8_t Encoder_ReadState(GPIO_TypeDef *clk_gpio_port, uint16_t clk_gpio_pin,
@@ -2358,6 +2298,7 @@ static void Encoder_ProcessPendingMotion(volatile uint8_t *activity_pending_flag
                                          uint8_t event_source)
 {
   uint32_t primask;
+  uint32_t event_tick;
   uint8_t activity_pending;
   int8_t pending_delta;
 
@@ -2373,6 +2314,8 @@ static void Encoder_ProcessPendingMotion(volatile uint8_t *activity_pending_flag
   if (primask == 0U)
     __enable_irq();
 
+  event_tick = HAL_GetTick();
+
   if (pending_delta != 0)
     EncoderCheck_LogTurn(encoder_index, pending_delta);
 
@@ -2386,7 +2329,16 @@ static void Encoder_ProcessPendingMotion(volatile uint8_t *activity_pending_flag
   }
 
   App_QueueScreensaverActivityEvent();
-  App_QueueEncoderTurnEvent(event_source, pending_delta);
+
+  if ((pending_delta != 0)
+      && !Display_MenuIsActive()
+      && !Display_PresetEditIsActive())
+  {
+    App_HandleEncoderTurnEvent(event_source, pending_delta);
+    return;
+  }
+
+  App_QueueEncoderTurnEvent(event_source, pending_delta, event_tick);
 }
 
 static void Rotary1_Init(void)
@@ -2456,7 +2408,7 @@ static void Encoder2_SampleInterrupt(void)
 }
 
 /* In LIVE mode ENC2 turns through presets within the current bank, while its
- * press action is handled separately in EncoderCheck_ProcessPending() to step banks.
+ * press action is queued by the shared switch sampler to step banks.
  * It stays out of menu and preset-edit flows where the other encoders already own
  * navigation/value edits. */
 static void Encoder2_ProcessPending(void)
@@ -2492,11 +2444,7 @@ static void TempoEncoder_ApplyBpmStep(int8_t step)
   if ((uint16_t)next_bpm == g_bpm)
     return;
 
-  g_bpm = (uint16_t)next_bpm;
-  TIM6->ARR = MidiClockTimerPeriodForBpm(g_bpm);
-  TIM6->CNT = 0U;
-  bpm_dirty = 1U;
-  bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
+  App_ApplyInternalTempoBpm((uint16_t)next_bpm, 0U);
 }
 
 static void TempoEncoder_SampleInterrupt(void)
@@ -2535,8 +2483,8 @@ static void TempoEncoder_SampleInterrupt(void)
   }
 }
 
-/* ENC3 keeps its live-mode tempo role, while its press action is handled
- * separately in EncoderCheck_ProcessPending() to enter MENU from LIVE.
+/* ENC3 keeps its live-mode tempo role, while its press action is queued by
+ * the shared switch sampler to enter MENU from LIVE.
  * It becomes the active value knob in preset edit mode so the right hand can
  * change a field and exit with the same encoder while ENC1 continues to own selection. */
 static void TempoEncoder_ProcessPending(void)
@@ -2596,9 +2544,26 @@ static void ExternalClockHoldoverMirror_Service(void)
   if (g_bpm == ext_mirror_candidate_bpm)
     return;
 
-  g_bpm = ext_mirror_candidate_bpm;
-  TIM6->ARR = MidiClockTimerPeriodForBpm(g_bpm);
-  TIM6->CNT = 0U;
+  App_ApplyMirroredTempoBpm(ext_mirror_candidate_bpm);
+}
+
+static void App_ApplyInternalTempoBpm(uint16_t bpm, uint8_t pulse_led)
+{
+  g_bpm = bpm;
+  MidiClockUseInternalTempo();
+  MidiClockOutputSetTempoBpm(bpm);
+
+  if (pulse_led)
+    LED_BeatPulse();
+
+  bpm_dirty = 1U;
+  bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
+}
+
+static void App_ApplyMirroredTempoBpm(uint16_t bpm)
+{
+  g_bpm = bpm;
+  MidiClockOutputSetTempoBpm(bpm);
 }
   
 
@@ -2635,6 +2600,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     Button_HandleInterrupt(GPIO_Pin);
     return;
   }
+
+#if BUTTON_LED_MONITOR_ENABLED
+  Button_MonitorReportTapPress();
+  return;
+#endif
 
   AppEvent_t tap_event = {
     APP_EVENT_TYPE_TAP_PRESS,

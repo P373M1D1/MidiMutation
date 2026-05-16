@@ -36,6 +36,7 @@ static uint8_t midi_monitor_cache_valid = 0U;
 static char midi_monitor_cached_clock_line[MIDI_MONITOR_LINE_TEXT_CHARS + 1U];
 static char midi_monitor_cached_column_line[MIDI_MONITOR_LINE_TEXT_CHARS + 1U];
 static char midi_monitor_cached_message_lines[MIDI_MONITOR_VISIBLE_MESSAGE_COUNT][MIDI_MONITOR_LINE_TEXT_CHARS + 1U];
+static uint8_t midi_monitor_cached_bottom_indent[MIDI_MONITOR_VISIBLE_MESSAGE_COUNT];
 
 static uint8_t Display_MenuMidiMonitorGetMaxScroll(uint8_t entry_count)
 {
@@ -51,7 +52,10 @@ static void Display_MenuMidiMonitorResetCache(void)
     midi_monitor_cached_column_line[0] = '\0';
 
     for (uint8_t line_index = 0U; line_index < MIDI_MONITOR_VISIBLE_MESSAGE_COUNT; ++line_index)
+    {
         midi_monitor_cached_message_lines[line_index][0] = '\0';
+        midi_monitor_cached_bottom_indent[line_index] = 0U;
+    }
 }
 
 static void Display_MenuMidiMonitorWriteLine(uint16_t y, const char *text)
@@ -74,6 +78,20 @@ static void Display_MenuMidiMonitorWriteLine(uint16_t y, const char *text)
                          MIDI_MONITOR_FONT,
                          MIDI_MONITOR_TEXT_COLOUR,
                          MIDI_MONITOR_BG_COLOUR);
+}
+
+static void Display_MenuMidiMonitorDrawBottomScrollIndent(uint16_t row_y)
+{
+    uint16_t left_x = (uint16_t)(MIDI_MONITOR_TEXT_X + 2U);
+    uint16_t right_x = (uint16_t)(MIDI_MONITOR_TEXT_X + MIDI_MONITOR_FONT_CHAR_WIDTH - 3U);
+    uint16_t center_x = (uint16_t)((left_x + right_x) / 2U);
+    uint16_t top_y = (uint16_t)(row_y + 9U);
+    uint16_t apex_y = (uint16_t)(top_y + 10U);
+
+    ST7796_DrawLine(left_x, top_y, center_x, apex_y, MIDI_MONITOR_TEXT_COLOUR);
+    ST7796_DrawLine(center_x, apex_y, right_x, top_y, MIDI_MONITOR_TEXT_COLOUR);
+    ST7796_DrawLine(left_x, (uint16_t)(top_y + 1U), center_x, (uint16_t)(apex_y + 1U), MIDI_MONITOR_TEXT_COLOUR);
+    ST7796_DrawLine(center_x, (uint16_t)(apex_y + 1U), right_x, (uint16_t)(top_y + 1U), MIDI_MONITOR_TEXT_COLOUR);
 }
 
 static void Display_MenuMidiMonitorDrawLineIfChanged(uint16_t y,
@@ -349,6 +367,8 @@ void Display_DrawMenuMidiMonitor(void)
         uint16_t row_y = (uint16_t)(MIDI_MONITOR_MESSAGES_Y + (visible_index * MIDI_MONITOR_FONT.height));
         uint8_t entry_index = (uint8_t)(first_visible_index + visible_index);
         char scroll_marker = ' ';
+        uint8_t draw_bottom_indent = 0U;
+        uint8_t line_force_redraw = force_redraw;
 
         if (entry_index >= entry_count)
         {
@@ -362,7 +382,10 @@ void Display_DrawMenuMidiMonitor(void)
         if (entry_index == first_visible_index && first_visible_index > 0U)
             scroll_marker = '^';
         else if (entry_index == newest_visible_index && newest_visible_index < (uint8_t)(entry_count - 1U))
-            scroll_marker = 'v';
+            draw_bottom_indent = 1U;
+
+        if (midi_monitor_cached_bottom_indent[visible_index] != draw_bottom_indent)
+            line_force_redraw = 1U;
 
         Display_FormatMidiMonitorMessageLine(&entries[entry_index],
                                              (uint8_t)(entry_index + 1U),
@@ -372,7 +395,12 @@ void Display_DrawMenuMidiMonitor(void)
         Display_MenuMidiMonitorDrawLineIfChanged(row_y,
                                                  line,
                                                  midi_monitor_cached_message_lines[visible_index],
-                                                 force_redraw);
+                                                 line_force_redraw);
+
+        if (draw_bottom_indent)
+            Display_MenuMidiMonitorDrawBottomScrollIndent(row_y);
+
+        midi_monitor_cached_bottom_indent[visible_index] = draw_bottom_indent;
     }
 
     midi_monitor_cache_valid = 1U;

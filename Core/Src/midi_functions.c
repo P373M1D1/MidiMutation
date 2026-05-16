@@ -1,8 +1,10 @@
 #include "midi_functions.h"
+#include "bpm_functions.h"
 #include "led_functions.h"
-#include "main.h"
 #include "runtime_config.h"
 #include <stdio.h>
+
+void Error_Handler(void);
 
 /* ── midi_functions.c ────────────────────────────────────────────────────────
  *
@@ -75,6 +77,10 @@ typedef struct
 #define MIDI_OUTPUT_BYTE_TIME_US 320U                  /* one 8-N-1 UART frame at 31.25 kbaud is 10 bits ≈ 320 µs */
 #define MIDI_OUTPUT_POST_CLOCK_GUARD_US 80U            /* leave a short quiet zone immediately after each outgoing clock byte */
 #define MIDI_OUTPUT_PRE_CLOCK_GUARD_US 80U             /* do not start a message byte too close to the next scheduled clock */
+#define MIDI_CLOCK_OUTPUT_TIMER_TICK_HZ 100000U        /* TIM6 counter rate used for internal MIDI clock output */
+#define MIDI_CLOCK_OUTPUT_COUNTS_PER_MINUTE (MIDI_CLOCK_OUTPUT_TIMER_TICK_HZ * 60U) /* one minute of TIM6 counts at the configured output tick rate */
+
+extern volatile uint16_t g_bpm;
 
 /* Clock-tracking fields are written from the USART2 IRQ path and read from
  * foreground code, so the shared timing state stays in this file and uses
@@ -142,6 +148,14 @@ static void               midi_output_send_bytes(const uint8_t *bytes, uint16_t 
 static void               midi_output_send_realtime_byte(uint8_t byte);
 static uint8_t            midi_input_is_sync_byte(uint8_t byte);
 static uint8_t            midi_clock_get_bars_per_cycle(void);
+#if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
+static uint32_t           midi_clock_output_counts_for_pulse_interval_us(uint32_t pulse_interval_us);
+static void               midi_clock_output_apply_pulse_counts(uint32_t pulse_counts);
+static void               midi_clock_output_reset_phase(void);
+static void               midi_clock_output_track_external_pulse(uint32_t interval_us);
+#else
+static void               midi_clock_output_apply_pulse_counts(uint32_t pulse_counts);
+#endif
 static void               midi_monitor_reset_parser(MidiMonitorParserState_t *parser);
 static uint8_t            midi_monitor_expected_data_count(uint8_t status);
 static MidiMonitorParserState_t *midi_monitor_get_parser(uint8_t source_uart);
@@ -854,7 +868,7 @@ void MidiReceive(uint8_t byte)
         LED_MidiClockPulse(); // Immediately blink the red LED for the first beat
         midi_internal_clock_pulse_count = 0U;
 #if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
-        MidiClockOutputResetPhase();
+        midi_clock_output_reset_phase();
 #endif
         midi_transport_running = 1U;
         midi_transport_stop_latched = 0U;
@@ -873,7 +887,7 @@ void MidiReceive(uint8_t byte)
         LED_MidiClockPulse();
         midi_internal_clock_pulse_count = 0U;
 #if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
-        MidiClockOutputResetPhase();
+        midi_clock_output_reset_phase();
 #endif
         midi_transport_running = 1U;
         midi_transport_stop_latched = 0U;
@@ -910,7 +924,7 @@ void MidiReceive(uint8_t byte)
         midi_clock_external_activity_timeout_us =
             (uint32_t)MIDI_CLOCK_LOST_TIMEOUT_MIN_MS * MIDI_CLOCK_US_PER_MS;
 #if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
-        MidiClockOutputResetPhase();
+        midi_clock_output_reset_phase();
 #endif
         return;
     }
@@ -918,7 +932,7 @@ void MidiReceive(uint8_t byte)
     if (midi_clock_last_pulse_us == 0U)
     {
 #if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
-        MidiClockOutputResetPhase();
+        midi_clock_output_reset_phase();
 #endif
     }
     else if (now != midi_clock_last_pulse_us)
@@ -965,7 +979,7 @@ void MidiReceive(uint8_t byte)
 
         midi_clock_diagnostics_note_interval(interval_us);
 #if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
-        MidiClockOutputTrackExternalPulse(interval_us);
+        midi_clock_output_track_external_pulse(interval_us);
 #endif
     }
     midi_clock_last_pulse_us = now;
@@ -1032,6 +1046,22 @@ uint8_t MidiTransportStopLatched(void)
     return midi_transport_stop_latched;
 }
 
+uint32_t MidiClockOutputTimerPeriodForBpm(uint16_t bpm)
+{
+    uint32_t denominator = (uint32_t)bpm * MIDI_CLOCK_PULSES_PER_QUARTER_NOTE;
+    uint32_t pulse_counts = (MIDI_CLOCK_OUTPUT_COUNTS_PER_MINUTE + (denominator / 2U)) / denominator;
+
+    if (pulse_counts == 0U)
+        pulse_counts = 1U;
+
+    return pulse_counts - 1U;
+}
+
+void MidiClockOutputSetTempoBpm(uint16_t bpm)
+{
+    midi_clock_output_apply_pulse_counts(MidiClockOutputTimerPeriodForBpm(bpm) + 1U);
+}
+
 void MidiClockUseInternalTempo(void)
 {
     midi_transport_running = 0U;
@@ -1086,6 +1116,62 @@ uint8_t MidiClockGetBarBeat(uint8_t *bar, uint8_t *beat)
 
     return valid;
 }
+
+static void midi_clock_output_apply_pulse_counts(uint32_t pulse_counts)
+{
+    uint32_t primask = __get_PRIMASK();
+
+    if (pulse_counts == 0U)
+        pulse_counts = 1U;
+
+    __disable_irq();
+    TIM6->ARR = pulse_counts - 1U;
+    TIM6->CNT = 0U;
+    if (primask == 0U)
+        __enable_irq();
+}
+
+#if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
+static uint32_t midi_clock_output_counts_for_pulse_interval_us(uint32_t pulse_interval_us)
+{
+    uint64_t pulse_counts;
+
+    if (pulse_interval_us == 0U)
+        return 1U;
+
+    pulse_counts = (((uint64_t)MIDI_CLOCK_OUTPUT_TIMER_TICK_HZ * (uint64_t)pulse_interval_us) + 500000ULL) / 1000000ULL;
+    if (pulse_counts == 0U)
+        pulse_counts = 1U;
+    else if (pulse_counts > 0x10000ULL)
+        pulse_counts = 0x10000ULL;
+
+    return (uint32_t)pulse_counts;
+}
+
+static void midi_clock_output_reset_phase(void)
+{
+    uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
+    TIM6->CNT = 0U;
+    if (primask == 0U)
+        __enable_irq();
+}
+
+static void midi_clock_output_track_external_pulse(uint32_t interval_us)
+{
+    if (interval_us != 0U)
+    {
+        uint64_t denominator = (uint64_t)interval_us * (uint64_t)MIDI_CLOCK_PULSES_PER_QUARTER_NOTE;
+        uint32_t external_bpm = (uint32_t)((60000000ULL + (denominator / 2ULL)) / denominator);
+
+        if (external_bpm >= BPM_MIN && external_bpm <= BPM_MAX)
+            g_bpm = (uint16_t)external_bpm;
+    }
+
+    midi_clock_output_apply_pulse_counts(midi_clock_output_counts_for_pulse_interval_us(interval_us));
+}
+#endif
 
 void MidiClockDiagnosticService(void)
 {

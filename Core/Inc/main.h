@@ -55,8 +55,6 @@ void Error_Handler(void);
 /* USER CODE BEGIN EFP */
 
 void App_EncoderSampleIRQHandler(void);
-void MidiClockOutputResetPhase(void);
-void MidiClockOutputTrackExternalPulse(uint32_t interval_us);
 
 /* USER CODE END EFP */
 
@@ -118,6 +116,8 @@ void MidiClockOutputTrackExternalPulse(uint32_t interval_us);
 
 /* USER CODE BEGIN Private defines */
 
+#define BUTTON_LED_MONITOR_ENABLED 0U /* set to 1 to turn footswitch presses into USART3 + LED numbering diagnostics instead of normal actions */
+
 #define PRESET_LED1_Pin GPIO_PIN_0 /* preset 1 indicator LED output pin */
 #define PRESET_LED1_GPIO_Port GPIOF /* GPIO port for preset 1 indicator LED */
 #define PRESET_LED2_Pin GPIO_PIN_1 /* preset 2 indicator LED output pin */
@@ -134,6 +134,14 @@ void MidiClockOutputTrackExternalPulse(uint32_t interval_us);
 #define PRESET_LED7_GPIO_Port GPIOF /* GPIO port for preset 7 indicator LED */
 #define PRESET_LED8_Pin GPIO_PIN_7 /* preset 8 indicator LED output pin */
 #define PRESET_LED8_GPIO_Port GPIOF /* GPIO port for preset 8 indicator LED */
+#define PRESET_LED9_Pin GPIO_PIN_8 /* preset 9 indicator LED output pin */
+#define PRESET_LED9_GPIO_Port GPIOF /* GPIO port for preset 9 indicator LED */
+#define PRESET_LED10_Pin GPIO_PIN_9 /* preset 10 indicator LED output pin */
+#define PRESET_LED10_GPIO_Port GPIOF /* GPIO port for preset 10 indicator LED */
+#define TAP_FEEDBACK_LED_Pin GPIO_PIN_10 /* tap footswitch press feedback LED output pin */
+#define TAP_FEEDBACK_LED_GPIO_Port GPIOF /* GPIO port for tap footswitch press feedback LED */
+#define PRESET_LED11_Pin GPIO_PIN_11 /* preset 11 indicator LED output pin */
+#define PRESET_LED11_GPIO_Port GPIOF /* GPIO port for preset 11 indicator LED */
 
 #define MIDI_IN_LED_Pin GPIO_PIN_15 /* dedicated MIDI input activity LED pin number */
 #define MIDI_IN_LED_GPIO_Port GPIOF /* GPIO port for the MIDI input activity LED */

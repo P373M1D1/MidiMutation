@@ -1,10 +1,12 @@
 #include "bpm_functions.h"
 #include "app_event.h"
 #include "button_functions.h"
+#include "led_functions.h"
 #include "main.h"
 #include "presets.h"
 #include "display_functions.h"
 #include "stm32f4xx_hal.h"
+#include <stdio.h>
 
 extern volatile uint16_t  g_bpm;
 extern const Preset_t    *active_preset;
@@ -15,6 +17,7 @@ extern const Preset_t    *active_preset;
 #define MUTE_BUTTON_INDEX 10U           /* preset-button slot used for mute / TAP+MUTE bank-up combo */
 #define FOOTSWITCH_DEBOUNCE_MS 20U      /* ignore edges that arrive too soon after the previous edge on the same switch */
 #define BANK_COMBO_WINDOW_MS 400U       /* tap+mute presses inside this window are treated as bank navigation */
+#define MUTE_BUTTON_DEBUG_ENABLED 1U    /* temporary UART diagnostics for mute press/release/combo timing */
 
 /* `preset_button_state` is the foreground view of whether a button is still
  * logically down. For the falling-edge buttons we re-arm this state only once
@@ -24,6 +27,22 @@ static uint8_t preset_button_state[FOOTSWITCH_COUNT] = {0U};
 static uint32_t preset_button_event_tick[FOOTSWITCH_COUNT] = {0U};
 static uint8_t special_functions_active = 0U;
 static uint8_t mute_activation_pending = 0U;
+
+#if MUTE_BUTTON_DEBUG_ENABLED
+static void Button_DebugMuteState(const char *tag, uint32_t now)
+{
+    uint8_t tap_held = (HAL_GPIO_ReadPin(TAP_GPIO_Port, TAP_Pin) == GPIO_PIN_RESET) ? 1U : 0U;
+    uint8_t mute_held = (HAL_GPIO_ReadPin(PRESET_BTN_GPIO_Port, PRESET_BTN11_Pin) == GPIO_PIN_RESET) ? 1U : 0U;
+
+    printf("MUTEDBG %-12s t=%lu pressed=%u pending=%u tapHeld=%u muteHeld=%u\r\n",
+           tag,
+           (unsigned long)now,
+           (unsigned)preset_button_state[MUTE_BUTTON_INDEX],
+           (unsigned)mute_activation_pending,
+           (unsigned)tap_held,
+           (unsigned)mute_held);
+}
+#endif
 
 static const uint16_t preset_button_pins[FOOTSWITCH_COUNT] = {
     PRESET_BTN1_Pin,
@@ -38,6 +57,42 @@ static const uint16_t preset_button_pins[FOOTSWITCH_COUNT] = {
     PRESET_BTN10_Pin,
     PRESET_BTN11_Pin
 };
+
+#if BUTTON_LED_MONITOR_ENABLED
+static const char * const button_monitor_input_labels[FOOTSWITCH_COUNT] = {
+    "PE0",
+    "PE1",
+    "PE2",
+    "PE11",
+    "PE12",
+    "PE5",
+    "PE6",
+    "PE7",
+    "PE8",
+    "PE9",
+    "PE10",
+};
+
+static void Button_MonitorReportPress(uint8_t index)
+{
+    if (index >= FOOTSWITCH_COUNT)
+        return;
+
+    LED_ShowButtonMonitorIndicator(index);
+    printf("BTNMON button=%u input=%s led=%s\r\n",
+           (unsigned)(index + 1U),
+           button_monitor_input_labels[index],
+           LED_GetButtonMonitorLabel(index));
+}
+#endif
+
+void Button_MonitorReportTapPress(void)
+{
+#if BUTTON_LED_MONITOR_ENABLED
+    LED_TapPressPulse();
+    printf("BTNMON tap input=PG15 led=PF10(TAP_PRESS)\r\n");
+#endif
+}
 
 static uint8_t Button_ReadPresetPressed(uint8_t index)
 {
@@ -97,6 +152,7 @@ static void Button_ProcessPresetEvent(uint8_t index, uint8_t is_pressed, uint32_
             } else {
                 special_functions_active = 0U;
             }
+            LED_SetSpecialFunctionIndicator(special_functions_active);
 
             event.type = APP_EVENT_TYPE_REDRAW_ACTIVE_DISPLAY;
             event.source = APP_EVENT_SOURCE_NONE;
@@ -144,6 +200,7 @@ uint8_t Button_IsMuteHeld(void)
 void Button_ResetSpecialFunctions(void)
 {
     special_functions_active = 0U;
+    LED_SetSpecialFunctionIndicator(0U);
 }
 
 
@@ -178,6 +235,17 @@ static uint8_t Button_StepBankUp(uint32_t now)
     return Button_QueueBankStepEvent(1, now);
 }
 
+void Button_MonitorInit(void)
+{
+#if BUTTON_LED_MONITOR_ENABLED
+    LED_ClearButtonMonitorIndicators();
+    printf("\r\nButton/LED monitor ready on USART3 @ 115200\r\n");
+    printf("Press a footswitch: firmware will print the detected button number and light its mapped LED.\r\n");
+    printf("Tap footswitch on PG15 is also reported in monitor output.\r\n");
+    printf("Normal preset/button actions are bypassed while BUTTON_LED_MONITOR_ENABLED=1.\r\n");
+#endif
+}
+
 uint8_t Button_HandleTapPress(uint32_t now)
 {
     if (Button_IsMuteHeld() || ((now - button_last_mute_tick) < BANK_COMBO_WINDOW_MS)) {
@@ -193,12 +261,22 @@ uint8_t Button_HandleMutePress(uint32_t now)
 {
     button_last_mute_tick = now;
 
+#if MUTE_BUTTON_DEBUG_ENABLED
+    Button_DebugMuteState("press", now);
+#endif
+
     if (Button_IsTapHeld() || ((now - button_last_tap_tick) < BANK_COMBO_WINDOW_MS)) {
         Button_StepBankUp(now);
+#if MUTE_BUTTON_DEBUG_ENABLED
+        Button_DebugMuteState("combo-up", now);
+#endif
         return 1U;
     }
 
     mute_activation_pending = 1U;
+#if MUTE_BUTTON_DEBUG_ENABLED
+    Button_DebugMuteState("armed", now);
+#endif
     return 0U;
 }
 
@@ -213,6 +291,13 @@ void Button_ProcessInterruptEvent(uint8_t index, uint8_t is_pressed, uint32_t no
 {
     if (index >= FOOTSWITCH_COUNT)
         return;
+
+#if BUTTON_LED_MONITOR_ENABLED
+    (void)now;
+    if (is_pressed)
+        Button_MonitorReportPress(index);
+    return;
+#endif
 
     Button_ProcessPresetEvent(index, is_pressed, now);
 }
@@ -230,6 +315,10 @@ void Button_HandleInterrupt(uint16_t gpio_pin)
 
     now = HAL_GetTick();
     if ((now - preset_button_event_tick[(uint8_t)index]) < FOOTSWITCH_DEBOUNCE_MS) {
+#if MUTE_BUTTON_DEBUG_ENABLED
+        if ((uint8_t)index == MUTE_BUTTON_INDEX)
+            Button_DebugMuteState("debounce", now);
+#endif
         return;
     }
 
@@ -238,6 +327,9 @@ void Button_HandleInterrupt(uint16_t gpio_pin)
      * timing matters for the delayed mute action. */
     if ((uint8_t)index == MUTE_BUTTON_INDEX) {
         is_pressed = Button_ReadPresetPressed((uint8_t)index);
+#if MUTE_BUTTON_DEBUG_ENABLED
+        Button_DebugMuteState(is_pressed ? "edge-down" : "edge-up", now);
+#endif
     } else {
         is_pressed = 1U;
     }
@@ -255,6 +347,30 @@ void Button_ProcessPendingEvents(void) {
     uint32_t now = HAL_GetTick();
     AppEvent_t event;
 
+    /* Mute keeps both EXTI edges, but a very fast tap can still lose the
+     * release edge to debounce. Re-arm from polled GPIO so mute never stays
+     * logically stuck pressed between taps. */
+    if (preset_button_state[MUTE_BUTTON_INDEX]
+        && (Button_ReadPresetPressed(MUTE_BUTTON_INDEX) == 0U)) {
+        preset_button_state[MUTE_BUTTON_INDEX] = 0U;
+
+#if MUTE_BUTTON_DEBUG_ENABLED
+        Button_DebugMuteState("poll-up", now);
+#endif
+
+        if (mute_activation_pending) {
+            mute_activation_pending = 0U;
+            event.type = APP_EVENT_TYPE_PRESET_ACTIVATE_MUTE;
+            event.source = APP_EVENT_SOURCE_NONE;
+            event.value = 0;
+            event.tick = now;
+            (void)AppEvent_Push(&event);
+#if MUTE_BUTTON_DEBUG_ENABLED
+            Button_DebugMuteState("commit-up", now);
+#endif
+        }
+    }
+
     /* If mute was not consumed by the TAP+MUTE bank-up combo inside the combo
      * window, commit it here as a normal mute press. */
     if (mute_activation_pending && ((now - button_last_mute_tick) >= BANK_COMBO_WINDOW_MS)) {
@@ -264,13 +380,15 @@ void Button_ProcessPendingEvents(void) {
         event.value = 0;
         event.tick = now;
         (void)AppEvent_Push(&event);
+#if MUTE_BUTTON_DEBUG_ENABLED
+        Button_DebugMuteState("commit-400", now);
+#endif
     }
 
     /* Falling-edge buttons stay logically pressed until the main loop sees
-     * the pin released again; mute keeps its explicit release edge handling. */
+     * the pin released again. */
     for (uint8_t i = 0U; i < FOOTSWITCH_COUNT; ++i) {
-        if ((i != MUTE_BUTTON_INDEX)
-            && preset_button_state[i]
+        if (preset_button_state[i]
             && (Button_ReadPresetPressed(i) == 0U)) {
             preset_button_state[i] = 0U;
         }

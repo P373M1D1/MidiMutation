@@ -1478,9 +1478,11 @@ void Presets_ActivateRandom(void)
     }
 
     App_ActivatePresetData(&random_preset, 0U, 0U);
+    LED_SetActiveButtonIndicator(8U);
 }
 
 void Presets_ActivateMute(void)
 {
     App_ActivatePresetData(&mute_preset, 0U, 0U);
+    LED_SetActiveButtonIndicator(10U);
 }

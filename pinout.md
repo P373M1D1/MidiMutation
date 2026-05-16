@@ -7,7 +7,7 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 |-------------|-------------------------------------------------------|-------------------------------|
 | **Buttons & LEDs**                                                                            |
 | PC13        | User button input (unused — tap tempo moved to PG15)  | Blue pushbutton (on-board)    |
-| PB0         | LD1 — green LED output                                | Green LED (on-board) / Tap Tempo LED |
+| PB0         | LD1 — green LED output                                | Green LED (on-board) / Beat indicator |
 | PB7         | LD2 — blue LED output                                 | Blue LED (on-board)           |
 | PB14        | LD3 — red LED output                                  | Red LED (on-board)            |
 | **Debugger / ST-LINK**                                                                        |
@@ -62,8 +62,8 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PF7         | Button 8  LED output                                  | Pushbutton 8 LED              |
 | PF8         | Button 9  LED output                                  | Pushbutton 9 LED              |
 | PF9         | Button 10 LED output                                  | Pushbutton 10 LED             |
-| PF10        | Button 11 LED output                                  | Pushbutton 11 LED             |
-| PF11        | Button 12 LED output                                  | Pushbutton 12 LED             |
+| PF10        | Tap footswitch visual feedback output                 | Tap footswitch press LED      |
+| PF11        | Button 11 LED output                                  | Pushbutton 11 LED             |
 | PF13        | Button 13 LED output                                  | Pushbutton 13 LED             |
 | **Encoder button LEDs — GPIO output**                                                         |
 | PF15        | MIDI In activity LED output                           | MIDI In indicator LED         |

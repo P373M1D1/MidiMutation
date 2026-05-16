@@ -26,6 +26,12 @@ void LED_FlashPulse(void);
 void LED_MidiClockPulse(void);
 
 /**
+ * @brief  Turn on the dedicated tap-press feedback LED for 50 ms.
+ *         Call whenever the tap footswitch press is accepted by the ISR path.
+ */
+void LED_TapPressPulse(void);
+
+/**
  * @brief  Turn on the dedicated MIDI-in activity LED for 50 ms.
  *         Call on MIDI transport start.
  */
@@ -37,6 +43,36 @@ void LED_MidiInPulse(void);
  *         Slot-to-LED mapping cycles across LED1..LED3.
  */
 void LED_SetPresetIndicator(uint8_t preset_slot_in_bank);
+
+/**
+ * @brief  Show the active non-preset footswitch indicator LED.
+ * @param  button_index 0-based footswitch index (0..10).
+ */
+void LED_SetActiveButtonIndicator(uint8_t button_index);
+
+/**
+ * @brief  Toggle the special-function status LED (button 10 / LED10).
+ * @param  is_active 1 to illuminate, 0 to turn off.
+ */
+void LED_SetSpecialFunctionIndicator(uint8_t is_active);
+
+/**
+ * @brief  Clear all raw footswitch indicator LEDs used by the wiring monitor.
+ */
+void LED_ClearButtonMonitorIndicators(void);
+
+/**
+ * @brief  Light the one raw footswitch LED associated with the given button.
+ * @param  button_index 0-based footswitch index.
+ */
+void LED_ShowButtonMonitorIndicator(uint8_t button_index);
+
+/**
+ * @brief  Return a short label describing the physical LED pin used by the
+ *         button/LED monitor for the given footswitch index.
+ * @param  button_index 0-based footswitch index.
+ */
+const char *LED_GetButtonMonitorLabel(uint8_t button_index);
 
 /**
  * @brief  Service LED timeout expirations from a timebase/IRQ context.

@@ -163,6 +163,18 @@ uint8_t MidiTransportStopLatched(void);
 void MidiClockUseInternalTempo(void);
 
 /**
+ * @brief  Return the TIM6 ARR period value for one internal MIDI clock pulse.
+ * @param  bpm  Whole-number tempo in beats per minute.
+ */
+uint32_t MidiClockOutputTimerPeriodForBpm(uint16_t bpm);
+
+/**
+ * @brief  Retune the internal MIDI clock output timer to the given BPM.
+ * @param  bpm  Whole-number tempo in beats per minute.
+ */
+void MidiClockOutputSetTempoBpm(uint16_t bpm);
+
+/**
  * @brief  Return the currently measured external MIDI clock tempo.
  * @param  bpm  Output pointer for the last valid measured BPM.
  * @retval 1 if a valid external tempo is available, 0 otherwise.
