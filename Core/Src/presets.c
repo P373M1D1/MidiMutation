@@ -1309,6 +1309,26 @@ static const Preset_t mute_preset = {
     .relay = { PRESET_RELAY_OPEN, PRESET_RELAY_OPEN },
 };
 
+static uint8_t Presets_CurrentBankUsesWetDry(void)
+{
+    const RuntimeConfigBank_t *bank = RuntimeConfig_GetBank(current_bank);
+
+    return (bank && bank->wet_dry_enabled) ? 1U : 0U;
+}
+
+static void Presets_SendWetDryMuteLevels(void)
+{
+    for (uint8_t device_index = 0U; device_index < PRESET_DEVICE_SLOTS; device_index++)
+    {
+        const RuntimeConfigDevice_t *device = RuntimeConfig_GetDevice(device_index);
+
+        if (!device || device->level.cc == PRESET_CC_NUMBER_UNUSED)
+            continue;
+
+        MIDI_SendCC(device->channel, device->level.cc, 0U);
+    }
+}
+
 /* -------------------------------------------------------------------------- */
 
 /* Shared activation path for normal presets, random preset, and mute preset.
@@ -1483,6 +1503,15 @@ void Presets_ActivateRandom(void)
 
 void Presets_ActivateMute(void)
 {
-    App_ActivatePresetData(&mute_preset, 0U, 0U);
+    if (Presets_CurrentBankUsesWetDry())
+    {
+        active_preset = &mute_preset;
+        Presets_SendWetDryMuteLevels();
+    }
+    else
+    {
+        App_ActivatePresetData(&mute_preset, 0U, 0U);
+    }
+
     LED_SetActiveButtonIndicator(10U);
 }
