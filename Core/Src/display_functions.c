@@ -783,7 +783,7 @@ static void Display_DrawMainInfoLeftRow(const Preset_t *preset,
         Display_DrawMainInfoProgramRow(preset, info_index, row_y);
     else if (info_index < MAIN_INFO_PRESET_INIT_ROW_INDEX)
         Display_DrawMainInfoCcRow(preset, (uint8_t)(info_index - PRESET_DEVICE_SLOTS), row_y);
-    else if (info_index == MAIN_INFO_PRESET_INIT_ROW_INDEX)
+    else if (info_index == MAIN_INFO_PRESET_INIT_ROW_INDEX && Display_PresetEditIsActive())
         Display_ComposeCenteredBadgeRow(MAIN_INFO_PRESET_INIT_TEXT, MAIN_ALERT_BADGE_TEXT_COLOUR, RED);
 }
 

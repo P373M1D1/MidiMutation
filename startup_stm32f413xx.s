@@ -32,12 +32,12 @@
 .global  g_pfnVectors
 .global  Default_Handler
 
-/* start address for the initialization values of the .data section. 
+/* start address for the initialization values of the SRAM image
 defined in linker script */
 .word  _sidata
-/* start address for the .data section. defined in linker script */
+/* start address for the initialized SRAM image. defined in linker script */
 .word  _sdata
-/* end address for the .data section. defined in linker script */
+/* end address for the initialized SRAM image. defined in linker script */
 .word  _edata
 /* start address for the .bss section. defined in linker script */
 .word  _sbss
@@ -63,7 +63,7 @@ Reset_Handler:
 /* Call the clock system initialization function.*/
   bl  SystemInit  
 
-/* Copy the data segment initializers from flash to SRAM */
+/* Copy the initialized SRAM image from flash to SRAM */
   ldr r0, =_sdata
   ldr r1, =_edata
   ldr r2, =_sidata

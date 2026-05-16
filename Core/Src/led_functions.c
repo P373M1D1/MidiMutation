@@ -16,6 +16,8 @@ static volatile uint32_t midi_in_off_tick = 0U; /* PF15      – MIDI in start  
 static uint16_t active_button_led_pin = 0U; /* one active selection LED across preset/random/mute */
 static uint8_t special_function_led_active = 0U; /* sticky state for button 10 mode */
 
+static uint8_t LED_BeatPulseIsAllowed(void);
+
 static const uint16_t preset_led_pins[8] = {
     PRESET_LED1_Pin,
     PRESET_LED2_Pin,
@@ -60,14 +62,32 @@ void LED_ClearButtonMonitorIndicators(void)
     HAL_GPIO_WritePin(GPIOF, BUTTON_MONITOR_LED_PINS_MASK, GPIO_PIN_RESET);
 }
 
+static uint8_t LED_IsPresetIndicator(uint16_t pin)
+{
+    /* Check if the pin is one of the 8 preset indicator LEDs */
+    for (int i = 0; i < 8; i++)
+    {
+        if (pin == preset_led_pins[i])
+            return 1U;
+    }
+    return 0U;
+}
+
 static void LED_ApplyButtonIndicatorState(void)
 {
-    uint16_t pin_mask = active_button_led_pin;
-
-    if (special_function_led_active)
-        pin_mask |= PRESET_LED9_Pin;
+    uint16_t pin_mask = 0U;
+    uint8_t in_live_mode = LED_BeatPulseIsAllowed();
 
     HAL_GPIO_WritePin(GPIOF, BUTTON_MONITOR_LED_PINS_MASK, GPIO_PIN_RESET);
+
+    /* Preset indicator LEDs stay on in LIVE and PRESET EDIT modes (not in MENU) */
+    if (active_button_led_pin != 0U && (in_live_mode || (LED_IsPresetIndicator(active_button_led_pin) && !Display_MenuIsActive())))
+        pin_mask = active_button_led_pin;
+
+    /* Special function LED (random/mute indicator) only in LIVE mode */
+    if (special_function_led_active && in_live_mode)
+        pin_mask |= PRESET_LED9_Pin;
+
     if (pin_mask != 0U)
         HAL_GPIO_WritePin(GPIOF, pin_mask, GPIO_PIN_SET);
 }
@@ -122,6 +142,13 @@ void LED_BeatPulse(void)
 
 void LED_FlashPulse(void)
 {
+    if (!LED_BeatPulseIsAllowed())
+    {
+        flash_off_tick = 0U;
+        HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+        return;
+    }
+
     HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
     flash_off_tick = HAL_GetTick() + LED_PULSE_MS;
 }
@@ -133,12 +160,26 @@ void LED_MidiClockPulse(void)
 
 void LED_TapPressPulse(void)
 {
+    if (!LED_BeatPulseIsAllowed())
+    {
+        tap_press_off_tick = 0U;
+        HAL_GPIO_WritePin(TAP_FEEDBACK_LED_GPIO_Port, TAP_FEEDBACK_LED_Pin, GPIO_PIN_RESET);
+        return;
+    }
+
     HAL_GPIO_WritePin(TAP_FEEDBACK_LED_GPIO_Port, TAP_FEEDBACK_LED_Pin, GPIO_PIN_SET);
     tap_press_off_tick = HAL_GetTick() + LED_PULSE_MS;
 }
 
 void LED_MidiInPulse(void)
 {
+    if (!LED_BeatPulseIsAllowed())
+    {
+        midi_in_off_tick = 0U;
+        HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_RESET);
+        return;
+    }
+
     HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_SET);
     midi_in_off_tick = HAL_GetTick() + LED_PULSE_MS;
 }
@@ -198,8 +239,17 @@ void LED_Update(void)
     if (!LED_BeatPulseIsAllowed())
     {
         beat_off_tick = 0U;
+        flash_off_tick = 0U;
+        tap_press_off_tick = 0U;
+        midi_in_off_tick = 0U;
         HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(TAP_FEEDBACK_LED_GPIO_Port, TAP_FEEDBACK_LED_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_RESET);
     }
+
+    /* Re-apply button indicator state in case mode changed */
+    LED_ApplyButtonIndicatorState();
 
     LED_UpdateExpiredOutputs(now);
 }
