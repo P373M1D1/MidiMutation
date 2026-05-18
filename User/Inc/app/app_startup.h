@@ -8,12 +8,8 @@
 extern "C" {
 #endif
 
-uint32_t AppStartup_GetLoadingBarDurationMs(void);
-void AppStartup_DrawPersistentStoreStatus(void);
-void AppStartup_DrawClockSource(void);
-void AppStartup_ServiceClockPromotion(void);
-void AppStartup_AttemptClockPromotion(void);
 HAL_StatusTypeDef AppStartup_RestoreHsiPll(void);
+void AppStartup_Run(void);
 
 #ifdef __cplusplus
 }

@@ -6,6 +6,7 @@
 #include "display_functions.h"
 #include "display/display_internal.h"
 #include "display/display_layout.h"
+#include "midi/midi_monitor.h"
 #include "midi_functions.h"
 #include "st7796.h"
 

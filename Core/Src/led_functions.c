@@ -57,6 +57,39 @@ static const char * const button_monitor_led_labels[11] = {
     "PF9/LED10",
 };
 
+void LED_InitBoardOutputs(void)
+{
+    GPIO_InitTypeDef gpio_init = {0};
+
+    HAL_GPIO_WritePin(GPIOF,
+                      BUTTON_MONITOR_LED_PINS_MASK,
+                      GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(TAP_FEEDBACK_LED_GPIO_Port,
+                      TAP_FEEDBACK_LED_Pin,
+                      GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port,
+                      MIDI_IN_LED_Pin,
+                      GPIO_PIN_RESET);
+
+    gpio_init.Pin = MIDI_IN_LED_Pin;
+    gpio_init.Mode = GPIO_MODE_OUTPUT_PP;
+    gpio_init.Pull = GPIO_NOPULL;
+    gpio_init.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(MIDI_IN_LED_GPIO_Port, &gpio_init);
+
+    gpio_init.Pin = BUTTON_MONITOR_LED_PINS_MASK;
+    gpio_init.Mode = GPIO_MODE_OUTPUT_PP;
+    gpio_init.Pull = GPIO_NOPULL;
+    gpio_init.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOF, &gpio_init);
+
+    gpio_init.Pin = TAP_FEEDBACK_LED_Pin;
+    gpio_init.Mode = GPIO_MODE_OUTPUT_PP;
+    gpio_init.Pull = GPIO_NOPULL;
+    gpio_init.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(TAP_FEEDBACK_LED_GPIO_Port, &gpio_init);
+}
+
 void LED_ClearButtonMonitorIndicators(void)
 {
     HAL_GPIO_WritePin(GPIOF, BUTTON_MONITOR_LED_PINS_MASK, GPIO_PIN_RESET);

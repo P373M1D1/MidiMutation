@@ -3,11 +3,13 @@
 
 #include <stdint.h>
 
+#include "app_event.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void AppTempo_HandleTapPress(uint32_t now);
+uint8_t AppTempo_HandleEvent(const AppEvent_t *event);
 void AppTempo_ApplyEncoderStep(int8_t step);
 void AppTempo_ExternalClockHoldoverMirrorService(void);
 

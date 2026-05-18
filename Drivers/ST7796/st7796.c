@@ -12,6 +12,27 @@
 
 static void ST7796_SetAddressWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
 
+void ST7796_InitControlPins(void)
+{
+    GPIO_InitTypeDef gpio_init = {0};
+
+    HAL_GPIO_WritePin(ST7796_RST_GPIO_Port, ST7796_RST_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(ST7796_CS_GPIO_Port, ST7796_CS_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(ST7796_DC_GPIO_Port, ST7796_DC_Pin, GPIO_PIN_SET);
+
+    gpio_init.Pin = ST7796_RST_Pin;
+    gpio_init.Mode = GPIO_MODE_OUTPUT_PP;
+    gpio_init.Pull = GPIO_NOPULL;
+    gpio_init.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(ST7796_RST_GPIO_Port, &gpio_init);
+
+    gpio_init.Pin = ST7796_CS_Pin | ST7796_DC_Pin;
+    gpio_init.Mode = GPIO_MODE_OUTPUT_PP;
+    gpio_init.Pull = GPIO_NOPULL;
+    gpio_init.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(ST7796_CS_GPIO_Port, &gpio_init);
+}
+
 #ifdef ST7796_USE_DMA
 static void ST7796_TransmitBuffer(const uint8_t *buf, uint16_t size)
 {

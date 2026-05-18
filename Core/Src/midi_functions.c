@@ -1,4 +1,6 @@
 #include "midi_functions.h"
+#include "midi/midi_monitor.h"
+#include "midi/midi_output.h"
 #include "app/app_state.h"
 #include "bpm_functions.h"
 #include "led_functions.h"
@@ -25,18 +27,8 @@ void Error_Handler(void);
  * Input sync still arrives on USART2 RX and is handled separately below.
  * ─────────────────────────────────────────────────────────────────────────── */
 
-/* Registered from main.cpp after the chosen MIDI-out UART has been configured. */
-static UART_HandleTypeDef *midi_output_uart = NULL;
 static UART_HandleTypeDef midi_input_uart;
-
-typedef struct
-{
-    uint8_t running_status;
-    uint8_t data[2];
-    uint8_t data_count;
-    uint8_t expected_data_count;
-    uint8_t in_sysex;
-} MidiMonitorParserState_t;
+static TIM_HandleTypeDef midi_clock_output_timer;
 
 /* MIDI wire-format and UART settings. Keep these values visible because they
  * come directly from the MIDI spec or from how this firmware represents BPM. */
@@ -70,16 +62,14 @@ typedef struct
 #define MIDI_CLOCK_LOST_TIMEOUT_PAD_MS 20U             /* extra slack on top of the computed timeout */
 #define MIDI_CLOCK_LOST_TIMEOUT_PULSES 4U              /* allow roughly four missing clock pulses before loss */
 #define MIDI_THRU_BUFFER_SIZE 64U                      /* ring buffer size for non-blocking software thru */
-#define MIDI_OUTPUT_CLOCK_QUEUE_SIZE 16U               /* realtime clock queue; should never need to absorb long bursts */
-#define MIDI_OUTPUT_MESSAGE_QUEUE_SIZE 128U            /* non-realtime smart-output queue for PC/CC traffic */
 #define MIDI_CLOCK_DIAGNOSTICS_ENABLED 1U              /* prints interval stats on USART3 so MIDI OUT can be checked with a loopback cable */
 #define MIDI_CLOCK_LOOPBACK_MONITOR_ONLY 1U            /* measure looped-back UART4 clock on USART2 without letting it discipline the output engine */
 #define MIDI_CLOCK_DIAGNOSTIC_REPORT_MS 1000U          /* report one rolling diagnostic line per second */
-#define MIDI_OUTPUT_BYTE_TIME_US 320U                  /* one 8-N-1 UART frame at 31.25 kbaud is 10 bits ≈ 320 µs */
-#define MIDI_OUTPUT_POST_CLOCK_GUARD_US 80U            /* leave a short quiet zone immediately after each outgoing clock byte */
-#define MIDI_OUTPUT_PRE_CLOCK_GUARD_US 80U             /* do not start a message byte too close to the next scheduled clock */
 #define MIDI_CLOCK_OUTPUT_TIMER_TICK_HZ 100000U        /* TIM6 counter rate used for internal MIDI clock output */
 #define MIDI_CLOCK_OUTPUT_COUNTS_PER_MINUTE (MIDI_CLOCK_OUTPUT_TIMER_TICK_HZ * 60U) /* one minute of TIM6 counts at the configured output tick rate */
+#define MIDI_CLOCK_OUTPUT_TIMER_PRESCALER_DIVISOR 960U /* 96 MHz APB1 timer clock divided down to 100 kHz for TIM6 */
+#define MIDI_CLOCK_OUTPUT_IRQ_PREEMPT_PRIORITY 2U      /* MIDI clock timer must preempt UI/input work but not dedicated UART4 TXE service */
+#define MIDI_CLOCK_OUTPUT_IRQ_SUBPRIORITY 0U           /* no secondary ordering needed for TIM6 */
 
 /* Clock-tracking fields are written from the USART2 IRQ path and read from
  * foreground code, so the shared timing state stays in this file and uses
@@ -87,17 +77,9 @@ typedef struct
 static uint8_t            midi_thru_buffer[MIDI_THRU_BUFFER_SIZE];
 static uint8_t            midi_thru_head = 0U;
 static uint8_t            midi_thru_tail = 0U;
-static uint8_t            midi_output_clock_buffer[MIDI_OUTPUT_CLOCK_QUEUE_SIZE];
-static volatile uint8_t   midi_output_clock_head = 0U;
-static volatile uint8_t   midi_output_clock_tail = 0U;
-static uint8_t            midi_output_message_buffer[MIDI_OUTPUT_MESSAGE_QUEUE_SIZE];
-static volatile uint8_t   midi_output_message_head = 0U;
-static volatile uint8_t   midi_output_message_tail = 0U;
 static uint8_t            midi_internal_clock_pulse_count = 0U;
 static uint8_t            midi_clock_pulse_count = 0U;
 static volatile uint32_t  midi_clock_last_pulse_us = 0U;
-static volatile uint32_t  midi_output_last_clock_us = 0U;
-static volatile uint32_t  midi_output_clock_interval_us = 0U;
 static volatile uint32_t  midi_clock_diag_interval_sum_us = 0U;
 static volatile uint32_t  midi_clock_diag_interval_min_us = UINT32_MAX;
 static volatile uint32_t  midi_clock_diag_interval_max_us = 0U;
@@ -117,12 +99,6 @@ static volatile uint8_t   midi_transport_running = 0U;
 static volatile uint8_t   midi_transport_stop_latched = 0U;
 static volatile MidiTransportEvent_t midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
 static uint8_t            midi_input_expect_timecode_data = 0U;
-static MidiMonitorEntry_t  midi_monitor_entries[MIDI_MONITOR_ENTRY_CAPACITY];
-static volatile uint8_t   midi_monitor_head = 0U;
-static volatile uint8_t   midi_monitor_count = 0U;
-static volatile uint32_t  midi_monitor_revision = 0U;
-static MidiMonitorParserState_t midi_monitor_uart2_parser = { 0U };
-static MidiMonitorParserState_t midi_monitor_uart4_parser = { 0U };
 static void               midi_clock_reset_sync(void);
 static void               midi_clock_get_timing_snapshot(uint32_t *last_pulse_us,
                                                          uint32_t *pulse_interval_sum_us,
@@ -138,11 +114,6 @@ static void               midi_input_queue_thru_byte(uint8_t byte);
 static void               midi_input_service_thru_tx(void);
 static uint8_t            midi_clock_external_is_active(void);
 static void               midi_clock_diagnostics_note_interval(uint32_t interval_us);
-static uint8_t            midi_output_message_can_start_now(void);
-static uint8_t            midi_output_ring_free_space(uint8_t head, uint8_t tail, uint8_t size);
-static uint8_t            midi_output_queue_clock_byte(uint8_t byte);
-static uint8_t            midi_output_queue_message_bytes(const uint8_t *bytes, uint16_t length);
-static void               midi_output_service_tx(void);
 static void               midi_output_send_bytes(const uint8_t *bytes, uint16_t length);
 static void               midi_output_send_realtime_byte(uint8_t byte);
 static uint8_t            midi_input_is_sync_byte(uint8_t byte);
@@ -155,15 +126,41 @@ static void               midi_clock_output_track_external_pulse(uint32_t interv
 #else
 static void               midi_clock_output_apply_pulse_counts(uint32_t pulse_counts);
 #endif
-static void               midi_monitor_reset_parser(MidiMonitorParserState_t *parser);
-static uint8_t            midi_monitor_expected_data_count(uint8_t status);
-static MidiMonitorParserState_t *midi_monitor_get_parser(uint8_t source_uart);
-static void               midi_monitor_push_entry(uint8_t source_uart,
-                                                  uint8_t type,
-                                                  uint8_t channel,
-                                                  uint8_t value1,
-                                                  uint8_t value2);
-static void               midi_monitor_receive_byte(uint8_t source_uart, uint8_t byte);
+
+void MidiClockOutputInit(uint16_t bpm)
+{
+    __HAL_RCC_TIM6_CLK_ENABLE();
+    midi_clock_output_timer.Instance = TIM6;
+    midi_clock_output_timer.Init.Prescaler = MIDI_CLOCK_OUTPUT_TIMER_PRESCALER_DIVISOR - 1U;
+    midi_clock_output_timer.Init.CounterMode = TIM_COUNTERMODE_UP;
+    midi_clock_output_timer.Init.Period = MidiClockOutputTimerPeriodForBpm(bpm);
+    midi_clock_output_timer.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+
+    if (HAL_TIM_Base_Init(&midi_clock_output_timer) != HAL_OK)
+        Error_Handler();
+
+    __HAL_TIM_CLEAR_FLAG(&midi_clock_output_timer, TIM_FLAG_UPDATE);
+    HAL_NVIC_SetPriority(TIM6_DAC_IRQn,
+                         MIDI_CLOCK_OUTPUT_IRQ_PREEMPT_PRIORITY,
+                         MIDI_CLOCK_OUTPUT_IRQ_SUBPRIORITY);
+    HAL_NVIC_EnableIRQ(TIM6_DAC_IRQn);
+
+    if (HAL_TIM_Base_Start_IT(&midi_clock_output_timer) != HAL_OK)
+        Error_Handler();
+}
+
+void MidiClockOutputIrqHandler(void)
+{
+    if (TIM6->SR & TIM_SR_UIF)
+    {
+        TIM6->SR = ~TIM_SR_UIF;
+        if (MidiClockHandleInternalPulse() && !MidiClockIsExternalSignalPresent())
+            LED_BeatPulse();
+    }
+
+    if (DAC->SR & (DAC_SR_DMAUDR1 | DAC_SR_DMAUDR2))
+        DAC->SR |= (DAC_SR_DMAUDR1 | DAC_SR_DMAUDR2);
+}
 
 static uint8_t midi_clock_get_bars_per_cycle(void)
 {
@@ -175,229 +172,6 @@ static uint8_t midi_clock_get_bars_per_cycle(void)
         return RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_DEFAULT;
 
     return bars_per_cycle;
-}
-
-static void midi_monitor_reset_parser(MidiMonitorParserState_t *parser)
-{
-    if (!parser)
-        return;
-
-    parser->running_status = 0U;
-    parser->data[0] = 0U;
-    parser->data[1] = 0U;
-    parser->data_count = 0U;
-    parser->expected_data_count = 0U;
-    parser->in_sysex = 0U;
-}
-
-static uint8_t midi_monitor_expected_data_count(uint8_t status)
-{
-    switch (status & 0xF0U)
-    {
-    case 0x80U:
-    case 0x90U:
-    case 0xA0U:
-    case 0xB0U:
-    case 0xE0U:
-        return 2U;
-
-    case 0xC0U:
-    case 0xD0U:
-        return 1U;
-
-    default:
-        return 0U;
-    }
-}
-
-static MidiMonitorParserState_t *midi_monitor_get_parser(uint8_t source_uart)
-{
-    switch (source_uart)
-    {
-    case MIDI_MONITOR_SOURCE_UART2:
-        return &midi_monitor_uart2_parser;
-
-    case MIDI_MONITOR_SOURCE_UART4:
-        return &midi_monitor_uart4_parser;
-
-    default:
-        return NULL;
-    }
-}
-
-static void midi_monitor_push_entry(uint8_t source_uart,
-                                    uint8_t type,
-                                    uint8_t channel,
-                                    uint8_t value1,
-                                    uint8_t value2)
-{
-    uint8_t entry_index = midi_monitor_head;
-
-    midi_monitor_entries[entry_index].source_uart = source_uart;
-    midi_monitor_entries[entry_index].type = type;
-    midi_monitor_entries[entry_index].channel = channel;
-    midi_monitor_entries[entry_index].value1 = value1;
-    midi_monitor_entries[entry_index].value2 = value2;
-
-    midi_monitor_head = (uint8_t)((midi_monitor_head + 1U) % MIDI_MONITOR_ENTRY_CAPACITY);
-    if (midi_monitor_count < MIDI_MONITOR_ENTRY_CAPACITY)
-        midi_monitor_count++;
-
-    midi_monitor_revision++;
-}
-
-static void midi_monitor_receive_byte(uint8_t source_uart, uint8_t byte)
-{
-    MidiMonitorParserState_t *parser = midi_monitor_get_parser(source_uart);
-
-    if (!parser)
-        return;
-
-    if (byte >= MIDI_REALTIME_STATUS_FIRST)
-    {
-        if (byte == MIDI_REALTIME_START)
-        {
-            midi_monitor_push_entry(source_uart,
-                                    MIDI_MONITOR_MESSAGE_START,
-                                    0U,
-                                    MIDI_MONITOR_VALUE_UNUSED,
-                                    MIDI_MONITOR_VALUE_UNUSED);
-        }
-        else if (byte == MIDI_REALTIME_CONTINUE)
-        {
-            midi_monitor_push_entry(source_uart,
-                                    MIDI_MONITOR_MESSAGE_CONTINUE,
-                                    0U,
-                                    MIDI_MONITOR_VALUE_UNUSED,
-                                    MIDI_MONITOR_VALUE_UNUSED);
-        }
-        else if (byte == MIDI_REALTIME_STOP)
-        {
-            midi_monitor_push_entry(source_uart,
-                                    MIDI_MONITOR_MESSAGE_STOP,
-                                    0U,
-                                    MIDI_MONITOR_VALUE_UNUSED,
-                                    MIDI_MONITOR_VALUE_UNUSED);
-        }
-
-        return;
-    }
-
-    if (parser->in_sysex)
-    {
-        if (byte == 0xF7U)
-            parser->in_sysex = 0U;
-
-        return;
-    }
-
-    if ((byte & MIDI_STATUS_BIT) != 0U)
-    {
-        parser->data_count = 0U;
-        parser->expected_data_count = 0U;
-
-        if (byte == 0xF0U)
-        {
-            parser->running_status = 0U;
-            parser->in_sysex = 1U;
-            return;
-        }
-
-        if (byte >= 0xF0U)
-        {
-            parser->running_status = 0U;
-            return;
-        }
-
-        parser->running_status = byte;
-        parser->expected_data_count = midi_monitor_expected_data_count(byte);
-        if (parser->expected_data_count == 0U)
-            parser->running_status = 0U;
-
-        return;
-    }
-
-    if (parser->running_status == 0U || parser->expected_data_count == 0U)
-        return;
-
-    parser->data[parser->data_count++] = (uint8_t)(byte & MIDI_DATA_MASK);
-    if (parser->data_count < parser->expected_data_count)
-        return;
-
-    switch (parser->running_status & 0xF0U)
-    {
-    case MIDI_PROGRAM_CHANGE_STATUS:
-        midi_monitor_push_entry(source_uart,
-                                MIDI_MONITOR_MESSAGE_PROGRAM_CHANGE,
-                                (uint8_t)((parser->running_status & MIDI_CHANNEL_STATUS_MASK) + 1U),
-                                parser->data[0],
-                                MIDI_MONITOR_VALUE_UNUSED);
-        break;
-
-    case MIDI_CONTROL_CHANGE_STATUS:
-        midi_monitor_push_entry(source_uart,
-                                MIDI_MONITOR_MESSAGE_CONTROL_CHANGE,
-                                (uint8_t)((parser->running_status & MIDI_CHANNEL_STATUS_MASK) + 1U),
-                                parser->data[0],
-                                parser->data[1]);
-        break;
-
-    default:
-        break;
-    }
-
-    parser->data_count = 0U;
-}
-
-void MidiMonitor_Clear(void)
-{
-    uint32_t primask = __get_PRIMASK();
-
-    __disable_irq();
-    midi_monitor_head = 0U;
-    midi_monitor_count = 0U;
-    midi_monitor_revision++;
-    if (primask == 0U)
-        __enable_irq();
-}
-
-uint32_t MidiMonitor_GetRevision(void)
-{
-    uint32_t primask = __get_PRIMASK();
-    uint32_t revision;
-
-    __disable_irq();
-    revision = midi_monitor_revision;
-    if (primask == 0U)
-        __enable_irq();
-
-    return revision;
-}
-
-uint8_t MidiMonitor_CopyEntries(MidiMonitorEntry_t *dest, uint8_t capacity)
-{
-    uint32_t primask = __get_PRIMASK();
-    uint8_t count;
-    uint8_t head;
-    uint8_t start_index;
-
-    if (!dest || capacity == 0U)
-        return 0U;
-
-    __disable_irq();
-    count = midi_monitor_count;
-    head = midi_monitor_head;
-    if (count > capacity)
-        count = capacity;
-
-    start_index = (uint8_t)((MIDI_MONITOR_ENTRY_CAPACITY + head - count) % MIDI_MONITOR_ENTRY_CAPACITY);
-    for (uint8_t index = 0U; index < count; ++index)
-        dest[index] = midi_monitor_entries[(uint8_t)((start_index + index) % MIDI_MONITOR_ENTRY_CAPACITY)];
-
-    if (primask == 0U)
-        __enable_irq();
-
-    return count;
 }
 
 static void midi_uart_apply_standard_config(UART_HandleTypeDef *uart_handle,
@@ -418,14 +192,7 @@ static void midi_uart_apply_standard_config(UART_HandleTypeDef *uart_handle,
 
 void MidiSetOutputUart(UART_HandleTypeDef *uart_handle)
 {
-    midi_output_uart = uart_handle;
-    midi_output_clock_head = 0U;
-    midi_output_clock_tail = 0U;
-    midi_output_message_head = 0U;
-    midi_output_message_tail = 0U;
-
-    if (midi_output_uart && midi_output_uart->Instance != NULL)
-        __HAL_UART_DISABLE_IT(midi_output_uart, UART_IT_TXE);
+    MidiOutput_SetUart(uart_handle);
 }
 
 void MidiInitInput(void)
@@ -438,11 +205,7 @@ void MidiInitInput(void)
 
     midi_thru_head = 0U;
     midi_thru_tail = 0U;
-    midi_monitor_head = 0U;
-    midi_monitor_count = 0U;
-    midi_monitor_revision = 0U;
-    midi_monitor_reset_parser(&midi_monitor_uart2_parser);
-    midi_monitor_reset_parser(&midi_monitor_uart4_parser);
+    MidiMonitor_Init();
     HAL_NVIC_SetPriority(USART2_IRQn, MIDI_UART_IRQ_PREEMPT_PRIORITY, MIDI_UART_IRQ_SUBPRIORITY);
     HAL_NVIC_EnableIRQ(USART2_IRQn);
     __HAL_UART_ENABLE_IT(&midi_input_uart, UART_IT_RXNE);
@@ -548,169 +311,19 @@ static void midi_clock_diagnostics_note_interval(uint32_t interval_us)
 #endif
 }
 
-static uint8_t midi_output_ring_free_space(uint8_t head, uint8_t tail, uint8_t size)
-{
-    return (tail > head)
-        ? (uint8_t)(tail - head - 1U)
-        : (uint8_t)(size - head + tail - 1U);
-}
-
-static uint8_t midi_output_message_can_start_now(void)
-{
-    uint32_t interval_us = midi_output_clock_interval_us;
-    uint32_t last_clock_us = midi_output_last_clock_us;
-    uint32_t elapsed_us;
-    uint32_t time_until_next_clock;
-
-    if (interval_us == 0U || last_clock_us == 0U)
-        return 1U;
-
-    elapsed_us = TIM2->CNT - last_clock_us;
-    if (elapsed_us < MIDI_OUTPUT_POST_CLOCK_GUARD_US)
-        return 0U;
-
-    if (elapsed_us >= interval_us)
-        return 0U;
-
-    time_until_next_clock = interval_us - elapsed_us;
-    return (uint8_t)(time_until_next_clock > (MIDI_OUTPUT_BYTE_TIME_US + MIDI_OUTPUT_PRE_CLOCK_GUARD_US));
-}
-
-static uint8_t midi_output_queue_clock_byte(uint8_t byte)
-{
-    uint32_t primask = __get_PRIMASK();
-    uint32_t now = TIM2->CNT;
-    uint8_t next_head;
-
-    if (midi_output_last_clock_us != 0U && now != midi_output_last_clock_us)
-    {
-        midi_output_clock_interval_us = (now >= midi_output_last_clock_us)
-            ? (now - midi_output_last_clock_us)
-            : (MIDI_TIMER_WRAP_VALUE - midi_output_last_clock_us + now + 1U);
-    }
-    midi_output_last_clock_us = now;
-
-    __disable_irq();
-    next_head = (uint8_t)((midi_output_clock_head + 1U) % MIDI_OUTPUT_CLOCK_QUEUE_SIZE);
-    if (next_head == midi_output_clock_tail)
-    {
-        if (primask == 0U)
-            __enable_irq();
-        return 0U;
-    }
-
-    midi_output_clock_buffer[midi_output_clock_head] = byte;
-    midi_output_clock_head = next_head;
-    if (midi_output_uart && midi_output_uart->Instance != NULL)
-        __HAL_UART_ENABLE_IT(midi_output_uart, UART_IT_TXE);
-    if (primask == 0U)
-        __enable_irq();
-    return 1U;
-}
-
-static uint8_t midi_output_queue_message_bytes(const uint8_t *bytes, uint16_t length)
-{
-    uint32_t start_tick;
-
-    if (!bytes || length == 0U || length >= MIDI_OUTPUT_MESSAGE_QUEUE_SIZE || !midi_output_uart || midi_output_uart->Instance == NULL)
-        return 0U;
-
-    start_tick = HAL_GetTick();
-    for (;;)
-    {
-        uint32_t primask = __get_PRIMASK();
-        uint8_t free_space;
-
-        __disable_irq();
-        free_space = midi_output_ring_free_space(midi_output_message_head,
-                                                 midi_output_message_tail,
-                                                 MIDI_OUTPUT_MESSAGE_QUEUE_SIZE);
-        if (free_space >= length)
-        {
-            for (uint16_t index = 0U; index < length; index++)
-            {
-                midi_output_message_buffer[midi_output_message_head] = bytes[index];
-                midi_output_message_head = (uint8_t)((midi_output_message_head + 1U) % MIDI_OUTPUT_MESSAGE_QUEUE_SIZE);
-            }
-
-            __HAL_UART_ENABLE_IT(midi_output_uart, UART_IT_TXE);
-            if (primask == 0U)
-                __enable_irq();
-            return 1U;
-        }
-
-        if (primask == 0U)
-            __enable_irq();
-
-        if (__get_IPSR() != 0U || (HAL_GetTick() - start_tick) >= MIDI_TX_TIMEOUT_MS)
-            return 0U;
-    }
-}
-
-static void midi_output_service_tx(void)
-{
-    if (!midi_output_uart || midi_output_uart->Instance == NULL)
-        return;
-
-    if (midi_output_clock_tail != midi_output_clock_head)
-    {
-        midi_output_uart->Instance->DR = midi_output_clock_buffer[midi_output_clock_tail];
-        midi_output_clock_tail = (uint8_t)((midi_output_clock_tail + 1U) % MIDI_OUTPUT_CLOCK_QUEUE_SIZE);
-        return;
-    }
-
-    if (midi_output_message_tail != midi_output_message_head)
-    {
-        if (!midi_output_message_can_start_now())
-        {
-            __HAL_UART_DISABLE_IT(midi_output_uart, UART_IT_TXE);
-            return;
-        }
-
-        midi_output_uart->Instance->DR = midi_output_message_buffer[midi_output_message_tail];
-        midi_output_message_tail = (uint8_t)((midi_output_message_tail + 1U) % MIDI_OUTPUT_MESSAGE_QUEUE_SIZE);
-        return;
-    }
-
-    __HAL_UART_DISABLE_IT(midi_output_uart, UART_IT_TXE);
-}
-
 void MidiOutputSchedulerService(void)
 {
-    uint32_t primask;
-
-    if (!midi_output_uart || midi_output_uart->Instance == NULL)
-        return;
-
-    if (midi_output_clock_tail != midi_output_clock_head)
-        return;
-
-    if (midi_output_message_tail == midi_output_message_head)
-        return;
-
-    if (!midi_output_message_can_start_now())
-        return;
-
-    primask = __get_PRIMASK();
-    __disable_irq();
-    if (((midi_output_uart->Instance->CR1 & USART_CR1_TXEIE) == 0U)
-        && (midi_output_clock_tail == midi_output_clock_head)
-        && (midi_output_message_tail != midi_output_message_head))
-    {
-        __HAL_UART_ENABLE_IT(midi_output_uart, UART_IT_TXE);
-    }
-    if (primask == 0U)
-        __enable_irq();
+    MidiOutput_ServiceScheduler();
 }
 
 static void midi_output_send_bytes(const uint8_t *bytes, uint16_t length)
 {
-    (void)midi_output_queue_message_bytes(bytes, length);
+    (void)MidiOutput_QueueMessageBytes(bytes, length);
 }
 
 static void midi_output_send_realtime_byte(uint8_t byte)
 {
-    (void)midi_output_queue_clock_byte(byte);
+    (void)MidiOutput_QueueRealtimeByte(byte);
 }
 
 /* ── MIDI_SendProgramChange ──────────────────────────────────────────────────
@@ -722,7 +335,7 @@ static void midi_output_send_realtime_byte(uint8_t byte)
  * ─────────────────────────────────────────────────────────────────────────── */
 void MIDI_SendProgramChange(uint8_t channel, uint8_t program)
 {
-    if (!midi_output_uart || midi_output_uart->Instance == NULL || !midi_channel_is_valid(channel))
+    if (!midi_channel_is_valid(channel))
         return;
 
     uint8_t msg[2] = {
@@ -742,7 +355,7 @@ void MIDI_SendProgramChange(uint8_t channel, uint8_t program)
  * ─────────────────────────────────────────────────────────────────────────── */
 void MIDI_SendCC(uint8_t channel, uint8_t cc_number, uint8_t value)
 {
-    if (!midi_output_uart || midi_output_uart->Instance == NULL || !midi_channel_is_valid(channel))
+    if (!midi_channel_is_valid(channel))
         return;
 
     uint8_t msg[3] = {
@@ -1124,8 +737,8 @@ static void midi_clock_output_apply_pulse_counts(uint32_t pulse_counts)
         pulse_counts = 1U;
 
     __disable_irq();
-    TIM6->ARR = pulse_counts - 1U;
-    TIM6->CNT = 0U;
+    midi_clock_output_timer.Instance->ARR = pulse_counts - 1U;
+    midi_clock_output_timer.Instance->CNT = 0U;
     if (primask == 0U)
         __enable_irq();
 }
@@ -1152,7 +765,7 @@ static void midi_clock_output_reset_phase(void)
     uint32_t primask = __get_PRIMASK();
 
     __disable_irq();
-    TIM6->CNT = 0U;
+    midi_clock_output_timer.Instance->CNT = 0U;
     if (primask == 0U)
         __enable_irq();
 }
@@ -1165,7 +778,7 @@ static void midi_clock_output_track_external_pulse(uint32_t interval_us)
         uint32_t external_bpm = (uint32_t)((60000000ULL + (denominator / 2ULL)) / denominator);
 
         if (external_bpm >= BPM_MIN && external_bpm <= BPM_MAX)
-            g_bpm = (uint16_t)external_bpm;
+            AppState_SetTempoBpm((uint16_t)external_bpm);
     }
 
     midi_clock_output_apply_pulse_counts(midi_clock_output_counts_for_pulse_interval_us(interval_us));
@@ -1242,7 +855,7 @@ void USART2_IRQHandler(void)
 
         if (status & USART_SR_RXNE)
         {
-            midi_monitor_receive_byte(MIDI_MONITOR_SOURCE_UART2, byte);
+            MidiMonitor_ReceiveByte(MIDI_MONITOR_SOURCE_UART2, byte);
             midi_input_queue_thru_byte(byte);
             MidiReceive(byte);
         }
@@ -1263,13 +876,13 @@ void UART4_IRQHandler(void)
         uint8_t byte = (uint8_t)UART4->DR;
 
         if (status & USART_SR_RXNE)
-            midi_monitor_receive_byte(MIDI_MONITOR_SOURCE_UART4, byte);
+            MidiMonitor_ReceiveByte(MIDI_MONITOR_SOURCE_UART4, byte);
 
         status = UART4->SR;
     }
 
     if ((status & USART_SR_TXE) && ((UART4->CR1 & USART_CR1_TXEIE) != 0U))
-        midi_output_service_tx();
+        MidiOutput_HandleTxIrq();
 }
 
 void Midi_SendPresetCCs(const Preset_t *preset)

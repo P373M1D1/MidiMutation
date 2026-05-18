@@ -90,6 +90,7 @@ extern SPI_HandleTypeDef ST7796_SPI_PORT;
 #endif
 
 /* Public API */
+void     ST7796_InitControlPins(void);
 void     ST7796_Init(void);
 void     ST7796_SetRotation(uint8_t rot);
 void     ST7796_InvertColors(uint8_t invert);

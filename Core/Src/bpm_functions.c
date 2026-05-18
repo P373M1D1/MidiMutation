@@ -17,8 +17,6 @@ typedef struct {
     uint32_t bank_idx;
 } FlashState_t;
 
-extern volatile uint8_t current_bank;
-
 static uint8_t bpm_value_is_valid(uint32_t bpm)
 {
     return (bpm >= BPM_MIN && bpm <= BPM_MAX) ? 1U : 0U;
@@ -177,19 +175,15 @@ static uint8_t BPM_QueueRuntimeStateSaveRequest(void)
 
 void BPM_Service(void)
 {
-    if (bpm_dirty)
-    {
-        bpm_dirty = 0U;
-        bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
-    }
+    uint32_t save_tick = AppState_GetRuntimeStateSaveTick();
 
-    if (bpm_save_tick && HAL_GetTick() >= bpm_save_tick)
+    if (save_tick && HAL_GetTick() >= save_tick)
     {
 #if BPM_FLASH_WRITES_ENABLED
         if (BPM_QueueRuntimeStateSaveRequest())
-            bpm_save_tick = 0U;
+            AppState_ClearRuntimeStateSaveSchedule();
 #else
-        bpm_save_tick = 0U;
+        AppState_ClearRuntimeStateSaveSchedule();
 #endif
     }
 }

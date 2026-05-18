@@ -3,6 +3,7 @@
 #include "app/app_dispatch.h"
 #include "app/app_input.h"
 #include "app/app_requests.h"
+#include "app/app_save_service.h"
 #include "app/app_tempo.h"
 #include "app/app_ui.h"
 #include "app_event.h"
@@ -26,7 +27,8 @@ void AppRuntime_ServiceForeground(void)
     App_QueuePeriodicUiServiceEvent();
     BPM_Service();
     AppDispatch_ProcessPendingEvents();
-    AppDispatch_SaveService();
+    AppUi_ServiceRender();
+    AppSaveService_Service();
     AppEvent_DiagnosticService();
     MidiClockDiagnosticService();
     Button_ProcessPendingEvents();

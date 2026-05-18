@@ -1,0 +1,173 @@
+#include "app/app_ui_events.h"
+
+#include "app_event.h"
+#include "app/app_requests.h"
+#include "app/app_special_functions.h"
+#include "app/app_state.h"
+#include "app/app_ui.h"
+#include "display/display_menu_page_midi_monitor.h"
+#include "display_functions.h"
+#include "led_functions.h"
+#include "midi_functions.h"
+#include "runtime_config.h"
+
+static void AppUiEvents_SendFunctionButtonProgramMessages(const RuntimeConfigProgramMessage_t *messages,
+                                                          uint8_t message_count);
+static void AppUiEvents_SendFunctionButtonCcMessages(const PresetCCSlot_t *messages,
+                                                     uint8_t message_count);
+static void AppUiEvents_HandleSpecialFunctionToggle(uint8_t state_active);
+static void AppUiEvents_HandleScreensaverWake(void);
+static void AppUiEvents_HandleScreensaverActivity(void);
+static void AppUiEvents_HandlePeriodicService(void);
+static void AppUiEvents_HandleRedrawActiveDisplay(void);
+static void AppUiEvents_HandleRedrawMainScreen(void);
+
+uint8_t AppUiEvents_HandleEvent(const AppEvent_t *event)
+{
+    if (event == 0)
+        return 0U;
+
+    switch (event->type)
+    {
+    case APP_EVENT_TYPE_ENCODER_PRESS:
+        AppUiEvents_HandleEncoderPress((uint8_t)event->value);
+        return 1U;
+
+    case APP_EVENT_TYPE_ENCODER_TURN:
+        AppUiEvents_HandleEncoderTurn(event->source, (int8_t)event->value);
+        return 1U;
+
+    case APP_EVENT_TYPE_SPECIAL_FUNCTION_TOGGLE:
+        AppUiEvents_HandleSpecialFunctionToggle((uint8_t)event->value);
+        return 1U;
+
+    case APP_EVENT_TYPE_SCREENSAVER_WAKE:
+        AppUiEvents_HandleScreensaverWake();
+        return 1U;
+
+    case APP_EVENT_TYPE_SCREENSAVER_ACTIVITY:
+        AppUiEvents_HandleScreensaverActivity();
+        return 1U;
+
+    case APP_EVENT_TYPE_PERIODIC_UI_SERVICE:
+        AppUiEvents_HandlePeriodicService();
+        return 1U;
+
+    case APP_EVENT_TYPE_REDRAW_ACTIVE_DISPLAY:
+        AppUiEvents_HandleRedrawActiveDisplay();
+        return 1U;
+
+    case APP_EVENT_TYPE_REDRAW_MAIN_SCREEN:
+        AppUiEvents_HandleRedrawMainScreen();
+        return 1U;
+
+    default:
+        return 0U;
+    }
+}
+
+void AppUiEvents_PreparePresetActivation(uint8_t exit_preset_edit)
+{
+    if (exit_preset_edit && Display_PresetEditIsActive())
+        Display_PresetEditExit();
+
+    AppSpecialFunctions_Reset();
+    Display_MainInfoScrollReset();
+}
+
+static void AppUiEvents_SendFunctionButtonProgramMessages(const RuntimeConfigProgramMessage_t *messages,
+                                                          uint8_t message_count)
+{
+    if (!messages)
+        return;
+
+    for (uint8_t index = 0U; index < message_count; ++index)
+    {
+        const RuntimeConfigProgramMessage_t *message = &messages[index];
+
+        if (message->channel == PRESET_CC_CHANNEL_UNUSED || message->program == PRESET_PROGRAM_NONE)
+            continue;
+
+        MIDI_SendProgramChange(message->channel, message->program);
+    }
+}
+
+static void AppUiEvents_SendFunctionButtonCcMessages(const PresetCCSlot_t *messages,
+                                                     uint8_t message_count)
+{
+    if (!messages)
+        return;
+
+    for (uint8_t index = 0U; index < message_count; ++index)
+    {
+        const PresetCCSlot_t *message = &messages[index];
+
+        if (message->channel == PRESET_CC_CHANNEL_UNUSED
+         || message->cc_number == PRESET_CC_NUMBER_UNUSED
+         || message->value == PRESET_CC_VALUE_UNUSED)
+        {
+            continue;
+        }
+
+        MIDI_SendCC(message->channel, message->cc_number, message->value);
+    }
+}
+
+static void AppUiEvents_HandleSpecialFunctionToggle(uint8_t state_active)
+{
+    const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(AppState_GetCurrentBank());
+
+    if (function_button)
+    {
+        if (state_active)
+        {
+            AppUiEvents_SendFunctionButtonProgramMessages(function_button->active_programs,
+                                                          RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT);
+            AppUiEvents_SendFunctionButtonCcMessages(function_button->active_cc,
+                                                     RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT);
+        }
+        else
+        {
+            AppUiEvents_SendFunctionButtonProgramMessages(function_button->inactive_programs,
+                                                          RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT);
+            AppUiEvents_SendFunctionButtonCcMessages(function_button->inactive_cc,
+                                                     RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT);
+        }
+    }
+
+    AppUiEvents_HandleRedrawActiveDisplay();
+}
+
+static void AppUiEvents_HandleScreensaverWake(void)
+{
+    App_AcknowledgeScreensaverWakeEvent();
+    Display_ScreensaverDismiss();
+    Display_ScreensaverActivity();
+}
+
+static void AppUiEvents_HandleScreensaverActivity(void)
+{
+    App_AcknowledgeScreensaverActivityEvent();
+    Display_ScreensaverActivity();
+}
+
+static void AppUiEvents_HandlePeriodicService(void)
+{
+    App_AcknowledgePeriodicUiServiceEvent();
+    AppUi_RequestStatusStripRefresh();
+    Display_MenuMidiMonitorService();
+    LED_Update();
+    if (Display_ScreensaverUpdate())
+        App_QueueRedrawMainScreenEvent();
+}
+
+static void AppUiEvents_HandleRedrawActiveDisplay(void)
+{
+    AppUi_RequestActiveDisplayRefresh();
+}
+
+static void AppUiEvents_HandleRedrawMainScreen(void)
+{
+    App_AcknowledgeRedrawMainScreenEvent();
+    AppUi_RequestMainScreenRefresh();
+}

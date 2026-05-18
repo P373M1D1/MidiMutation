@@ -1,0 +1,74 @@
+#include "app/app_button_events.h"
+
+#include "app/app_requests.h"
+#include "app/app_special_functions.h"
+#include "app/app_state.h"
+#include "button_functions.h"
+
+#define APP_BUTTON_EVENTS_RANDOM_BUTTON_INDEX 8U
+#define APP_BUTTON_EVENTS_SPECIAL_FUNCTION_BUTTON_INDEX 9U
+
+static void AppButtonEvents_HandleFootswitchEdge(const AppEvent_t *event);
+static void AppButtonEvents_HandleFootswitchPress(uint8_t index, uint32_t now);
+static void AppButtonEvents_PushSimpleEvent(AppEventType_t type, int16_t value, uint32_t tick);
+
+uint8_t AppButtonEvents_HandleEvent(const AppEvent_t *event)
+{
+    if (event == 0)
+        return 0U;
+
+    if (event->type != APP_EVENT_TYPE_FOOTSWITCH_EDGE)
+        return 0U;
+
+    AppButtonEvents_HandleFootswitchEdge(event);
+    return 1U;
+}
+
+static void AppButtonEvents_HandleFootswitchEdge(const AppEvent_t *event)
+{
+    uint8_t index;
+
+    if (event == 0)
+        return;
+
+    if (!APP_EVENT_SOURCE_IS_FOOTSWITCH(event->source))
+        return;
+
+    index = APP_EVENT_SOURCE_TO_FOOTSWITCH_INDEX(event->source);
+    if (!Button_ProcessInterruptEvent(index, (uint8_t)event->value, event->tick))
+        return;
+
+    AppButtonEvents_HandleFootswitchPress(index, event->tick);
+}
+
+static void AppButtonEvents_HandleFootswitchPress(uint8_t index, uint32_t now)
+{
+    App_QueueScreensaverWakeEvent();
+
+    if (index == APP_BUTTON_EVENTS_RANDOM_BUTTON_INDEX)
+    {
+        AppButtonEvents_PushSimpleEvent(APP_EVENT_TYPE_PRESET_ACTIVATE_RANDOM, 0, now);
+        return;
+    }
+
+    if (index == APP_BUTTON_EVENTS_SPECIAL_FUNCTION_BUTTON_INDEX)
+    {
+        AppButtonEvents_PushSimpleEvent(APP_EVENT_TYPE_SPECIAL_FUNCTION_TOGGLE,
+                                        (int16_t)AppSpecialFunctions_Toggle(),
+                                        now);
+        return;
+    }
+
+    App_QueuePresetActivateEvent((uint8_t)(AppState_GetCurrentBank() * PRESETS_PER_BANK + index));
+}
+
+static void AppButtonEvents_PushSimpleEvent(AppEventType_t type, int16_t value, uint32_t tick)
+{
+    AppEvent_t event;
+
+    event.type = type;
+    event.source = APP_EVENT_SOURCE_NONE;
+    event.value = value;
+    event.tick = tick;
+    (void)AppEvent_Push(&event);
+}

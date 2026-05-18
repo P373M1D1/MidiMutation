@@ -7,9 +7,7 @@
 extern "C" {
 #endif
 
-void AppDispatch_HandleEncoderTurnEvent(uint8_t encoder_source, int8_t delta);
 void AppDispatch_ProcessPendingEvents(void);
-void AppDispatch_SaveService(void);
 
 #ifdef __cplusplus
 }

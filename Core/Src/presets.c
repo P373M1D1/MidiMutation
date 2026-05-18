@@ -33,9 +33,6 @@ const char *Presets_GetBankName(uint8_t bank)
     return RuntimeConfig_GetBank(bank)->name;
 }
 
-/* ── Runtime preset state plus bank owner ────────────────────────────────── */
-volatile uint8_t          current_bank = 0U;
-
 static const uint32_t preset_flash_slot_addresses[] = {
     PERSISTENT_STORE_SLOT0_FLASH_ADDR,
     PERSISTENT_STORE_SLOT1_FLASH_ADDR,
@@ -1338,15 +1335,18 @@ static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index,
 
     if (update_index)
     {
-        active_preset_index = idx;
+        AppState_ActivatePresetSelection(preset, idx);
         LED_SetPresetIndicator((uint8_t)(idx % PRESETS_PER_BANK));
     }
+    else
+    {
+        AppState_SetActiveOverlayPreset(preset);
+    }
 
-    active_preset = preset;
-    Midi_LoadPreset(active_preset);
+    Midi_LoadPreset(preset);
 
     if (update_index) {
-        bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
+        AppState_ScheduleRuntimeStateSaveAt(HAL_GetTick() + BPM_SAVE_DELAY_MS);
     }
 }
 
@@ -1474,7 +1474,7 @@ void App_ActivatePreset(uint8_t idx)
         return;
 
     preset = Presets_Get(idx);
-    if (active_preset == preset)
+    if (AppState_IsActivePreset(preset))
         return;
 
     App_ActivatePresetData(preset, 1U, idx);
@@ -1502,7 +1502,7 @@ void Presets_ActivateMute(void)
 {
     if (Presets_CurrentBankUsesWetDry())
     {
-        active_preset = &mute_preset;
+        AppState_SetActiveOverlayPreset(&mute_preset);
         Presets_SendWetDryMuteLevels();
     }
     else

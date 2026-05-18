@@ -22,6 +22,7 @@
 #include "stm32f4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "app/app_input_irq.h"
 #include "led_functions.h"
 #include "midi_functions.h"
 /* USER CODE END Includes */
@@ -72,7 +73,6 @@ void HAL_IncTick(void)
 
 /* USER CODE BEGIN EV */
 extern DMA_HandleTypeDef hdma_spi1_tx;
-extern TIM_HandleTypeDef htim6;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -223,22 +223,14 @@ void DMA2_Stream3_IRQHandler(void)
   HAL_DMA_IRQHandler(&hdma_spi1_tx);
 }
 
-/* TIM6_DAC_IRQn is shared. Handle TIM6 UIF directly; clear DAC underrun if set. */
 void TIM6_DAC_IRQHandler(void)
 {
-  if (TIM6->SR & TIM_SR_UIF)
-  {
-    TIM6->SR = ~TIM_SR_UIF;
-    if (MidiClockHandleInternalPulse() && !MidiClockIsExternalSignalPresent())
-      LED_BeatPulse();
-  }
-  if (DAC->SR & (DAC_SR_DMAUDR1 | DAC_SR_DMAUDR2))
-    DAC->SR |= (DAC_SR_DMAUDR1 | DAC_SR_DMAUDR2);
+  MidiClockOutputIrqHandler();
 }
 
 void TIM7_IRQHandler(void)
 {
-  App_EncoderSampleIRQHandler();
+  AppInputIrq_HandleSamplerTimer();
 }
 
 void EXTI0_IRQHandler(void) { HAL_GPIO_EXTI_IRQHandler(PRESET_BTN1_Pin); }

@@ -4,7 +4,7 @@
 /*
  * Two outgoing MIDI roles are used now:
  *   - USART2 TX acts as a soft-thru copy of whatever arrives on USART2 RX.
- *   - main.cpp owns one separate, controller-managed MIDI OUT UART whose
+ *   - the board-startup layer owns one separate, controller-managed MIDI OUT UART whose
  *     Program Change, CC, and clock-only traffic is addressed by MIDI channel.
  *
  * Physical connection for each MIDI-out jack (5-pin DIN or TRS-A):
@@ -14,12 +14,12 @@
  *
  * Usage:
  *   MidiInitInput();              // USART2 RX + TX soft-thru
- *   MX_MIDI_Output_UART_Init();
- *   MidiSetOutputUart(&huart4);
+ *   AppBoard_InitStartupPeripherals();
  *   MIDI_SendCC(channel, cc, value);
  */
 
 #include <stdint.h>
+#include "midi/midi_monitor.h"
 #include "presets.h"
 #include "midi_devices.h"
 #include "stm32f4xx_hal.h"
@@ -42,33 +42,6 @@ typedef enum
     MIDI_TRANSPORT_EVENT_STOP,
 } MidiTransportEvent_t;
 
-#define MIDI_MONITOR_ENTRY_CAPACITY 50U
-#define MIDI_MONITOR_VALUE_UNUSED   0xFFU
-
-typedef enum
-{
-    MIDI_MONITOR_SOURCE_UART2 = 2,
-    MIDI_MONITOR_SOURCE_UART4 = 4,
-} MidiMonitorSource_t;
-
-typedef enum
-{
-    MIDI_MONITOR_MESSAGE_PROGRAM_CHANGE = 0,
-    MIDI_MONITOR_MESSAGE_CONTROL_CHANGE,
-    MIDI_MONITOR_MESSAGE_START,
-    MIDI_MONITOR_MESSAGE_CONTINUE,
-    MIDI_MONITOR_MESSAGE_STOP,
-} MidiMonitorMessageType_t;
-
-typedef struct
-{
-    uint8_t source_uart;
-    uint8_t channel;
-    uint8_t type;
-    uint8_t value1;
-    uint8_t value2;
-} MidiMonitorEntry_t;
-
 /**
  * @brief  Initialise MIDI input on USART2 and enable its soft-thru output.
  *         RX bytes are echoed on USART2 TX while the parser still filters
@@ -77,27 +50,8 @@ typedef struct
 void MidiInitInput(void);
 
 /**
- * @brief  Clear the retained MIDI monitor history.
- */
-void MidiMonitor_Clear(void);
-
-/**
- * @brief  Return a monotonically increasing revision number for monitor data.
- *         This changes whenever the retained message list is mutated.
- */
-uint32_t MidiMonitor_GetRevision(void);
-
-/**
- * @brief  Copy the retained MIDI monitor history into caller storage.
- * @param  dest      Destination array for copied entries.
- * @param  capacity  Number of entries dest can hold.
- * @retval Number of entries copied, ordered oldest to newest.
- */
-uint8_t MidiMonitor_CopyEntries(MidiMonitorEntry_t *dest, uint8_t capacity);
-
-/**
  * @brief  Register the one UART handle used for all outgoing MIDI traffic.
- *         main.cpp remains responsible for configuring the UART and GPIO.
+ *         The board-startup layer remains responsible for configuring the UART and GPIO.
  * @param  uart_handle  Initialised HAL UART handle for the shared MIDI out.
  */
 void MidiSetOutputUart(UART_HandleTypeDef *uart_handle);
@@ -133,6 +87,17 @@ void Midi_SendDeviceProgramSlot(uint8_t device_index, uint8_t program);
  * @param  byte  Raw MIDI byte from the UART receive register.
  */
 void MidiReceive(uint8_t byte);
+
+/**
+ * @brief  Configure and start the internal MIDI clock output timer.
+ * @param  bpm  Initial whole-number tempo in beats per minute.
+ */
+void MidiClockOutputInit(uint16_t bpm);
+
+/**
+ * @brief  Handle the shared TIM6/DAC IRQ for the internal MIDI clock.
+ */
+void MidiClockOutputIrqHandler(void);
 
 /**
  * @brief  Advance one internal MIDI-clock timer pulse.

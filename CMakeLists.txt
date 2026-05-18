@@ -92,17 +92,40 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/display_functions.c
     Core/Src/bpm_functions.c
     Core/Src/led_functions.c
+    Core/Src/midi/midi_monitor.c
+    Core/Src/midi/midi_output.c
     Core/Src/midi_functions.c
     Core/Src/midi_devices.c
     Core/Src/presets.c
+    User/Src/app/app_activation.c
+    User/Src/app/app_board_init.c
+    User/Src/app/app_button_combo.c
+    User/Src/app/app_button_events.c
+    User/Src/app/app_button_monitor.c
+    User/Src/app/app_encoder_sampler.c
+    User/Src/app/app_encoder_math.c
+    User/Src/app/app_footswitch_input.c
+    User/Src/app/app_input_encoder_switches.c
+    User/Src/app/app_input_board.c
+    User/Src/app/app_input_irq.c
+    User/Src/app/app_input_sampling.c
     User/Src/app/app_requests.c
     User/Src/app/app_dispatch.c
     User/Src/app/app_input.c
+    User/Src/app/app_save_service.c
+    User/Src/app/app_special_functions.c
     User/Src/app/app_state.c
     User/Src/app/app_runtime.c
     User/Src/app/app_startup.c
+    User/Src/app/app_startup_bootstrap.c
+    User/Src/app/app_startup_clock.c
+    User/Src/app/app_startup_display.c
     User/Src/app/app_tempo.c
     User/Src/app/app_ui.c
+    User/Src/app/app_ui_menu.c
+    User/Src/app/app_ui_input_events.c
+    User/Src/app/app_ui_render.c
+    User/Src/app/app_ui_runtime_events.c
     User/Src/app_event.c
     User/Src/runtime_config.c
     # ST7796 display driver

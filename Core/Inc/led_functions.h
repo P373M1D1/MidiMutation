@@ -8,6 +8,13 @@ extern "C" {
 #endif
 
 /**
+ * @brief  Configure the custom LED output GPIOs owned by the LED subsystem.
+ *         This covers the preset indicator bank plus the dedicated tap and
+ *         MIDI-in activity LEDs.
+ */
+void LED_InitBoardOutputs(void);
+
+/**
  * @brief  Turn on the beat LED (LD1, green) for 50 ms.
  *         Call from the TIM6 beat ISR.
  */

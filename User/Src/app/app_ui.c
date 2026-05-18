@@ -22,14 +22,10 @@ static void AppUi_PresetEditStoreNameCells(Preset_t *preset, const char *name_ce
 static uint8_t AppUi_PresetEditAdjustNameCharacter(Preset_t *preset, int8_t delta);
 static uint8_t AppUi_PresetEditAdjustProgramValue(Preset_t *preset, uint8_t slot, int8_t delta);
 
-const Preset_t *AppUi_GetCurrentDisplayPreset(void)
-{
-    return active_preset ? active_preset : Presets_Get(current_bank * PRESETS_PER_BANK);
-}
-
 uint8_t AppUi_PresetEditCurrentPresetIsEditable(void)
 {
-    const Preset_t *active_real_preset = Presets_Get(active_preset_index);
+    const Preset_t *active_preset = AppState_GetActivePreset();
+    const Preset_t *active_real_preset = Presets_Get(AppState_GetActivePresetIndex());
 
     return (active_preset != NULL && active_preset == active_real_preset) ? 1U : 0U;
 }
@@ -183,7 +179,7 @@ uint8_t AppUi_PresetEditApplyDelta(int8_t delta)
         return 0U;
     }
 
-    preset = Presets_GetMutable(active_preset_index);
+    preset = Presets_GetMutable(AppState_GetActivePresetIndex());
     if (!preset)
         return 0U;
 
@@ -255,7 +251,7 @@ uint8_t AppUi_PresetEditEnter(void)
 
     App_QueueScreensaverWakeEvent();
     Display_PresetEditEnter();
-    Display_RefreshPresetEditMode(active_preset, g_bpm);
+    AppUi_RequestPresetEditModeRefresh();
     return 1U;
 }
 
@@ -266,7 +262,7 @@ void AppUi_PresetEditExit(void)
 
     Display_PresetEditExit();
     App_QueueScreensaverActivityEvent();
-    Display_RefreshPresetEditMode(AppUi_GetCurrentDisplayPreset(), g_bpm);
+    AppUi_RequestPresetEditModeRefresh();
 
     if (Presets_IsDirty())
         App_QueueSaveRequestEvent(APP_EVENT_SAVE_KIND_PRESETS);
@@ -285,7 +281,7 @@ uint8_t AppUi_PresetEditSendCurrentPreset(void)
         return 1U;
     }
 
-    preset = Presets_Get(active_preset_index);
+    preset = Presets_Get(AppState_GetActivePresetIndex());
     if (!preset)
         return 0U;
 
@@ -304,7 +300,7 @@ uint8_t AppUi_PresetEditResetCurrentPresetToDefaults(void)
         return 0U;
     }
 
-    Presets_ResetPresetToDefaults(active_preset_index);
+    Presets_ResetPresetToDefaults(AppState_GetActivePresetIndex());
     Presets_MarkDirty();
     return 1U;
 }
@@ -316,69 +312,15 @@ uint8_t AppUi_PresetEditBackOutOneLevel(void)
 
     if (Display_PresetNameEditIsActive())
     {
+        const Preset_t *active_preset = AppState_GetActivePreset();
+
         Display_PresetNameEditExit();
         App_QueueScreensaverActivityEvent();
         if (active_preset)
-            Display_PresetEditRefreshCurrentField(active_preset);
+            AppUi_RequestPresetEditFieldRefresh();
         return 1U;
     }
 
     AppUi_PresetEditExit();
-    return 1U;
-}
-
-void AppUi_ServiceMenuPreviewHold(uint8_t encoder2_switch_pressed)
-{
-    static uint8_t preview_visible = 0U;
-    uint8_t should_preview = (Display_MenuPreviewCanShow() && encoder2_switch_pressed) ? 1U : 0U;
-
-    if (should_preview == preview_visible)
-        return;
-
-    preview_visible = should_preview;
-
-    if (should_preview)
-    {
-        Display_MenuPreviewEnter(AppUi_GetCurrentDisplayPreset(), g_bpm);
-        return;
-    }
-
-    Display_MenuPreviewExit();
-}
-
-void AppUi_MenuSaveIfDirty(void)
-{
-    if (!RuntimeConfig_IsDirty())
-        return;
-
-    App_QueueSaveRequestEvent(APP_EVENT_SAVE_KIND_RUNTIME_CONFIG);
-}
-
-uint8_t AppUi_MenuBackOutOneLevel(void)
-{
-    uint8_t sub_editor_active;
-
-    if (!Display_MenuIsActive())
-        return 0U;
-
-    sub_editor_active = Display_MenuSubEditorIsActive();
-    Display_MenuBack();
-    App_QueueScreensaverActivityEvent();
-    if (!sub_editor_active)
-        AppUi_MenuSaveIfDirty();
-
-    if (!Display_MenuIsActive())
-        App_QueueRedrawMainScreenEvent();
-
-    return 1U;
-}
-
-uint8_t AppUi_MenuEnter(void)
-{
-    if (Display_MenuIsActive() || Display_PresetEditIsActive())
-        return 0U;
-
-    App_QueueScreensaverWakeEvent();
-    Display_MenuEnter();
     return 1U;
 }

@@ -13,7 +13,7 @@
 #include "display/display_row_compose.h"
 #include "display/display_theme.h"
 #include "display/display_value_helpers.h"
-#include "button_functions.h"
+#include "app/app_special_functions.h"
 #include "midi_devices.h"
 #include "runtime_config.h"
 #include "st7796.h"
@@ -708,7 +708,7 @@ static void Display_DrawMainInfoCcRow(const Preset_t *preset,
 static void Display_DrawMainInfoSpecialState(uint16_t row_y)
 {
     char prefix[RUNTIME_CONFIG_FUNCTION_BUTTON_NAME_LENGTH + 3U];
-    uint8_t state_active = Button_SpecialFunctionsActive();
+    uint8_t state_active = AppSpecialFunctions_IsActive();
     const char *state = Display_GetSpecialFunctionStateLabel(state_active);
 
     Display_FormatSpecialFunctionPrefix(prefix, sizeof(prefix));

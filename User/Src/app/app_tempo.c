@@ -1,5 +1,7 @@
+#include "app/app_button_combo.h"
 #include "app/app_tempo.h"
 
+#include "app_event.h"
 #include "app/app_requests.h"
 #include "app/app_state.h"
 #include "bpm_functions.h"
@@ -21,10 +23,23 @@ static volatile uint8_t app_tempo_tap_head = 0U;
 static uint16_t app_tempo_ext_mirror_candidate_bpm = 0U;
 static uint8_t app_tempo_ext_mirror_stable_count = 0U;
 
+static void AppTempo_HandleTapPress(uint32_t now);
 static void AppTempo_ApplyInternalTempoBpm(uint16_t bpm, uint8_t pulse_led);
 static void AppTempo_ApplyMirroredTempoBpm(uint16_t bpm);
 
-void AppTempo_HandleTapPress(uint32_t now)
+uint8_t AppTempo_HandleEvent(const AppEvent_t *event)
+{
+    if (event == 0)
+        return 0U;
+
+    if (event->type != APP_EVENT_TYPE_TAP_PRESS)
+        return 0U;
+
+    AppTempo_HandleTapPress(event->tick);
+    return 1U;
+}
+
+static void AppTempo_HandleTapPress(uint32_t now)
 {
     uint8_t screensaver_was_active = Display_ScreensaverIsActive();
 
@@ -37,11 +52,8 @@ void AppTempo_HandleTapPress(uint32_t now)
         return;
     }
 
-    if (Button_HandleTapPress(now))
-    {
-        Button_CancelTapBankCombo();
+    if (AppButtonCombo_HandleTapPress(now, Button_IsMuteHeld()))
         return;
-    }
 
     if (MidiClockIsExternalSignalPresent())
         return;
@@ -155,19 +167,18 @@ void AppTempo_ExternalClockHoldoverMirrorService(void)
 
 static void AppTempo_ApplyInternalTempoBpm(uint16_t bpm, uint8_t pulse_led)
 {
-    g_bpm = bpm;
+    AppState_SetTempoBpm(bpm);
     MidiClockUseInternalTempo();
     MidiClockOutputSetTempoBpm(bpm);
 
     if (pulse_led)
         LED_BeatPulse();
 
-    bpm_dirty = 1U;
-    bpm_save_tick = HAL_GetTick() + BPM_SAVE_DELAY_MS;
+    AppState_ScheduleRuntimeStateSaveAt(HAL_GetTick() + BPM_SAVE_DELAY_MS);
 }
 
 static void AppTempo_ApplyMirroredTempoBpm(uint16_t bpm)
 {
-    g_bpm = bpm;
+    AppState_SetTempoBpm(bpm);
     MidiClockOutputSetTempoBpm(bpm);
 }
