@@ -2,6 +2,10 @@
 
 #include "main.h"
 
+#include <stdio.h>
+
+#define APP_EVENT_DIAGNOSTICS_ENABLED 0U
+
 static AppEvent_t app_event_queue[APP_EVENT_QUEUE_CAPACITY];
 static volatile uint8_t app_event_read_index = 0U;
 static volatile uint8_t app_event_write_index = 0U;
@@ -75,4 +79,21 @@ uint8_t AppEvent_Pop(AppEvent_t *event)
 uint32_t AppEvent_GetDroppedCount(void)
 {
     return app_event_dropped_count;
+}
+
+void AppEvent_DiagnosticService(void)
+{
+#if APP_EVENT_DIAGNOSTICS_ENABLED
+    static uint32_t last_reported_dropped_count = 0U;
+    uint32_t dropped_count = AppEvent_GetDroppedCount();
+
+    if (dropped_count <= last_reported_dropped_count)
+        return;
+
+    printf("APPQDIAG dropped=+%lu total=%lu cap=%u\r\n",
+           (unsigned long)(dropped_count - last_reported_dropped_count),
+           (unsigned long)dropped_count,
+           (unsigned)APP_EVENT_QUEUE_CAPACITY);
+    last_reported_dropped_count = dropped_count;
+#endif
 }

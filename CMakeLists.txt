@@ -95,6 +95,14 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/midi_functions.c
     Core/Src/midi_devices.c
     Core/Src/presets.c
+    User/Src/app/app_requests.c
+    User/Src/app/app_dispatch.c
+    User/Src/app/app_input.c
+    User/Src/app/app_state.c
+    User/Src/app/app_runtime.c
+    User/Src/app/app_startup.c
+    User/Src/app/app_tempo.c
+    User/Src/app/app_ui.c
     User/Src/app_event.c
     User/Src/runtime_config.c
     # ST7796 display driver

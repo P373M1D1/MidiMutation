@@ -1,4 +1,5 @@
 #include "presets.h"
+#include "app/app_state.h"
 #include "led_functions.h"
 #include "midi_devices.h"
 #include "midi_functions.h"
@@ -32,11 +33,7 @@ const char *Presets_GetBankName(uint8_t bank)
     return RuntimeConfig_GetBank(bank)->name;
 }
 
-/* ── Application state owned by main.cpp ─────────────────────────────────── */
-extern volatile uint16_t  g_bpm;
-extern volatile uint32_t  bpm_save_tick;
-extern const Preset_t    *active_preset;
-extern uint8_t            active_preset_index;
+/* ── Runtime preset state plus bank owner ────────────────────────────────── */
 volatile uint8_t          current_bank = 0U;
 
 static const uint32_t preset_flash_slot_addresses[] = {

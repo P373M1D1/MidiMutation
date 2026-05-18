@@ -1,4 +1,5 @@
 #include "midi_functions.h"
+#include "app/app_state.h"
 #include "bpm_functions.h"
 #include "led_functions.h"
 #include "runtime_config.h"
@@ -79,8 +80,6 @@ typedef struct
 #define MIDI_OUTPUT_PRE_CLOCK_GUARD_US 80U             /* do not start a message byte too close to the next scheduled clock */
 #define MIDI_CLOCK_OUTPUT_TIMER_TICK_HZ 100000U        /* TIM6 counter rate used for internal MIDI clock output */
 #define MIDI_CLOCK_OUTPUT_COUNTS_PER_MINUTE (MIDI_CLOCK_OUTPUT_TIMER_TICK_HZ * 60U) /* one minute of TIM6 counts at the configured output tick rate */
-
-extern volatile uint16_t g_bpm;
 
 /* Clock-tracking fields are written from the USART2 IRQ path and read from
  * foreground code, so the shared timing state stays in this file and uses

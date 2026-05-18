@@ -1,4 +1,5 @@
 #include "bpm_functions.h"
+#include "app/app_state.h"
 #include "app_event.h"
 #include "display_functions.h"
 #include "led_functions.h"
@@ -16,14 +17,7 @@ typedef struct {
     uint32_t bank_idx;
 } FlashState_t;
 
-/* ── Shared runtime state owned elsewhere ────────────────────────────────── */
-extern volatile uint16_t  g_bpm;
-extern volatile uint8_t   bpm_dirty;
-extern volatile uint32_t  bpm_save_tick;
-extern uint8_t            active_preset_index;
-extern volatile uint8_t   current_bank;
-
-/* -------------------------------------------------------------------------- */
+extern volatile uint8_t current_bank;
 
 static uint8_t bpm_value_is_valid(uint32_t bpm)
 {

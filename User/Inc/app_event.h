@@ -31,6 +31,7 @@ typedef enum {
     APP_EVENT_TYPE_PRESET_ACTIVATE,
     APP_EVENT_TYPE_PRESET_ACTIVATE_RANDOM,
     APP_EVENT_TYPE_PRESET_ACTIVATE_MUTE,
+    APP_EVENT_TYPE_SPECIAL_FUNCTION_TOGGLE,
     APP_EVENT_TYPE_SCREENSAVER_WAKE,
     APP_EVENT_TYPE_SCREENSAVER_ACTIVITY,
     APP_EVENT_TYPE_PERIODIC_UI_SERVICE,
@@ -58,6 +59,7 @@ void AppEvent_Init(void);
 uint8_t AppEvent_Push(const AppEvent_t *event);
 uint8_t AppEvent_Pop(AppEvent_t *event);
 uint32_t AppEvent_GetDroppedCount(void);
+void AppEvent_DiagnosticService(void);
 
 #ifdef __cplusplus
 }

@@ -1,4 +1,5 @@
 #include "bpm_functions.h"
+#include "app/app_state.h"
 #include "app_event.h"
 #include "button_functions.h"
 #include "led_functions.h"
@@ -7,9 +8,6 @@
 #include "display_functions.h"
 #include "stm32f4xx_hal.h"
 #include <stdio.h>
-
-extern volatile uint16_t  g_bpm;
-extern const Preset_t    *active_preset;
 
 #define FOOTSWITCH_COUNT 11U            /* total number of EXTI-driven footswitch inputs */
 #define RANDOM_BUTTON_INDEX 8U          /* preset-button slot used for the random preset action */
@@ -154,9 +152,9 @@ static void Button_ProcessPresetEvent(uint8_t index, uint8_t is_pressed, uint32_
             }
             LED_SetSpecialFunctionIndicator(special_functions_active);
 
-            event.type = APP_EVENT_TYPE_REDRAW_ACTIVE_DISPLAY;
+            event.type = APP_EVENT_TYPE_SPECIAL_FUNCTION_TOGGLE;
             event.source = APP_EVENT_SOURCE_NONE;
-            event.value = 0;
+            event.value = (int16_t)special_functions_active;
             event.tick = now;
             (void)AppEvent_Push(&event);
         } else if (index == MUTE_BUTTON_INDEX) {
