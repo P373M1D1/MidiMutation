@@ -46,6 +46,7 @@ typedef enum {
     RUNTIME_CONFIG_METRONOME_RHYTHM_OFFBEAT,
     RUNTIME_CONFIG_METRONOME_RHYTHM_TRIPLETS,
     RUNTIME_CONFIG_METRONOME_RHYTHM_SHUFFLE,
+    RUNTIME_CONFIG_METRONOME_RHYTHM_FOUR_EIGHT,
 } RuntimeConfigMetronomeRhythm_t;
 
 /* Display modes are persisted as raw enum values in RuntimeConfig_t and are

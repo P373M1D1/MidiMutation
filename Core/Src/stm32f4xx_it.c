@@ -22,6 +22,7 @@
 #include "stm32f4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "app/app_board_init.h"
 #include "app/app_input_irq.h"
 #include "led_functions.h"
 #include "midi_functions.h"
@@ -203,6 +204,7 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
+  AppBoard_MetronomePwmHandleSysTickIrq();
   LED_TickUpdate(HAL_GetTick());
 
   /* USER CODE END SysTick_IRQn 1 */

@@ -479,7 +479,7 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
 
             changed = Display_AdjustClampedU8(&rhythm,
                                               (uint8_t)RUNTIME_CONFIG_METRONOME_RHYTHM_QUARTER_NOTES,
-                                              (uint8_t)RUNTIME_CONFIG_METRONOME_RHYTHM_SHUFFLE,
+                                              (uint8_t)RUNTIME_CONFIG_METRONOME_RHYTHM_FOUR_EIGHT,
                                               delta);
             if (changed)
                 metronome->rhythm = (RuntimeConfigMetronomeRhythm_t)rhythm;

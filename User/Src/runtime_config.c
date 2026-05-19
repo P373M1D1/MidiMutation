@@ -402,7 +402,7 @@ static uint8_t RuntimeConfig_NormalizeMetronomeBeatsPerBar(uint8_t beats_per_bar
 
 static RuntimeConfigMetronomeRhythm_t RuntimeConfig_NormalizeMetronomeRhythm(uint8_t rhythm)
 {
-    if (rhythm > (uint8_t)RUNTIME_CONFIG_METRONOME_RHYTHM_SHUFFLE)
+    if (rhythm > (uint8_t)RUNTIME_CONFIG_METRONOME_RHYTHM_FOUR_EIGHT)
         return RUNTIME_CONFIG_METRONOME_RHYTHM_DEFAULT;
 
     return (RuntimeConfigMetronomeRhythm_t)rhythm;

@@ -334,7 +334,9 @@ static void app_metronome_trigger_backend(AppMetronomeOutput_t output,
         return;
 
     case APP_METRONOME_OUTPUT_PWM_CLICK:
-        if (!AppBoard_MetronomePwmStart(pitch_hz, volume))
+        if (!AppBoard_MetronomePwmStart(pitch_hz,
+                                        volume,
+                                        app_metronome_click_duration_us(accent)))
         {
             app_metronome_request_output_stop();
             return;
@@ -382,7 +384,7 @@ static RuntimeConfigMetronome_t app_metronome_get_config_snapshot(void)
      || snapshot.beats_per_bar > RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_MAX)
         snapshot.beats_per_bar = 4U;
 
-    if ((uint8_t)snapshot.rhythm > (uint8_t)RUNTIME_CONFIG_METRONOME_RHYTHM_SHUFFLE)
+    if ((uint8_t)snapshot.rhythm > (uint8_t)RUNTIME_CONFIG_METRONOME_RHYTHM_FOUR_EIGHT)
         snapshot.rhythm = RUNTIME_CONFIG_METRONOME_RHYTHM_QUARTER_NOTES;
 
     return snapshot;
@@ -493,6 +495,11 @@ static void app_metronome_prepare_schedule(uint32_t anchor_us,
 
     switch ((RuntimeConfigMetronomeRhythm_t)rhythm)
     {
+    case RUNTIME_CONFIG_METRONOME_RHYTHM_FOUR_EIGHT:
+        app_metronome_queue_click(&count, anchor_us, anchor_accent);
+        app_metronome_queue_click(&count, anchor_us + half_note, 0U);
+        break;
+
     case RUNTIME_CONFIG_METRONOME_RHYTHM_OFFBEAT:
         app_metronome_queue_click(&count, anchor_us + half_note, 0U);
         break;
