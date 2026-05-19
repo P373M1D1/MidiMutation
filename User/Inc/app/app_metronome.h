@@ -38,6 +38,7 @@ typedef struct {
 
 void AppMetronome_Init(void);
 void AppMetronome_Service(void);
+void AppMetronome_HandleTimingCounterIrq(void);
 void AppMetronome_ResetCycle(void);
 void AppMetronome_OnQuarterNote(AppMetronomeSource_t source);
 void AppMetronome_SetEnabled(uint8_t enabled);

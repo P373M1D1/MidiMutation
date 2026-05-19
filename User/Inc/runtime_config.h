@@ -178,6 +178,8 @@ void RuntimeConfig_Init(void);
 const RuntimeConfig_t *RuntimeConfig_Get(void);
 RuntimeConfig_t *RuntimeConfig_GetMutable(void);
 
+uint8_t RuntimeConfig_GetMidiClockBarCountFast(uint8_t bank_index);
+
 const RuntimeConfigBank_t *RuntimeConfig_GetBank(uint8_t bank_index);
 RuntimeConfigBank_t *RuntimeConfig_GetMutableBank(uint8_t bank_index);
 void RuntimeConfig_ResetBankToDefaults(uint8_t bank_index);

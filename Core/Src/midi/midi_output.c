@@ -18,9 +18,30 @@ static volatile uint8_t midi_output_message_tail = 0U;
 static volatile uint32_t midi_output_last_clock_us = 0U;
 static volatile uint32_t midi_output_clock_interval_us = 0U;
 
+__attribute__((always_inline))
+static inline uint32_t MidiOutput_EnterCritical(void)
+{
+    uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
+    return primask;
+}
+
+__attribute__((always_inline))
+static inline void MidiOutput_ExitCritical(uint32_t primask)
+{
+    if (primask == 0U)
+        __enable_irq();
+}
+
+__attribute__((section(".RamFunc")))
+static uint8_t MidiOutput_IsFlashBusy(void);
+__attribute__((section(".RamFunc")))
 static void MidiOutput_KickTx(void);
+__attribute__((section(".RamFunc")))
 static uint8_t MidiOutput_MessageCanStartNow(void);
 static uint8_t MidiOutput_RingFreeSpace(uint8_t head, uint8_t tail, uint8_t size);
+__attribute__((section(".RamFunc")))
 static uint32_t MidiOutput_TimerDiff(uint32_t now, uint32_t last);
 
 void MidiOutput_SetUart(UART_HandleTypeDef *uart_handle)
@@ -50,8 +71,7 @@ void MidiOutput_ServiceScheduler(void)
     if (!MidiOutput_MessageCanStartNow())
         return;
 
-    primask = __get_PRIMASK();
-    __disable_irq();
+    primask = MidiOutput_EnterCritical();
     clock_pending = (uint8_t)(midi_output_clock_tail != midi_output_clock_head);
     message_pending = (uint8_t)(midi_output_message_tail != midi_output_message_head);
     txe_enabled = (uint8_t)((midi_output_uart->Instance->CR1 & USART_CR1_TXEIE) != 0U);
@@ -59,10 +79,10 @@ void MidiOutput_ServiceScheduler(void)
     {
         MidiOutput_KickTx();
     }
-    if (primask == 0U)
-        __enable_irq();
+    MidiOutput_ExitCritical(primask);
 }
 
+__attribute__((section(".RamFunc")))
 void MidiOutput_HandleTxIrq(void)
 {
     if (!midi_output_uart || midi_output_uart->Instance == NULL)
@@ -91,22 +111,23 @@ void MidiOutput_HandleTxIrq(void)
     __HAL_UART_DISABLE_IT(midi_output_uart, UART_IT_TXE);
 }
 
+__attribute__((section(".RamFunc")))
 void UART4_IRQHandler(void)
 {
     uint32_t status = UART4->SR;
+
+    if ((status & USART_SR_TXE) && ((UART4->CR1 & USART_CR1_TXEIE) != 0U))
+        MidiOutput_HandleTxIrq();
 
     if (status & (USART_SR_RXNE | USART_SR_ORE | USART_SR_NE | USART_SR_FE | USART_SR_PE))
     {
         uint8_t byte = (uint8_t)UART4->DR;
 
-        if (status & USART_SR_RXNE)
+        if ((status & USART_SR_RXNE) && !MidiOutput_IsFlashBusy())
             MidiMonitor_ReceiveByte(MIDI_MONITOR_SOURCE_UART4, byte);
 
         status = UART4->SR;
     }
-
-    if ((status & USART_SR_TXE) && ((UART4->CR1 & USART_CR1_TXEIE) != 0U))
-        MidiOutput_HandleTxIrq();
 }
 
 uint8_t MidiOutput_QueueMessageBytes(const uint8_t *bytes, uint16_t length)
@@ -128,7 +149,7 @@ uint8_t MidiOutput_QueueMessageBytes(const uint8_t *bytes, uint16_t length)
         uint32_t primask = __get_PRIMASK();
         uint8_t free_space;
 
-        __disable_irq();
+        primask = MidiOutput_EnterCritical();
         free_space = MidiOutput_RingFreeSpace(midi_output_message_head,
                                               midi_output_message_tail,
                                               MIDI_OUTPUT_MESSAGE_QUEUE_SIZE);
@@ -141,13 +162,11 @@ uint8_t MidiOutput_QueueMessageBytes(const uint8_t *bytes, uint16_t length)
             }
 
             MidiOutput_KickTx();
-            if (primask == 0U)
-                __enable_irq();
+            MidiOutput_ExitCritical(primask);
             return 1U;
         }
 
-        if (primask == 0U)
-            __enable_irq();
+        MidiOutput_ExitCritical(primask);
     }
 
     while ((HAL_GetTick() - start_tick) < MIDI_OUTPUT_TX_TIMEOUT_MS);
@@ -155,9 +174,10 @@ uint8_t MidiOutput_QueueMessageBytes(const uint8_t *bytes, uint16_t length)
     return 0U;
 }
 
+__attribute__((section(".RamFunc")))
 uint8_t MidiOutput_QueueRealtimeByte(uint8_t byte)
 {
-    uint32_t primask = __get_PRIMASK();
+    uint32_t primask = MidiOutput_EnterCritical();
     uint32_t now = TIM2->CNT;
     uint8_t next_head;
 
@@ -167,42 +187,45 @@ uint8_t MidiOutput_QueueRealtimeByte(uint8_t byte)
     }
     midi_output_last_clock_us = now;
 
-    __disable_irq();
     next_head = (uint8_t)((midi_output_clock_head + 1U) % MIDI_OUTPUT_CLOCK_QUEUE_SIZE);
     if (next_head == midi_output_clock_tail)
     {
-        if (primask == 0U)
-            __enable_irq();
+        MidiOutput_ExitCritical(primask);
         return 0U;
     }
 
     midi_output_clock_buffer[midi_output_clock_head] = byte;
     midi_output_clock_head = next_head;
     MidiOutput_KickTx();
-    if (primask == 0U)
-        __enable_irq();
+    MidiOutput_ExitCritical(primask);
     return 1U;
 }
 
+__attribute__((section(".RamFunc")))
+static uint8_t MidiOutput_IsFlashBusy(void)
+{
+    return ((FLASH->SR & FLASH_SR_BSY) != 0U) ? 1U : 0U;
+}
+
+__attribute__((section(".RamFunc")))
 static void MidiOutput_KickTx(void)
 {
     if (midi_output_uart && midi_output_uart->Instance != NULL)
         __HAL_UART_ENABLE_IT(midi_output_uart, UART_IT_TXE);
 }
 
+__attribute__((section(".RamFunc")))
 static uint8_t MidiOutput_MessageCanStartNow(void)
 {
-    uint32_t primask = __get_PRIMASK();
+    uint32_t primask = MidiOutput_EnterCritical();
     uint32_t interval_us = midi_output_clock_interval_us;
     uint32_t last_clock_us = midi_output_last_clock_us;
     uint32_t elapsed_us;
     uint32_t time_until_next_clock;
 
-    __disable_irq();
     interval_us = midi_output_clock_interval_us;
     last_clock_us = midi_output_last_clock_us;
-    if (primask == 0U)
-        __enable_irq();
+    MidiOutput_ExitCritical(primask);
 
     if (interval_us == 0U || last_clock_us == 0U)
         return 1U;
@@ -225,6 +248,7 @@ static uint8_t MidiOutput_RingFreeSpace(uint8_t head, uint8_t tail, uint8_t size
         : (uint8_t)(size - head + tail - 1U);
 }
 
+__attribute__((section(".RamFunc")))
 static uint32_t MidiOutput_TimerDiff(uint32_t now, uint32_t last)
 {
     return now - last;

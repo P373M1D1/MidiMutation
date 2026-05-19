@@ -9,6 +9,7 @@
 static uint32_t midi_clock_pulse_intervals_us[MIDI_CLOCK_BPM_WINDOW_PULSES];
 static uint8_t midi_clock_pulse_interval_index = 0U;
 
+__attribute__((section(".RamFunc")))
 void MidiClockEstimator_Reset(void)
 {
     midi_clock_pulse_interval_index = 0U;
@@ -17,6 +18,7 @@ void MidiClockEstimator_Reset(void)
         midi_clock_pulse_intervals_us[index] = 0U;
 }
 
+__attribute__((section(".RamFunc")))
 void MidiClockEstimator_NotePulseInterval(uint32_t interval_us)
 {
     if (interval_us == 0U)

@@ -32,7 +32,7 @@ static const char *Display_GetMetronomeRhythmText(RuntimeConfigMetronomeRhythm_t
     switch (rhythm)
     {
     case RUNTIME_CONFIG_METRONOME_RHYTHM_FOUR_EIGHT:
-        return "4/8";
+        return "Eighths";
     case RUNTIME_CONFIG_METRONOME_RHYTHM_OFFBEAT:
         return "OffBeat";
     case RUNTIME_CONFIG_METRONOME_RHYTHM_TRIPLETS:

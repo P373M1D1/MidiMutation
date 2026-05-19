@@ -1,21 +1,28 @@
 #include "midi_functions.h"
 #include "midi/midi_monitor.h"
+#include "midi/midi_transport_internal.h"
 
 void Error_Handler(void);
 
 #define MIDI_UART_IRQ_PREEMPT_PRIORITY 2U
 #define MIDI_UART_IRQ_SUBPRIORITY     1U
 #define MIDI_THRU_BUFFER_SIZE         64U
+#define MIDI_REALTIME_STATUS_FIRST    0xF8U
 
 static UART_HandleTypeDef midi_input_uart;
 static uint8_t midi_thru_buffer[MIDI_THRU_BUFFER_SIZE];
 static uint8_t midi_thru_head = 0U;
 static uint8_t midi_thru_tail = 0U;
 
+__attribute__((section(".RamFunc")))
+static uint8_t MidiInput_IsFlashBusy(void);
+
 static void MidiInput_ApplyStandardConfig(UART_HandleTypeDef *uart_handle,
                                           USART_TypeDef *instance,
                                           uint32_t mode);
+__attribute__((section(".RamFunc")))
 static void MidiInput_QueueThruByte(uint8_t byte);
+__attribute__((section(".RamFunc")))
 static void MidiInput_ServiceThruTx(void);
 
 void MidiInitInput(void)
@@ -37,6 +44,7 @@ void MidiInitInput(void)
     MidiClockUseInternalTempo();
 }
 
+__attribute__((section(".RamFunc")))
 void USART2_IRQHandler(void)
 {
     uint32_t status = USART2->SR;
@@ -47,12 +55,24 @@ void USART2_IRQHandler(void)
     if (status & (USART_SR_RXNE | USART_SR_ORE | USART_SR_NE | USART_SR_FE | USART_SR_PE))
     {
         uint8_t byte = (uint8_t)USART2->DR;
+        uint8_t flash_busy = MidiInput_IsFlashBusy();
 
         if (status & USART_SR_RXNE)
         {
-            MidiMonitor_ReceiveByte(MIDI_MONITOR_SOURCE_UART2, byte);
             MidiInput_QueueThruByte(byte);
-            MidiReceive(byte);
+
+            if (byte >= MIDI_REALTIME_STATUS_FIRST)
+            {
+                (void)MidiTransport_HandleRealtimeByteFast(byte, TIM2->CNT);
+
+                if (!flash_busy)
+                    MidiMonitor_ReceiveByte(MIDI_MONITOR_SOURCE_UART2, byte);
+            }
+            else if (!flash_busy)
+            {
+                MidiMonitor_ReceiveByte(MIDI_MONITOR_SOURCE_UART2, byte);
+                MidiReceive(byte);
+            }
         }
 
         status = USART2->SR;
@@ -76,6 +96,13 @@ static void MidiInput_ApplyStandardConfig(UART_HandleTypeDef *uart_handle,
     uart_handle->Init.OverSampling = UART_OVERSAMPLING_16;
 }
 
+__attribute__((section(".RamFunc")))
+static uint8_t MidiInput_IsFlashBusy(void)
+{
+    return ((FLASH->SR & FLASH_SR_BSY) != 0U) ? 1U : 0U;
+}
+
+__attribute__((section(".RamFunc")))
 static void MidiInput_QueueThruByte(uint8_t byte)
 {
     uint8_t next_head = (uint8_t)((midi_thru_head + 1U) % MIDI_THRU_BUFFER_SIZE);
@@ -87,14 +114,15 @@ static void MidiInput_QueueThruByte(uint8_t byte)
 
     midi_thru_buffer[midi_thru_head] = byte;
     midi_thru_head = next_head;
-    __HAL_UART_ENABLE_IT(&midi_input_uart, UART_IT_TXE);
+    midi_input_uart.Instance->CR1 |= USART_CR1_TXEIE;
 }
 
+__attribute__((section(".RamFunc")))
 static void MidiInput_ServiceThruTx(void)
 {
     if (midi_thru_tail == midi_thru_head)
     {
-        __HAL_UART_DISABLE_IT(&midi_input_uart, UART_IT_TXE);
+        midi_input_uart.Instance->CR1 &= ~USART_CR1_TXEIE;
         return;
     }
 
@@ -102,5 +130,5 @@ static void MidiInput_ServiceThruTx(void)
     midi_thru_tail = (uint8_t)((midi_thru_tail + 1U) % MIDI_THRU_BUFFER_SIZE);
 
     if (midi_thru_tail == midi_thru_head)
-        __HAL_UART_DISABLE_IT(&midi_input_uart, UART_IT_TXE);
+        midi_input_uart.Instance->CR1 &= ~USART_CR1_TXEIE;
 }

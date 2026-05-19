@@ -20,6 +20,7 @@ volatile uint8_t midi_barbeat_beat = 1U;
 volatile uint8_t midi_clock_sync_lost = 0U;
 volatile uint8_t midi_transport_running = 0U;
 volatile uint8_t midi_transport_stop_latched = 0U;
+volatile uint8_t midi_transport_rearm_required = 0U;
 volatile MidiTransportEvent_t midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
 
 void MidiTransport_NoteDiagnosticInterval(uint32_t interval_us)

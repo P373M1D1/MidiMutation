@@ -2,6 +2,7 @@
 #include "midi/midi_clock_internal.h"
 #include "midi/midi_feedback.h"
 #include "midi/midi_output.h"
+#include "midi/midi_transport_internal.h"
 
 #include "app/app_metronome.h"
 
@@ -29,6 +30,10 @@ static uint8_t midi_internal_clock_pulse_count = 0U;
 #define MIDI_CLOCK_OUTPUT_IRQ_SUBPRIORITY  0U
 
 static void midi_clock_output_apply_pulse_counts(uint32_t pulse_counts);
+__attribute__((section(".RamFunc")))
+static uint8_t midi_clock_external_signal_present_fast(void);
+__attribute__((section(".RamFunc")))
+static uint8_t midi_clock_flash_busy(void);
 
 #if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
 static uint32_t midi_clock_output_counts_for_pulse_interval_us(uint32_t pulse_interval_us);
@@ -56,14 +61,16 @@ void MidiClockOutputInit(uint16_t bpm)
         Error_Handler();
 }
 
+__attribute__((section(".RamFunc")))
 void MidiClockOutputIrqHandler(void)
 {
     if (TIM6->SR & TIM_SR_UIF)
     {
         TIM6->SR = ~TIM_SR_UIF;
-        if (MidiClockHandleInternalPulse() && !MidiClockIsExternalSignalPresent())
+        if (MidiClockHandleInternalPulse() && !midi_clock_external_signal_present_fast())
         {
-            MidiFeedback_PulseInternalBeat();
+            if (!midi_clock_flash_busy())
+                MidiFeedback_PulseInternalBeat();
             AppMetronome_OnQuarterNote(APP_METRONOME_SOURCE_INTERNAL);
         }
     }
@@ -72,6 +79,7 @@ void MidiClockOutputIrqHandler(void)
         DAC->SR |= (DAC_SR_DMAUDR1 | DAC_SR_DMAUDR2);
 }
 
+__attribute__((section(".RamFunc")))
 uint8_t MidiClockHandleInternalPulse(void)
 {
     (void)MidiOutput_QueueRealtimeByte(MIDI_REALTIME_CLOCK);
@@ -82,6 +90,26 @@ uint8_t MidiClockHandleInternalPulse(void)
 
     midi_internal_clock_pulse_count = 0U;
     return 1U;
+}
+
+__attribute__((section(".RamFunc")))
+static uint8_t midi_clock_external_signal_present_fast(void)
+{
+    uint32_t last_pulse_us = midi_clock_last_pulse_us;
+
+    if (midi_transport_running)
+        return 1U;
+
+    if (last_pulse_us == 0U)
+        return 0U;
+
+    return (uint8_t)((TIM2->CNT - last_pulse_us) <= midi_clock_external_activity_timeout_us);
+}
+
+__attribute__((section(".RamFunc")))
+static uint8_t midi_clock_flash_busy(void)
+{
+    return ((FLASH->SR & FLASH_SR_BSY) != 0U) ? 1U : 0U;
 }
 
 uint32_t MidiClockOutputTimerPeriodForBpm(uint16_t bpm)
@@ -100,6 +128,7 @@ void MidiClockOutputSetTempoBpm(uint16_t bpm)
     midi_clock_output_apply_pulse_counts(MidiClockOutputTimerPeriodForBpm(bpm) + 1U);
 }
 
+__attribute__((section(".RamFunc")))
 void MidiClock_ResetInternalPulseCount(void)
 {
     midi_internal_clock_pulse_count = 0U;

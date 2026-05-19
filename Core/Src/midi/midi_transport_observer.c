@@ -4,6 +4,7 @@ static void MidiTransport_GetTimingSnapshot(uint32_t *last_pulse_us,
                                             uint32_t *pulse_interval_sum_us,
                                             uint8_t *pulse_interval_count);
 
+__attribute__((section(".RamFunc")))
 uint32_t MidiTransport_ComputeActivityTimeoutUs(uint32_t pulse_interval_sum_us,
                                                 uint8_t pulse_interval_count)
 {
@@ -23,6 +24,7 @@ uint32_t MidiTransport_ComputeActivityTimeoutUs(uint32_t pulse_interval_sum_us,
     return timeout_us;
 }
 
+__attribute__((section(".RamFunc")))
 void MidiTransport_ResetObservedState(void)
 {
     midi_clock_last_pulse_us = 0U;
@@ -45,7 +47,7 @@ void MidiTransport_UpdateSyncState(void)
     uint32_t pulse_interval_sum_us;
     uint8_t pulse_interval_count;
 
-    if (!midi_transport_running || midi_clock_sync_lost)
+    if (!midi_transport_running || midi_clock_sync_lost || midi_transport_rearm_required)
         return;
 
     MidiTransport_GetTimingSnapshot(&last_pulse_us, &pulse_interval_sum_us, &pulse_interval_count);
@@ -56,9 +58,11 @@ void MidiTransport_UpdateSyncState(void)
 
     if ((TIM2->CNT - last_pulse_us) > timeout_us)
     {
+        midi_transport_rearm_required = 1U;
         midi_transport_running = 0U;
         midi_clock_external_bpm_valid = 0U;
-        midi_clock_sync_lost = 1U;
+        midi_clock_last_pulse_us = 0U;
+        midi_clock_sync_lost = 0U;
     }
 }
 

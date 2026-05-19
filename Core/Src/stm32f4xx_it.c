@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "app/app_board_init.h"
 #include "app/app_input_irq.h"
+#include "app/app_metronome.h"
 #include "led_functions.h"
 #include "midi_functions.h"
 /* USER CODE END Includes */
@@ -225,6 +226,13 @@ void DMA2_Stream3_IRQHandler(void)
   HAL_DMA_IRQHandler(&hdma_spi1_tx);
 }
 
+__attribute__((section(".RamFunc")))
+void TIM2_IRQHandler(void)
+{
+  AppMetronome_HandleTimingCounterIrq();
+}
+
+__attribute__((section(".RamFunc")))
 void TIM6_DAC_IRQHandler(void)
 {
   MidiClockOutputIrqHandler();

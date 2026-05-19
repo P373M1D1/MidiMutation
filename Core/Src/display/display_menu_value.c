@@ -75,6 +75,38 @@ static uint8_t Display_AdjustDirectionalU8(uint8_t *value,
     return 1U;
 }
 
+static RuntimeConfigMetronomeRhythm_t Display_StepMetronomeRhythm(RuntimeConfigMetronomeRhythm_t rhythm,
+                                                                  int8_t delta)
+{
+    static const RuntimeConfigMetronomeRhythm_t rhythm_selection_order[] = {
+        RUNTIME_CONFIG_METRONOME_RHYTHM_QUARTER_NOTES,
+        RUNTIME_CONFIG_METRONOME_RHYTHM_FOUR_EIGHT,
+        RUNTIME_CONFIG_METRONOME_RHYTHM_OFFBEAT,
+        RUNTIME_CONFIG_METRONOME_RHYTHM_TRIPLETS,
+        RUNTIME_CONFIG_METRONOME_RHYTHM_SHUFFLE,
+    };
+    uint8_t selection_index = 0U;
+    uint8_t selection_count = (uint8_t)(sizeof(rhythm_selection_order) / sizeof(rhythm_selection_order[0]));
+    uint8_t remaining_steps;
+
+    while (selection_index + 1U < selection_count && rhythm_selection_order[selection_index] != rhythm)
+        selection_index++;
+
+    if (delta == 0)
+        return rhythm_selection_order[selection_index];
+
+    remaining_steps = (delta > 0) ? (uint8_t)delta : (uint8_t)(-delta);
+    while (remaining_steps-- > 0U)
+    {
+        if (delta > 0)
+            selection_index = (selection_index + 1U < selection_count) ? (uint8_t)(selection_index + 1U) : 0U;
+        else
+            selection_index = (selection_index > 0U) ? (uint8_t)(selection_index - 1U) : (uint8_t)(selection_count - 1U);
+    }
+
+    return rhythm_selection_order[selection_index];
+}
+
 static uint8_t Display_AdjustWrappedOptionalU8(uint8_t *value,
                                                uint8_t unused_value,
                                                uint8_t min_value,
@@ -475,14 +507,12 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
 
         case 3U:
         {
-            uint8_t rhythm = (uint8_t)metronome->rhythm;
+            RuntimeConfigMetronomeRhythm_t next_rhythm = Display_StepMetronomeRhythm(metronome->rhythm,
+                                                                                      delta);
 
-            changed = Display_AdjustClampedU8(&rhythm,
-                                              (uint8_t)RUNTIME_CONFIG_METRONOME_RHYTHM_QUARTER_NOTES,
-                                              (uint8_t)RUNTIME_CONFIG_METRONOME_RHYTHM_FOUR_EIGHT,
-                                              delta);
+            changed = next_rhythm != metronome->rhythm;
             if (changed)
-                metronome->rhythm = (RuntimeConfigMetronomeRhythm_t)rhythm;
+                metronome->rhythm = next_rhythm;
             break;
         }
 

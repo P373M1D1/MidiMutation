@@ -904,6 +904,24 @@ void RuntimeConfig_Init(void)
     RuntimeConfig_EnsureInitialized();
 }
 
+__attribute__((section(".RamFunc")))
+uint8_t RuntimeConfig_GetMidiClockBarCountFast(uint8_t bank_index)
+{
+    uint8_t bar_count;
+
+    if (!runtime_config_initialized || bank_index >= PRESET_BANK_COUNT)
+        return RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_DEFAULT;
+
+    bar_count = runtime_config_store.banks[bank_index].midi_clock_bar_count;
+    if (bar_count < RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MIN
+     || bar_count > RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX)
+    {
+        return RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_DEFAULT;
+    }
+
+    return bar_count;
+}
+
 const RuntimeConfig_t *RuntimeConfig_Get(void)
 {
     RuntimeConfig_EnsureInitialized();

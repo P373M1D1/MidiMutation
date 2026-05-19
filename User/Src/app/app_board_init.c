@@ -14,6 +14,9 @@
 #define APP_BOARD_MIDI_OUTPUT_UART_IRQ_PREEMPT_PRIORITY 1U
 #define APP_BOARD_MIDI_OUTPUT_UART_IRQ_SUBPRIORITY 0U
 
+#define APP_BOARD_TIMING_COUNTER_IRQ_PREEMPT_PRIORITY 2U
+#define APP_BOARD_TIMING_COUNTER_IRQ_SUBPRIORITY 0U
+
 #define APP_BOARD_METRONOME_PWM_GPIO_PORT GPIOB
 #define APP_BOARD_METRONOME_PWM_PIN GPIO_PIN_8
 #define APP_BOARD_METRONOME_PWM_AF GPIO_AF2_TIM4
@@ -33,11 +36,30 @@ static volatile uint8_t app_board_metronome_pwm_running = 0U;
 static volatile uint8_t app_board_metronome_pwm_stop_armed = 0U;
 static volatile uint32_t app_board_metronome_pwm_stop_tick = 0U;
 
+__attribute__((always_inline))
+static inline uint32_t AppBoard_EnterCritical(void)
+{
+    uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
+    return primask;
+}
+
+__attribute__((always_inline))
+static inline void AppBoard_ExitCritical(uint32_t primask)
+{
+    if (primask == 0U)
+        __enable_irq();
+}
+
 static void AppBoard_InitMidiOutputUart(void);
 static void AppBoard_InitMetronomePwm(void);
 static void AppBoard_InitTimingCounter(void);
+__attribute__((section(".RamFunc")))
 static uint32_t AppBoard_MetronomePwmPeriodCounts(uint16_t frequency_hz);
+__attribute__((section(".RamFunc")))
 static uint32_t AppBoard_MetronomePwmPulseCounts(uint32_t period_counts, uint8_t volume);
+__attribute__((section(".RamFunc")))
 static uint32_t AppBoard_MetronomePwmDurationMs(uint32_t duration_us);
 __attribute__((section(".RamFunc")))
 static void AppBoard_MetronomePwmStopImmediate(void);
@@ -103,14 +125,27 @@ static void AppBoard_InitTimingCounter(void)
     if (HAL_TIM_Base_Init(&app_board_tim2) != HAL_OK)
         Error_Handler();
 
+    app_board_tim2.Instance->CCMR1 &= ~(TIM_CCMR1_CC1S | TIM_CCMR1_OC1M);
+    app_board_tim2.Instance->CCER &= ~TIM_CCER_CC1E;
+    app_board_tim2.Instance->CCR1 = 0U;
+    app_board_tim2.Instance->DIER &= ~TIM_DIER_CC1IE;
+    app_board_tim2.Instance->SR = 0U;
+
+    HAL_NVIC_SetPriority(TIM2_IRQn,
+                         APP_BOARD_TIMING_COUNTER_IRQ_PREEMPT_PRIORITY,
+                         APP_BOARD_TIMING_COUNTER_IRQ_SUBPRIORITY);
+    HAL_NVIC_EnableIRQ(TIM2_IRQn);
+
     HAL_TIM_Base_Start(&app_board_tim2);
 }
 
+__attribute__((section(".RamFunc")))
 uint8_t AppBoard_MetronomePwmIsAvailable(void)
 {
     return app_board_metronome_pwm_initialized;
 }
 
+__attribute__((section(".RamFunc")))
 uint8_t AppBoard_MetronomePwmStart(uint16_t frequency_hz, uint8_t volume, uint32_t duration_us)
 {
     uint32_t primask;
@@ -130,8 +165,7 @@ uint8_t AppBoard_MetronomePwmStart(uint16_t frequency_hz, uint8_t volume, uint32
     duration_ms = AppBoard_MetronomePwmDurationMs(duration_us);
     start_tick = uwTick;
 
-    primask = __get_PRIMASK();
-    __disable_irq();
+    primask = AppBoard_EnterCritical();
 
     AppBoard_MetronomePwmStopImmediate();
 
@@ -146,8 +180,7 @@ uint8_t AppBoard_MetronomePwmStart(uint16_t frequency_hz, uint8_t volume, uint32
     app_board_metronome_pwm_stop_tick = start_tick + duration_ms;
     app_board_metronome_pwm_stop_armed = 1U;
 
-    if (primask == 0U)
-        __enable_irq();
+    AppBoard_ExitCritical(primask);
 
     return 1U;
 }
@@ -159,11 +192,9 @@ void AppBoard_MetronomePwmStop(void)
     if (!app_board_metronome_pwm_initialized)
         return;
 
-    primask = __get_PRIMASK();
-    __disable_irq();
+    primask = AppBoard_EnterCritical();
     AppBoard_MetronomePwmStopImmediate();
-    if (primask == 0U)
-        __enable_irq();
+    AppBoard_ExitCritical(primask);
 }
 
 __attribute__((section(".RamFunc")))
@@ -223,6 +254,7 @@ static void AppBoard_InitMetronomePwm(void)
     app_board_metronome_pwm_initialized = 1U;
 }
 
+__attribute__((section(".RamFunc")))
 static uint32_t AppBoard_MetronomePwmPeriodCounts(uint16_t frequency_hz)
 {
     uint32_t safe_frequency_hz = (frequency_hz < APP_BOARD_METRONOME_PWM_MIN_FREQUENCY_HZ)
@@ -239,6 +271,7 @@ static uint32_t AppBoard_MetronomePwmPeriodCounts(uint16_t frequency_hz)
     return period_counts;
 }
 
+__attribute__((section(".RamFunc")))
 static uint32_t AppBoard_MetronomePwmPulseCounts(uint32_t period_counts, uint8_t volume)
 {
     uint32_t safe_volume = (volume > 100U) ? 100U : (uint32_t)volume;
@@ -256,6 +289,7 @@ static uint32_t AppBoard_MetronomePwmPulseCounts(uint32_t period_counts, uint8_t
     return pulse_counts;
 }
 
+__attribute__((section(".RamFunc")))
 static uint32_t AppBoard_MetronomePwmDurationMs(uint32_t duration_us)
 {
     uint32_t duration_ms = (duration_us + 999U) / 1000U;
