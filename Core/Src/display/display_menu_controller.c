@@ -236,6 +236,7 @@ void Display_MenuEnter(void)
     display_state.menu_active_device_index = 0U;
     display_state.menu_device_edit_selection_index = 0U;
     display_state.menu_global_selection_index = 0U;
+    display_state.menu_metronome_selection_index = 0U;
     display_state.menu_user_theme_selection_index = 0U;
     display_state.menu_active_user_theme_mode = (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_USER;
     display_state.main_layout_dirty = 1U;
@@ -315,8 +316,11 @@ void Display_MenuHome(void)
     case DISPLAY_MENU_PAGE_USER_THEME:
         display_state.menu_root_selection_index = 2U;
         break;
-    case DISPLAY_MENU_PAGE_MIDI_MONITOR:
+    case DISPLAY_MENU_PAGE_METRONOME:
         display_state.menu_root_selection_index = 3U;
+        break;
+    case DISPLAY_MENU_PAGE_MIDI_MONITOR:
+        display_state.menu_root_selection_index = 4U;
         break;
     case DISPLAY_MENU_PAGE_DEVICE_EDIT:
     case DISPLAY_MENU_PAGE_DEVICES:
@@ -426,8 +430,13 @@ uint8_t Display_MenuBack(void)
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return 1U;
-    case DISPLAY_MENU_PAGE_MIDI_MONITOR:
+    case DISPLAY_MENU_PAGE_METRONOME:
         display_state.menu_root_selection_index = 3U;
+        display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT;
+        Display_MenuRefresh();
+        return 1U;
+    case DISPLAY_MENU_PAGE_MIDI_MONITOR:
+        display_state.menu_root_selection_index = 4U;
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT;
         Display_MenuRefresh();
         return 1U;
@@ -576,6 +585,10 @@ uint8_t Display_MenuActivate(void)
             display_state.menu_global_selection_index = 0U;
             break;
         case 3U:
+            display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_METRONOME;
+            display_state.menu_metronome_selection_index = 0U;
+            break;
+        case 4U:
             Display_MenuMidiMonitorEnter();
             display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_MIDI_MONITOR;
             break;
@@ -602,6 +615,8 @@ uint8_t Display_MenuActivate(void)
             return 1U;
         }
 
+        return 0U;
+    case DISPLAY_MENU_PAGE_METRONOME:
         return 0U;
     case DISPLAY_MENU_PAGE_MIDI_MONITOR:
         return 0U;

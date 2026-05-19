@@ -1,4 +1,5 @@
 #include "midi/midi_output.h"
+#include "midi/midi_monitor.h"
 
 #define MIDI_OUTPUT_CLOCK_QUEUE_SIZE 16U
 #define MIDI_OUTPUT_MESSAGE_QUEUE_SIZE 128U
@@ -88,6 +89,24 @@ void MidiOutput_HandleTxIrq(void)
     }
 
     __HAL_UART_DISABLE_IT(midi_output_uart, UART_IT_TXE);
+}
+
+void UART4_IRQHandler(void)
+{
+    uint32_t status = UART4->SR;
+
+    if (status & (USART_SR_RXNE | USART_SR_ORE | USART_SR_NE | USART_SR_FE | USART_SR_PE))
+    {
+        uint8_t byte = (uint8_t)UART4->DR;
+
+        if (status & USART_SR_RXNE)
+            MidiMonitor_ReceiveByte(MIDI_MONITOR_SOURCE_UART4, byte);
+
+        status = UART4->SR;
+    }
+
+    if ((status & USART_SR_TXE) && ((UART4->CR1 & USART_CR1_TXEIE) != 0U))
+        MidiOutput_HandleTxIrq();
 }
 
 uint8_t MidiOutput_QueueMessageBytes(const uint8_t *bytes, uint16_t length)

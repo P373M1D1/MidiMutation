@@ -4,6 +4,7 @@
 #include "app/app_button_monitor.h"
 #include "app/app_input.h"
 #include "app/app_input_board.h"
+#include "app/app_metronome.h"
 #include "app/app_state.h"
 #include "app/app_ui.h"
 #include "bpm_functions.h"
@@ -21,6 +22,7 @@ void AppStartupBootstrap_Run(void)
 
     AppState_SelectBank(0U);
     AppState_SetActivePresetIndex(0U);
+    AppMetronome_Init();
     MidiClockOutputInit(AppState_GetTempoBpm());
     App_ActivatePreset(AppState_GetActivePresetIndex());
     Display_DrawMainScreen(AppUi_GetCurrentDisplayPreset(), AppState_GetTempoBpm());

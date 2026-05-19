@@ -69,6 +69,8 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PF15        | MIDI In activity LED output                           | MIDI In indicator LED         |
 | PG0         | MIDI Out activity LED output                          | MIDI Out indicator LED        |
 | PG1         | Spare LED output                                      | Spare indicator LED           |
+| **Metronome PWM Output**                                                                         |
+| PB8         | TIM4_CH3 PWM output (AF2), manually configured in firmware | Metronome click output    |
 | **Tap Tempo Input**                                                                           |
 | PG15        | Tap tempo footswitch — INPUT_PULLUP, EXTI15 (EXTI15_10_IRQn) | Footswitch to GND      |
 | **Pushbutton Inputs (GPIO_INPUT_PULLUP + EXTI interrupt)**                                    |
@@ -86,7 +88,13 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 
 > **Alternate functions sacrificed on PE0–PE10 (not needed for this project):**
 > PE0/PE1 → UART8 RX/TX  |  PE7/PE8 → UART7 RX/TX  |  PE3 → UART10 RX
-> PE2/PE4/PE5/PE6 → SPI4 SCK/NSS/MISO/MOSI  |  PE9 → TIM1 CH1 PWM
+> PE2/PE4/PE5/PE6 → SPI4 SCK/NSS/MISO/MOSI
+
+> **Metronome PWM note:** the live manual route is `PB8 -> TIM4_CH3` in `User/Src/app/app_board_init.c`. Do not reuse `PB8` unless the metronome output is moved.
+
+> **Conflict note:** `PE9` may look tempting as `TIM1_CH1`, but in this repo it is already the Special Function footswitch input (`PRESET_BTN10_Pin`). Do not repurpose `PE9` for the metronome.
+
+> **CubeMX note:** the metronome PWM pin is currently brought up manually in `User/Src/app/app_board_init.c` rather than through the `.ioc` file.
 
 > **Note on STLK pin naming:** `STLK_TX_Pin` (PD8) and `STLK_RX_Pin` (PD9) are labelled from the
 > ST-LINK's perspective. On the MCU, PD8 = USART3_TX and PD9 = USART3_RX. Wiring is correct.
@@ -124,6 +132,7 @@ These timers are used internally by the firmware. They do not currently consume 
 | Timer | Clocking | IRQ | Current use |
 |-------|----------|-----|-------------|
 | `TIM2` | 96 MHz APB1 timer clock prescaled to 1 MHz (`1 us` per count) | None | Free-running 32-bit microsecond counter used by MIDI clock receive/measure logic in [Core/Src/midi_functions.c](Core/Src/midi_functions.c). This replaces coarse `HAL_GetTick()` timing for external MIDI clock interval measurement and timeout tracking. |
+| `TIM4` | 96 MHz APB1 timer clock prescaled to 1 MHz (`1 us` per count) | None | Metronome PWM output on `PB8/TIM4_CH3`. The metronome backend retunes frequency and duty per click and the foreground loop stops each burst after a short click window. |
 | `TIM6` | 96 MHz APB1 timer clock prescaled to 100 kHz (`10 us` per count) | `TIM6_DAC_IRQn` | Internal MIDI clock output scheduler. `ARR` is set for one MIDI clock pulse at `24 PPQN`, the ISR emits outgoing MIDI clock bytes, and the beat LED is pulsed once per quarter note. External sync can retune this timer by rewriting `ARR`/`CNT`, but the smart MIDI clock output still runs from the `TIM6` path. |
 | `TIM7` | 96 MHz APB1 timer clock prescaled to 1 MHz, period set for `2000 Hz` sampling | `TIM7_IRQn` | Shared encoder sampler. The IRQ polls all three encoder A/B pairs plus the debounced encoder switches, then queues foreground actions for live mode, menu navigation, preset edit, and tempo changes. |
 
@@ -132,4 +141,4 @@ These timers are used internally by the firmware. They do not currently consume 
 - `TIM2` is started as a base timer only; no timer interrupt is enabled for it.
 - `TIM6` and `TIM7` are the two active firmware timer interrupts.
 - The encoder pushbuttons themselves still use GPIO EXTI lines; `TIM7` is only the shared sampling timebase for the rotary A/B signals and switch debounce.
-- Timer-related alternate-function pins such as `PE9 -> TIM1_CH1` remain unused in the current firmware pinout.
+- `PB8 -> TIM4_CH3` is now reserved for the manual metronome PWM backend; `PE9 -> TIM1_CH1` remains unavailable because `PE9` is already the Special Function footswitch input.

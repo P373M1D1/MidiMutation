@@ -10,6 +10,10 @@
 #define RUNTIME_CONFIG_GLOBAL_SCREENSAVER_MIN_DEFAULT   10U
 #define RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT       RUNTIME_CONFIG_DISPLAY_MODE_DARK
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_DEFAULT        RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX
+#define RUNTIME_CONFIG_METRONOME_VOLUME_DEFAULT         50U
+#define RUNTIME_CONFIG_METRONOME_PITCH_DEFAULT          RUNTIME_CONFIG_METRONOME_PITCH_MID
+#define RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_DEFAULT  4U
+#define RUNTIME_CONFIG_METRONOME_RHYTHM_DEFAULT         RUNTIME_CONFIG_METRONOME_RHYTHM_QUARTER_NOTES
 
 #define RUNTIME_CONFIG_PROGRAM_MESSAGE_UNUSED \
     { .channel = PRESET_CC_CHANNEL_UNUSED, .program = PRESET_PROGRAM_NONE }
@@ -86,6 +90,13 @@ typedef struct {
     RuntimeConfigGlobal_t global;
 } RuntimeConfigLegacyNoUserThemes_t;
 
+typedef struct {
+    RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
+    RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigGlobal_t global;
+    RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
+} RuntimeConfigLegacyV5_t;
+
 #define RUNTIME_CONFIG_FUNCTION_BUTTON_DEFAULT \
     { \
         .name = "SpcBtn", \
@@ -142,6 +153,14 @@ typedef struct {
         .ext_bpm_colour = ext_bpm_value, \
     }
 
+#define RUNTIME_CONFIG_METRONOME_DEFAULT \
+    { \
+        .volume = RUNTIME_CONFIG_METRONOME_VOLUME_DEFAULT, \
+        .pitch = RUNTIME_CONFIG_METRONOME_PITCH_DEFAULT, \
+        .beats_per_bar = RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_DEFAULT, \
+        .rhythm = RUNTIME_CONFIG_METRONOME_RHYTHM_DEFAULT, \
+    }
+
 static const RuntimeConfigBank_t runtime_config_blank_bank = {
     .name = RUNTIME_CONFIG_INVALID_BANK_NAME,
     .wet_dry_enabled = 0U,
@@ -187,6 +206,7 @@ static const RuntimeConfig_t runtime_config_defaults = {
         .display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT,
         .backlight_brightness = RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_DEFAULT,
     },
+    .metronome = RUNTIME_CONFIG_METRONOME_DEFAULT,
     .user_themes = {
         RUNTIME_CONFIG_USER_THEME_ENTRY(BLACK, BLUE_SAPPHIRE, BABY_POWDER, AQUAMARINE, BLACK, CANTALOUPE_MELON, BRINK_PINK, BABY_POWDER, BLUE_SAPPHIRE, CANTALOUPE_MELON, BABY_POWDER, BLACK, CANTALOUPE_MELON, BABY_POWDER, PALE_AQUA, CANTALOUPE_MELON, BABY_POWDER, PALE_AQUA, BLUE_SAPPHIRE, BLACK, AQUA, CANTALOUPE_MELON),
         RUNTIME_CONFIG_USER_THEME_ENTRY(BLACK, DARK_GOLDENROD, LIGHT_GOLDENROD_YELLOW, AMBER, BLACK, GOLDENROD, ORANGE, LIGHT_GOLDENROD_YELLOW, DARK_BROWN, GOLDEN_BROWN, LIGHT_GOLDENROD_YELLOW, BLACK, AMBER, LIGHT_GOLDENROD_YELLOW, GOLDENROD, AMBER, LIGHT_GOLDENROD_YELLOW, GOLD_FUSION, BROWN, BLACK, AMBER, GOLDENROD),
@@ -276,6 +296,7 @@ static void RuntimeConfig_CopyLegacyDeviceV4(RuntimeConfigDevice_t *destination,
 static uint8_t RuntimeConfig_FlashHeaderV2HasSupportedConfigSize(uint32_t config_size)
 {
     return (config_size == sizeof(RuntimeConfig_t)
+         || config_size == sizeof(RuntimeConfigLegacyV5_t)
          || config_size == sizeof(RuntimeConfigLegacyNoUserThemes_t)
          || config_size == sizeof(RuntimeConfigLegacyV4_t)
          || config_size == sizeof(RuntimeConfigLegacyV3_t)
@@ -353,6 +374,38 @@ static uint8_t RuntimeConfig_NormalizeMidiClockBarCount(uint8_t bar_count)
         return RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_DEFAULT;
 
     return bar_count;
+}
+
+static uint8_t RuntimeConfig_NormalizeMetronomeVolume(uint8_t volume)
+{
+    return (volume <= RUNTIME_CONFIG_METRONOME_VOLUME_MAX)
+        ? volume
+        : RUNTIME_CONFIG_METRONOME_VOLUME_MAX;
+}
+
+static RuntimeConfigMetronomePitch_t RuntimeConfig_NormalizeMetronomePitch(uint8_t pitch)
+{
+    if (pitch > (uint8_t)RUNTIME_CONFIG_METRONOME_PITCH_HIGH)
+        return RUNTIME_CONFIG_METRONOME_PITCH_DEFAULT;
+
+    return (RuntimeConfigMetronomePitch_t)pitch;
+}
+
+static uint8_t RuntimeConfig_NormalizeMetronomeBeatsPerBar(uint8_t beats_per_bar)
+{
+    if (beats_per_bar < RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_MIN
+     || beats_per_bar > RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_MAX)
+        return RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_DEFAULT;
+
+    return beats_per_bar;
+}
+
+static RuntimeConfigMetronomeRhythm_t RuntimeConfig_NormalizeMetronomeRhythm(uint8_t rhythm)
+{
+    if (rhythm > (uint8_t)RUNTIME_CONFIG_METRONOME_RHYTHM_SHUFFLE)
+        return RUNTIME_CONFIG_METRONOME_RHYTHM_DEFAULT;
+
+    return (RuntimeConfigMetronomeRhythm_t)rhythm;
 }
 
 static uint16_t RuntimeConfig_NormalizeBacklightBrightness(uint16_t brightness)
@@ -479,6 +532,14 @@ static void RuntimeConfig_NormalizeLoadedStore(void)
         runtime_config_store.global.backlight_brightness);
     runtime_config_store.global.display_mode = RuntimeConfig_NormalizeDisplayMode(
         (uint8_t)runtime_config_store.global.display_mode);
+    runtime_config_store.metronome.volume = RuntimeConfig_NormalizeMetronomeVolume(
+        runtime_config_store.metronome.volume);
+    runtime_config_store.metronome.pitch = RuntimeConfig_NormalizeMetronomePitch(
+        (uint8_t)runtime_config_store.metronome.pitch);
+    runtime_config_store.metronome.beats_per_bar = RuntimeConfig_NormalizeMetronomeBeatsPerBar(
+        runtime_config_store.metronome.beats_per_bar);
+    runtime_config_store.metronome.rhythm = RuntimeConfig_NormalizeMetronomeRhythm(
+        (uint8_t)runtime_config_store.metronome.rhythm);
 }
 
 static void RuntimeConfig_ApplyLegacyV2Snapshot(const RuntimeConfigLegacyV2_t *legacy_store)
@@ -507,6 +568,7 @@ static void RuntimeConfig_ApplyLegacyV2Snapshot(const RuntimeConfigLegacyV2_t *l
     runtime_config_store.global.sync_style = legacy_store->global.sync_style;
     runtime_config_store.global.display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT;
     runtime_config_store.global.backlight_brightness = legacy_store->global.backlight_brightness;
+    runtime_config_store.metronome = runtime_config_defaults.metronome;
 }
 
 static void RuntimeConfig_ApplyLegacyV3Snapshot(const RuntimeConfigLegacyV3_t *legacy_store)
@@ -529,6 +591,7 @@ static void RuntimeConfig_ApplyLegacyV3Snapshot(const RuntimeConfigLegacyV3_t *l
     runtime_config_store.global.sync_style = legacy_store->global.sync_style;
     runtime_config_store.global.display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT;
     runtime_config_store.global.backlight_brightness = legacy_store->global.backlight_brightness;
+    runtime_config_store.metronome = runtime_config_defaults.metronome;
 }
 
 static void RuntimeConfig_ApplyLegacyV4Snapshot(const RuntimeConfigLegacyV4_t *legacy_store)
@@ -551,6 +614,25 @@ static void RuntimeConfig_ApplyLegacyV4Snapshot(const RuntimeConfigLegacyV4_t *l
     runtime_config_store.global.sync_style = legacy_store->global.sync_style;
     runtime_config_store.global.display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT;
     runtime_config_store.global.backlight_brightness = legacy_store->global.backlight_brightness;
+    runtime_config_store.metronome = runtime_config_defaults.metronome;
+}
+
+static void RuntimeConfig_ApplyLegacyV5Snapshot(const RuntimeConfigLegacyV5_t *legacy_store)
+{
+    if (!legacy_store)
+        return;
+
+    memcpy(runtime_config_store.banks,
+           legacy_store->banks,
+           sizeof(runtime_config_store.banks));
+    memcpy(runtime_config_store.devices,
+           legacy_store->devices,
+           sizeof(runtime_config_store.devices));
+    runtime_config_store.global = legacy_store->global;
+    memcpy(runtime_config_store.user_themes,
+           legacy_store->user_themes,
+           sizeof(runtime_config_store.user_themes));
+    runtime_config_store.metronome = runtime_config_defaults.metronome;
 }
 
 static void RuntimeConfig_ApplyLegacyNoUserThemesSnapshot(const RuntimeConfigLegacyNoUserThemes_t *legacy_store)
@@ -565,6 +647,7 @@ static void RuntimeConfig_ApplyLegacyNoUserThemesSnapshot(const RuntimeConfigLeg
            legacy_store->devices,
            sizeof(runtime_config_store.devices));
     runtime_config_store.global = legacy_store->global;
+    runtime_config_store.metronome = runtime_config_defaults.metronome;
     RuntimeConfig_ResetUserThemesToDefaults();
 }
 
@@ -612,7 +695,8 @@ static uint8_t RuntimeConfig_FlashHeaderV3IsValid(const PersistentStoreHeaderV3_
     if (header->magic != PERSISTENT_STORE_MAGIC_V3
             || (header->version != PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC
                 && header->version != PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC_COMPACT_DISPLAY_MODES
-                && header->version != PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC_USER_THEMES)
+                && header->version != PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC_USER_THEMES
+                && header->version != PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC_METRONOME)
      || header->commit_marker != PERSISTENT_STORE_COMMIT_MARKER
      || header->bank_count != PRESET_BANK_COUNT
      || header->presets_per_bank != PRESETS_PER_BANK
@@ -706,6 +790,13 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
                 (uint8_t)runtime_config_store.global.display_mode,
                 header_v3->version);
         }
+        else if (header_v3->config_size == sizeof(RuntimeConfigLegacyV5_t))
+        {
+            RuntimeConfigLegacyV5_t legacy_store;
+
+            memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+            RuntimeConfig_ApplyLegacyV5Snapshot(&legacy_store);
+        }
         else if (header_v3->config_size == sizeof(RuntimeConfigLegacyNoUserThemes_t))
         {
             RuntimeConfigLegacyNoUserThemes_t legacy_store;
@@ -757,6 +848,13 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
         runtime_config_store.global.display_mode = RuntimeConfig_DecodePersistedDisplayMode(
             (uint8_t)runtime_config_store.global.display_mode,
             header->version);
+    }
+    else if (header->config_size == sizeof(RuntimeConfigLegacyV5_t))
+    {
+        RuntimeConfigLegacyV5_t legacy_store;
+
+        memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+        RuntimeConfig_ApplyLegacyV5Snapshot(&legacy_store);
     }
     else if (header->config_size == sizeof(RuntimeConfigLegacyNoUserThemes_t))
     {
@@ -893,6 +991,18 @@ RuntimeConfigGlobal_t *RuntimeConfig_GetMutableGlobal(void)
 {
     RuntimeConfig_EnsureInitialized();
     return &runtime_config_store.global;
+}
+
+const RuntimeConfigMetronome_t *RuntimeConfig_GetMetronome(void)
+{
+    RuntimeConfig_EnsureInitialized();
+    return &runtime_config_store.metronome;
+}
+
+RuntimeConfigMetronome_t *RuntimeConfig_GetMutableMetronome(void)
+{
+    RuntimeConfig_EnsureInitialized();
+    return &runtime_config_store.metronome;
 }
 
 uint8_t RuntimeConfig_TryGetUserThemeIndex(RuntimeConfigDisplayMode_t display_mode, uint8_t *theme_index)

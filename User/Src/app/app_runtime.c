@@ -2,6 +2,7 @@
 
 #include "app/app_dispatch.h"
 #include "app/app_input.h"
+#include "app/app_metronome.h"
 #include "app/app_requests.h"
 #include "app/app_save_service.h"
 #include "app/app_tempo.h"
@@ -24,6 +25,7 @@ void AppRuntime_ServiceForeground(void)
     AppDispatch_ProcessPendingEvents();
     AppUi_ServiceMenuPreviewHold(AppInput_Encoder2SwitchIsPressed());
     MidiOutputSchedulerService();
+    AppMetronome_Service();
     App_QueuePeriodicUiServiceEvent();
     BPM_Service();
     AppDispatch_ProcessPendingEvents();

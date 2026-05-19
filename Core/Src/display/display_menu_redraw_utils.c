@@ -52,6 +52,8 @@ uint8_t Display_GetMenuSelectionIndexForPage(DisplayMenuPage_t page)
         return display_state.menu_device_edit_selection_index;
     case DISPLAY_MENU_PAGE_GLOBAL:
         return display_state.menu_global_selection_index;
+    case DISPLAY_MENU_PAGE_METRONOME:
+        return display_state.menu_metronome_selection_index;
     case DISPLAY_MENU_PAGE_USER_THEME:
         return display_state.menu_user_theme_selection_index;
     default:
@@ -63,8 +65,12 @@ uint8_t Display_GetMenuFirstVisibleIndexForPage(DisplayMenuPage_t page, uint8_t 
 {
     switch (page)
     {
+    case DISPLAY_MENU_PAGE_ROOT:
+        return Display_GetMenuFirstVisibleIndex(MENU_ROOT_ITEM_COUNT, selection_index);
     case DISPLAY_MENU_PAGE_GLOBAL:
         return Display_GetMenuFirstVisibleIndex(MENU_GLOBAL_ITEM_COUNT, selection_index);
+    case DISPLAY_MENU_PAGE_METRONOME:
+        return Display_GetMenuFirstVisibleIndex(MENU_METRONOME_ITEM_COUNT, selection_index);
     case DISPLAY_MENU_PAGE_USER_THEME:
         return Display_GetMenuFirstVisibleIndex(MENU_USER_THEME_ITEM_COUNT, selection_index);
     case DISPLAY_MENU_PAGE_BANKS:
@@ -96,13 +102,8 @@ uint8_t Display_GetMenuVisibleRowIndex(DisplayMenuPage_t page, uint8_t item_inde
     switch (page)
     {
     case DISPLAY_MENU_PAGE_ROOT:
-        if (item_index >= MENU_VISIBLE_ROW_COUNT)
-            return 0U;
-
-        *row_index = item_index;
-        return 1U;
-
     case DISPLAY_MENU_PAGE_GLOBAL:
+    case DISPLAY_MENU_PAGE_METRONOME:
     case DISPLAY_MENU_PAGE_USER_THEME:
     case DISPLAY_MENU_PAGE_BANKS:
     case DISPLAY_MENU_PAGE_BANK_EDIT:

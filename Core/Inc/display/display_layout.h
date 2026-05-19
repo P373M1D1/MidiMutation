@@ -108,7 +108,7 @@
 #define LOADING_BAR_DONE_TEXT           "mutation complete"
 
 /* Shared menu shell row counts and logical item totals. */
-#define MENU_ROOT_ITEM_COUNT            4U
+#define MENU_ROOT_ITEM_COUNT            5U
 #define MENU_VISIBLE_ROW_COUNT          4U
 #define MENU_GLOBAL_ITEM_COUNT          6U
 #define MENU_USER_THEME_ITEM_COUNT      RUNTIME_CONFIG_USER_THEME_FIELD_COUNT

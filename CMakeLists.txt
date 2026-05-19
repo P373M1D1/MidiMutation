@@ -77,6 +77,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/display/display_menu_page_device_edit.c
     Core/Src/display/display_menu_page_bank_edit.c
     Core/Src/display/display_menu_page_global.c
+    Core/Src/display/display_menu_page_metronome.c
     Core/Src/display/display_menu_page_midi_monitor.c
     Core/Src/display/display_menu_page_user_theme.c
     Core/Src/display/display_menu_page_banks.c
@@ -92,7 +93,18 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/display_functions.c
     Core/Src/bpm_functions.c
     Core/Src/led_functions.c
+    Core/Src/midi/midi_feedback.c
+    Core/Src/midi/midi_clock_estimator.c
+    Core/Src/midi/midi_input.c
     Core/Src/midi/midi_monitor.c
+    Core/Src/midi/midi_clock.c
+    Core/Src/midi/midi_transport_cycle.c
+    Core/Src/midi/midi_transport_events.c
+    Core/Src/midi/midi_transport_observer.c
+    Core/Src/midi/midi_transport_parser.c
+    Core/Src/midi/midi_transport_sync.c
+    Core/Src/midi/midi_transport.c
+    Core/Src/midi/midi_transport_state.c
     Core/Src/midi/midi_output.c
     Core/Src/midi_functions.c
     Core/Src/midi_devices.c
@@ -105,6 +117,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     User/Src/app/app_encoder_sampler.c
     User/Src/app/app_encoder_math.c
     User/Src/app/app_footswitch_input.c
+    User/Src/app/app_midi_clock_sync.c
+    User/Src/app/app_midi_transport.c
     User/Src/app/app_input_encoder_switches.c
     User/Src/app/app_input_board.c
     User/Src/app/app_input_irq.c
@@ -112,6 +126,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     User/Src/app/app_requests.c
     User/Src/app/app_dispatch.c
     User/Src/app/app_input.c
+    User/Src/app/app_metronome.c
     User/Src/app/app_save_service.c
     User/Src/app/app_special_functions.c
     User/Src/app/app_state.c

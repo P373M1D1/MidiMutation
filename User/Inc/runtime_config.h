@@ -26,11 +26,27 @@ extern "C" {
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN      1606U /* legacy 100/255 mapped into 12-bit DAC space */
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX      4095U
 #define RUNTIME_CONFIG_USER_THEME_COUNT               3U
+#define RUNTIME_CONFIG_METRONOME_VOLUME_MAX           100U
+#define RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_MIN    3U
+#define RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_MAX    8U
 
 typedef enum {
     RUNTIME_CONFIG_SYNC_STYLE_MIDI_CLOCK = 0,
     RUNTIME_CONFIG_SYNC_STYLE_TAP_TEMPO_CC,
 } RuntimeConfigSyncStyle_t;
+
+typedef enum {
+    RUNTIME_CONFIG_METRONOME_PITCH_LOW = 0,
+    RUNTIME_CONFIG_METRONOME_PITCH_MID,
+    RUNTIME_CONFIG_METRONOME_PITCH_HIGH,
+} RuntimeConfigMetronomePitch_t;
+
+typedef enum {
+    RUNTIME_CONFIG_METRONOME_RHYTHM_QUARTER_NOTES = 0,
+    RUNTIME_CONFIG_METRONOME_RHYTHM_OFFBEAT,
+    RUNTIME_CONFIG_METRONOME_RHYTHM_TRIPLETS,
+    RUNTIME_CONFIG_METRONOME_RHYTHM_SHUFFLE,
+} RuntimeConfigMetronomeRhythm_t;
 
 /* Display modes are persisted as raw enum values in RuntimeConfig_t and are
  * used as direct indices into display_theme.c. Add new themes before COUNT.
@@ -134,6 +150,13 @@ typedef struct {
 } RuntimeConfigUserTheme_t;
 
 typedef struct {
+    uint8_t volume;
+    RuntimeConfigMetronomePitch_t pitch;
+    uint8_t beats_per_bar;
+    RuntimeConfigMetronomeRhythm_t rhythm;
+} RuntimeConfigMetronome_t;
+
+typedef struct {
     uint8_t startup_delay_seconds;
     uint8_t screensaver_timeout_minutes;
     RuntimeConfigSyncStyle_t sync_style;
@@ -145,6 +168,7 @@ typedef struct {
     RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
     RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
     RuntimeConfigGlobal_t global;
+    RuntimeConfigMetronome_t metronome;
     RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
 } RuntimeConfig_t;
 
@@ -165,6 +189,8 @@ RuntimeConfigDevice_t *RuntimeConfig_GetMutableDevice(uint8_t device_index);
 
 const RuntimeConfigGlobal_t *RuntimeConfig_GetGlobal(void);
 RuntimeConfigGlobal_t *RuntimeConfig_GetMutableGlobal(void);
+const RuntimeConfigMetronome_t *RuntimeConfig_GetMetronome(void);
+RuntimeConfigMetronome_t *RuntimeConfig_GetMutableMetronome(void);
 uint8_t RuntimeConfig_TryGetUserThemeIndex(RuntimeConfigDisplayMode_t display_mode, uint8_t *theme_index);
 const RuntimeConfigUserTheme_t *RuntimeConfig_GetUserTheme(RuntimeConfigDisplayMode_t display_mode);
 RuntimeConfigUserTheme_t *RuntimeConfig_GetMutableUserTheme(RuntimeConfigDisplayMode_t display_mode);

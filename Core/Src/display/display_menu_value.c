@@ -274,6 +274,7 @@ uint8_t Display_MenuAdjustUserThemeBrightness(int8_t delta)
 uint8_t Display_MenuAdjustValue(int8_t delta)
 {
     RuntimeConfigGlobal_t *global = RuntimeConfig_GetMutableGlobal();
+    RuntimeConfigMetronome_t *metronome = RuntimeConfig_GetMutableMetronome();
     RuntimeConfigBank_t *bank = RuntimeConfig_GetMutableBank(display_state.menu_active_bank_index);
     RuntimeConfigDevice_t *device = RuntimeConfig_GetMutableDevice(display_state.menu_active_device_index);
     uint8_t changed = 0U;
@@ -431,6 +432,57 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
                 global->backlight_brightness = Display_GetBrightnessFromUiValue(brightness_ui);
                 Display_ApplyConfiguredBacklightBrightnessNow();
             }
+            break;
+        }
+
+        default:
+            break;
+        }
+    }
+    else if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_METRONOME)
+    {
+        if (!metronome)
+            return 0U;
+
+        switch (display_state.menu_metronome_selection_index)
+        {
+        case 0U:
+            changed = Display_AdjustClampedU8(&metronome->volume,
+                                              0U,
+                                              RUNTIME_CONFIG_METRONOME_VOLUME_MAX,
+                                              delta);
+            break;
+
+        case 1U:
+        {
+            uint8_t pitch = (uint8_t)metronome->pitch;
+
+            changed = Display_AdjustClampedU8(&pitch,
+                                              (uint8_t)RUNTIME_CONFIG_METRONOME_PITCH_LOW,
+                                              (uint8_t)RUNTIME_CONFIG_METRONOME_PITCH_HIGH,
+                                              delta);
+            if (changed)
+                metronome->pitch = (RuntimeConfigMetronomePitch_t)pitch;
+            break;
+        }
+
+        case 2U:
+            changed = Display_AdjustClampedU8(&metronome->beats_per_bar,
+                                              RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_MIN,
+                                              RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_MAX,
+                                              delta);
+            break;
+
+        case 3U:
+        {
+            uint8_t rhythm = (uint8_t)metronome->rhythm;
+
+            changed = Display_AdjustClampedU8(&rhythm,
+                                              (uint8_t)RUNTIME_CONFIG_METRONOME_RHYTHM_QUARTER_NOTES,
+                                              (uint8_t)RUNTIME_CONFIG_METRONOME_RHYTHM_SHUFFLE,
+                                              delta);
+            if (changed)
+                metronome->rhythm = (RuntimeConfigMetronomeRhythm_t)rhythm;
             break;
         }
 

@@ -9,9 +9,11 @@
 #include "display/display_menu_page_devices.h"
 #include "display/display_menu_page_function_button.h"
 #include "display/display_menu_page_global.h"
+#include "display/display_menu_page_metronome.h"
 #include "display/display_menu_page_midi_monitor.h"
 #include "display/display_menu_page_user_theme.h"
 #include "display/display_menu_pages.h"
+#include "display/display_menu_redraw_utils.h"
 #include "display/display_menu_row_render.h"
 #include "display/display_strings.h"
 #include "display/display_theme.h"
@@ -246,19 +248,22 @@ static void Display_DrawMenuRootItem(uint8_t item_index)
         "Banks",
         "Devices",
         "Global",
+        "Metronome",
         "MIDI Monitor",
     };
+    uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_ROOT_ITEM_COUNT,
+                                                                   display_state.menu_root_selection_index);
+    uint8_t row_index;
 
     if (item_index >= MENU_ROOT_ITEM_COUNT)
-    {
-        /* Root-page item counts are smaller than the physical row count, so
-         * off-end rows must be actively cleared when reused from another page. */
-        if (item_index < MENU_VISIBLE_ROW_COUNT)
-            Display_ClearStandardMenuRow(item_index);
         return;
-    }
 
-    Display_DrawMenuRowByIndex(item_index,
+    if (item_index < first_visible_index || item_index >= (uint8_t)(first_visible_index + MENU_VISIBLE_ROW_COUNT))
+        return;
+
+    row_index = (uint8_t)(item_index - first_visible_index);
+
+    Display_DrawMenuRowByIndex(row_index,
                                menu_root_items[item_index],
                                "",
                                (item_index == display_state.menu_root_selection_index) ? 1U : 0U);
@@ -266,8 +271,18 @@ static void Display_DrawMenuRootItem(uint8_t item_index)
 
 static void Display_DrawMenuRoot(void)
 {
-    for (uint8_t index = 0U; index < MENU_VISIBLE_ROW_COUNT; ++index)
-        Display_DrawMenuRootItem(index);
+    uint8_t first_visible_index = Display_GetMenuFirstVisibleIndex(MENU_ROOT_ITEM_COUNT,
+                                                                   display_state.menu_root_selection_index);
+
+    for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
+    {
+        uint8_t item_index = (uint8_t)(first_visible_index + row_index);
+
+        if (item_index < MENU_ROOT_ITEM_COUNT)
+            Display_DrawMenuRootItem(item_index);
+        else
+            Display_ClearStandardMenuRow(row_index);
+    }
 }
 
 static void Display_DrawMenuBankInitConfirm(void)
@@ -322,6 +337,8 @@ static const char *Display_GetMenuHeaderTextForPage(DisplayMenuPage_t page, char
         return "CONFIRM";
     case DISPLAY_MENU_PAGE_GLOBAL:
         return "GLOBAL";
+    case DISPLAY_MENU_PAGE_METRONOME:
+        return "METRONOME";
     case DISPLAY_MENU_PAGE_MIDI_MONITOR:
         return "MIDI MONITOR";
     case DISPLAY_MENU_PAGE_USER_THEME:
@@ -496,6 +513,8 @@ static DisplayMenuPageSpec_t Display_GetMenuPageSpec(DisplayMenuPage_t page)
         return (DisplayMenuPageSpec_t){ NULL, 0U, Display_DrawMenuFactoryResetConfirm, NULL };
     case DISPLAY_MENU_PAGE_GLOBAL:
         return (DisplayMenuPageSpec_t){ &display_state.menu_global_selection_index, MENU_GLOBAL_ITEM_COUNT, Display_DrawMenuGlobal, Display_DrawMenuGlobalItem };
+    case DISPLAY_MENU_PAGE_METRONOME:
+        return (DisplayMenuPageSpec_t){ &display_state.menu_metronome_selection_index, MENU_METRONOME_ITEM_COUNT, Display_DrawMenuMetronome, Display_DrawMenuMetronomeItem };
     case DISPLAY_MENU_PAGE_MIDI_MONITOR:
         return (DisplayMenuPageSpec_t){ NULL, 0U, Display_DrawMenuMidiMonitor, NULL };
     case DISPLAY_MENU_PAGE_USER_THEME:

@@ -106,7 +106,7 @@
 #define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_INACTIVE_TEXT "bypass"   // fallback text shown when the special-function button mode is inactive
 #define MAIN_INFO_HIGHLIGHT_BORDER_H   2U                   // thickness of the top and bottom highlight bars around active state text
 
-#define MENU_ROOT_ITEM_COUNT            4U                   // number of top-level entries currently shown in the menu shell
+#define MENU_ROOT_ITEM_COUNT            5U                   // number of top-level entries currently shown in the menu shell
 #define MENU_VISIBLE_ROW_COUNT          4U                   // number of menu rows visible at one time in the current shell layout
 #define MENU_BANK_EDIT_ITEM_COUNT       5U                   // number of items on the bank edit page
 #define MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT 3U              // number of editable text rows before the compare table starts

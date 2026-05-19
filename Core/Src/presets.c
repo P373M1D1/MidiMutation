@@ -973,7 +973,8 @@ static uint8_t Presets_FlashHeaderV3IsValid(const PersistentStoreHeaderV3_t *hea
     return (header->magic == PERSISTENT_STORE_MAGIC_V3
            && (header->version == PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC
             || header->version == PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC_COMPACT_DISPLAY_MODES
-            || header->version == PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC_USER_THEMES)
+            || header->version == PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC_USER_THEMES
+            || header->version == PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC_METRONOME)
          && header->commit_marker == PERSISTENT_STORE_COMMIT_MARKER
          && header->bank_count == PRESET_BANK_COUNT
          && header->presets_per_bank == PRESETS_PER_BANK
@@ -1156,7 +1157,7 @@ static uint8_t Presets_FlashSaveRuntimeStore(void)
     target_sector = preset_flash_slot_sectors[target_slot_index];
 
     header.magic = PERSISTENT_STORE_MAGIC_V3;
-    header.version = PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC_USER_THEMES;
+    header.version = PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC_METRONOME;
     header.bank_count = PRESET_BANK_COUNT;
     header.presets_per_bank = PRESETS_PER_BANK;
     header.preset_count = PRESET_COUNT;
