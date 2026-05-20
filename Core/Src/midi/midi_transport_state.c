@@ -12,11 +12,12 @@ volatile uint16_t midi_clock_diag_interval_count = 0U;
 volatile uint32_t midi_clock_pulse_interval_sum_us = 0U;
 volatile uint8_t midi_clock_pulse_interval_count = 0U;
 volatile uint32_t midi_clock_external_activity_timeout_us = 0U;
+volatile uint32_t midi_clock_last_captured_pulse_us = 0U;
 volatile uint16_t midi_clock_external_bpm_x10 = 0U;
 volatile uint8_t midi_clock_external_bpm_valid = 0U;
 volatile uint8_t midi_barbeat_valid = 0U;
-volatile uint8_t midi_barbeat_bar = 1U;
-volatile uint8_t midi_barbeat_beat = 1U;
+volatile uint32_t midi_transport_global_tick_count = 0U;
+volatile uint32_t midi_transport_origin_tick_count = 0U;
 volatile uint8_t midi_clock_sync_lost = 0U;
 volatile uint8_t midi_transport_running = 0U;
 volatile uint8_t midi_transport_stop_latched = 0U;
@@ -103,20 +104,7 @@ uint8_t MidiClockIsExternalSignalPresent(void)
 
 uint8_t MidiClockGetBarBeat(uint8_t *bar, uint8_t *beat)
 {
-    uint32_t primask = __get_PRIMASK();
-    uint8_t valid;
-
-    if (!bar || !beat)
-        return 0U;
-
-    __disable_irq();
-    valid = midi_barbeat_valid;
-    *bar = midi_barbeat_bar;
-    *beat = midi_barbeat_beat;
-    if (primask == 0U)
-        __enable_irq();
-
-    return valid;
+    return MidiTransportCycle_GetBarBeat(bar, beat);
 }
 
 void MidiClockDiagnosticService(void)

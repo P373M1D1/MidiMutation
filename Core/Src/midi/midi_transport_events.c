@@ -16,7 +16,7 @@ void MidiTransport_ResetClockTracking(void)
 }
 
 __attribute__((section(".RamFunc")))
-static void midi_transport_arm(MidiTransportEvent_t event)
+static void midi_transport_arm(MidiTransportEvent_t event, uint32_t now)
 {
     if (!MidiTransport_IsFlashBusyFast())
         MidiFeedback_PulseTransportAnchor();
@@ -30,19 +30,19 @@ static void midi_transport_arm(MidiTransportEvent_t event)
     midi_transport_event = event;
     MidiTransport_ResetClockTracking();
     MidiTransportCycle_Arm();
-    AppMetronome_OnQuarterNote(APP_METRONOME_SOURCE_EXTERNAL);
+    AppMetronome_OnQuarterNoteAt(APP_METRONOME_SOURCE_EXTERNAL, now);
 }
 
 __attribute__((section(".RamFunc")))
-void MidiTransport_OnStart(void)
+void MidiTransport_OnStart(uint32_t now)
 {
-    midi_transport_arm(MIDI_TRANSPORT_EVENT_START);
+    midi_transport_arm(MIDI_TRANSPORT_EVENT_START, now);
 }
 
 __attribute__((section(".RamFunc")))
-void MidiTransport_OnContinue(void)
+void MidiTransport_OnContinue(uint32_t now)
 {
-    midi_transport_arm(MIDI_TRANSPORT_EVENT_CONTINUE);
+    midi_transport_arm(MIDI_TRANSPORT_EVENT_CONTINUE, now);
 }
 
 __attribute__((section(".RamFunc")))
@@ -53,6 +53,7 @@ void MidiTransport_OnStop(void)
     midi_transport_stop_latched = 0U;
     midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
     midi_clock_last_pulse_us = 0U;
+    midi_clock_last_captured_pulse_us = 0U;
     midi_clock_external_bpm_valid = 0U;
     midi_clock_sync_lost = 0U;
 }

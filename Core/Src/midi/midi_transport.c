@@ -18,11 +18,11 @@ uint8_t MidiTransport_HandleRealtimeByteFast(uint8_t byte, uint32_t now)
     switch (byte)
     {
     case MIDI_REALTIME_START:
-        MidiTransport_OnStart();
+        MidiTransport_OnStart(now);
         return 1U;
 
     case MIDI_REALTIME_CONTINUE:
-        MidiTransport_OnContinue();
+        MidiTransport_OnContinue(now);
         return 1U;
 
     case MIDI_REALTIME_STOP:
@@ -47,13 +47,13 @@ void MidiReceive(uint8_t byte)
 
     if (byte == MIDI_REALTIME_START)
     {
-        MidiTransport_OnStart();
+        MidiTransport_OnStart(TIM2->CNT);
         return;
     }
 
     if (byte == MIDI_REALTIME_CONTINUE)
     {
-        MidiTransport_OnContinue();
+        MidiTransport_OnContinue(TIM2->CNT);
         return;
     }
 

@@ -311,6 +311,7 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
     RuntimeConfigDevice_t *device = RuntimeConfig_GetMutableDevice(display_state.menu_active_device_index);
     uint8_t changed = 0U;
     uint8_t full_redraw = 0U;
+    uint8_t metronome_dirty = 0U;
 
     if (!display_state.menu_mode_active || delta == 0)
         return 0U;
@@ -476,6 +477,8 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
         if (!metronome)
             return 0U;
 
+        metronome_dirty = 1U;
+
         switch (display_state.menu_metronome_selection_index)
         {
         case 0U:
@@ -541,7 +544,10 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
     if (!changed)
         return 0U;
 
-    RuntimeConfig_MarkDirty();
+    if (metronome_dirty)
+        RuntimeConfig_MarkMetronomeDirty();
+    else
+        RuntimeConfig_MarkDirty();
 
     if (full_redraw)
     {

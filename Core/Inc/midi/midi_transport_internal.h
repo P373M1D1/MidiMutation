@@ -25,11 +25,12 @@ extern volatile uint16_t midi_clock_diag_interval_count;
 extern volatile uint32_t midi_clock_pulse_interval_sum_us;
 extern volatile uint8_t midi_clock_pulse_interval_count;
 extern volatile uint32_t midi_clock_external_activity_timeout_us;
+extern volatile uint32_t midi_clock_last_captured_pulse_us;
 extern volatile uint16_t midi_clock_external_bpm_x10;
 extern volatile uint8_t midi_clock_external_bpm_valid;
 extern volatile uint8_t midi_barbeat_valid;
-extern volatile uint8_t midi_barbeat_bar;
-extern volatile uint8_t midi_barbeat_beat;
+extern volatile uint32_t midi_transport_global_tick_count;
+extern volatile uint32_t midi_transport_origin_tick_count;
 extern volatile uint8_t midi_clock_sync_lost;
 extern volatile uint8_t midi_transport_running;
 extern volatile uint8_t midi_transport_stop_latched;
@@ -48,9 +49,9 @@ uint32_t MidiTransport_ComputeActivityTimeoutUs(uint32_t pulse_interval_sum_us,
 __attribute__((section(".RamFunc")))
 void MidiTransport_ResetClockTracking(void);
 __attribute__((section(".RamFunc")))
-void MidiTransport_OnStart(void);
+void MidiTransport_OnStart(uint32_t now);
 __attribute__((section(".RamFunc")))
-void MidiTransport_OnContinue(void);
+void MidiTransport_OnContinue(uint32_t now);
 __attribute__((section(".RamFunc")))
 void MidiTransport_OnStop(void);
 __attribute__((section(".RamFunc")))
@@ -67,6 +68,7 @@ __attribute__((section(".RamFunc")))
 void MidiTransportCycle_Arm(void);
 __attribute__((section(".RamFunc")))
 uint8_t MidiTransportCycle_OnClockPulse(void);
+uint8_t MidiTransportCycle_GetBarBeat(uint8_t *bar, uint8_t *beat);
 __attribute__((section(".RamFunc")))
 void MidiTransport_ResetObservedState(void);
 void MidiTransport_NoteDiagnosticInterval(uint32_t interval_us);

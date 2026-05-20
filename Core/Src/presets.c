@@ -1125,7 +1125,8 @@ static uint8_t Presets_FlashSaveRuntimeStore(void)
 {
     FLASH_EraseInitTypeDef erase = {0};
     PersistentStoreHeaderV3_t header;
-    const RuntimeConfig_t *config = RuntimeConfig_Get();
+    RuntimeConfig_t config_snapshot;
+    const RuntimeConfig_t *config = &config_snapshot;
     uint32_t latest_slot_address = 0U;
     uint32_t latest_generation = 0U;
     uint32_t sector_error = 0U;
@@ -1133,6 +1134,8 @@ static uint8_t Presets_FlashSaveRuntimeStore(void)
     uint32_t target_sector;
     uint8_t saved = 0U;
     uint8_t target_slot_index;
+
+    RuntimeConfig_CopyPersistentSaveSnapshot(&config_snapshot);
 
     if ((sizeof(PersistentStoreHeaderV3_t) + sizeof(preset_store) + sizeof(RuntimeConfig_t)) > PERSISTENT_STORE_FLASH_SIZE_BYTES)
         return 0U;

@@ -41,6 +41,7 @@ void AppMetronome_Service(void);
 void AppMetronome_HandleTimingCounterIrq(void);
 void AppMetronome_ResetCycle(void);
 void AppMetronome_OnQuarterNote(AppMetronomeSource_t source);
+void AppMetronome_OnQuarterNoteAt(AppMetronomeSource_t source, uint32_t anchor_us);
 void AppMetronome_SetEnabled(uint8_t enabled);
 uint8_t AppMetronome_IsEnabled(void);
 void AppMetronome_SetOutput(AppMetronomeOutput_t output);

@@ -18,6 +18,7 @@ void AppRuntime_ServiceForeground(void)
 {
     /* Deferred work stays in the foreground loop: BPM/UI updates and flash-save
      * scheduling on one side, queued EXTI button events on the other. */
+    MidiInput_ServiceRealtimeRx();
 #if EXT_CLOCK_HOLDOVER_MIRROR_ENABLED
     AppTempo_ExternalClockHoldoverMirrorService();
 #endif

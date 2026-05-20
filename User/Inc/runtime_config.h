@@ -206,9 +206,11 @@ RuntimeConfigDisplayMode_t RuntimeConfig_NormalizeDisplayMode(uint8_t display_mo
 RuntimeConfigDisplayMode_t RuntimeConfig_StepDisplayMode(RuntimeConfigDisplayMode_t display_mode, int8_t delta);
 
 void RuntimeConfig_MarkDirty(void);
+void RuntimeConfig_MarkMetronomeDirty(void);
 uint8_t RuntimeConfig_IsDirty(void);
 void RuntimeConfig_ClearDirty(void);
 uint8_t RuntimeConfig_SaveIfDirty(void);
+void RuntimeConfig_CopyPersistentSaveSnapshot(RuntimeConfig_t *snapshot);
 void RuntimeConfig_FormatPersistentStoreStatusText(char *buffer, size_t buffer_size);
 void RuntimeConfig_ApplySnapshot(const RuntimeConfig_t *snapshot);
 

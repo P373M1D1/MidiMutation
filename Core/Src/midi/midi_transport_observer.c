@@ -1,6 +1,7 @@
 #include "midi/midi_transport_internal.h"
 
 static void MidiTransport_GetTimingSnapshot(uint32_t *last_pulse_us,
+                                            uint32_t *last_captured_pulse_us,
                                             uint32_t *pulse_interval_sum_us,
                                             uint8_t *pulse_interval_count);
 
@@ -35,8 +36,7 @@ void MidiTransport_ResetObservedState(void)
     midi_clock_external_bpm_x10 = 0U;
     midi_clock_external_bpm_valid = 0U;
     midi_barbeat_valid = 0U;
-    midi_barbeat_bar = 1U;
-    midi_barbeat_beat = 1U;
+    midi_transport_origin_tick_count = midi_transport_global_tick_count;
     midi_clock_sync_lost = 0U;
 }
 
@@ -44,29 +44,35 @@ void MidiTransport_UpdateSyncState(void)
 {
     uint32_t timeout_us;
     uint32_t last_pulse_us;
+    uint32_t last_captured_pulse_us;
     uint32_t pulse_interval_sum_us;
     uint8_t pulse_interval_count;
 
     if (!midi_transport_running || midi_clock_sync_lost || midi_transport_rearm_required)
         return;
 
-    MidiTransport_GetTimingSnapshot(&last_pulse_us, &pulse_interval_sum_us, &pulse_interval_count);
+    MidiTransport_GetTimingSnapshot(&last_pulse_us,
+                                    &last_captured_pulse_us,
+                                    &pulse_interval_sum_us,
+                                    &pulse_interval_count);
     if (last_pulse_us == 0U || pulse_interval_count == 0U)
         return;
 
     timeout_us = MidiTransport_ComputeActivityTimeoutUs(pulse_interval_sum_us, pulse_interval_count);
 
-    if ((TIM2->CNT - last_pulse_us) > timeout_us)
+    if ((TIM2->CNT - last_captured_pulse_us) > timeout_us)
     {
         midi_transport_rearm_required = 1U;
         midi_transport_running = 0U;
         midi_clock_external_bpm_valid = 0U;
         midi_clock_last_pulse_us = 0U;
+        midi_clock_last_captured_pulse_us = 0U;
         midi_clock_sync_lost = 0U;
     }
 }
 
 static void MidiTransport_GetTimingSnapshot(uint32_t *last_pulse_us,
+                                            uint32_t *last_captured_pulse_us,
                                             uint32_t *pulse_interval_sum_us,
                                             uint8_t *pulse_interval_count)
 {
@@ -74,6 +80,7 @@ static void MidiTransport_GetTimingSnapshot(uint32_t *last_pulse_us,
 
     __disable_irq();
     *last_pulse_us = midi_clock_last_pulse_us;
+    *last_captured_pulse_us = midi_clock_last_captured_pulse_us;
     *pulse_interval_sum_us = midi_clock_pulse_interval_sum_us;
     *pulse_interval_count = midi_clock_pulse_interval_count;
     if (primask == 0U)

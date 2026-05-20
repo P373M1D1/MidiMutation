@@ -7,6 +7,7 @@
 #include "bpm_functions.h"
 #include "display_functions.h"
 #include "led_functions.h"
+#include "midi_functions.h"
 #include "presets.h"
 #include "runtime_config.h"
 
@@ -24,6 +25,15 @@ static AppSaveServiceState_t app_save_service_state = APP_SAVE_SERVICE_STATE_IDL
 static uint8_t AppSaveService_RequestMaskForKind(uint8_t save_kind);
 static uint8_t AppSaveService_CombinedRequestMask(void);
 static void AppSaveService_HandleRequestEvent(uint8_t save_kind);
+static uint8_t AppSaveService_ShouldDeferFlashWrite(void);
+
+static uint8_t AppSaveService_ShouldDeferFlashWrite(void)
+{
+    /* External clock presence already includes the transport-running case and
+     * a short post-pulse timeout window, which makes it the right low-cost
+     * guard for "do not start flash work during live sync". */
+    return MidiClockIsExternalSignalPresent();
+}
 
 uint8_t AppSaveService_HandleEvent(const AppEvent_t *event)
 {
@@ -83,20 +93,37 @@ void AppSaveService_Service(void)
                 return;
             }
 
+            if (AppSaveService_ShouldDeferFlashWrite())
+                return;
+
             app_save_service_state = APP_SAVE_SERVICE_STATE_SHOW_COMBINED_POPUP;
             return;
         }
 
         if ((app_save_service_requested_mask & runtime_state_mask) != 0U)
+        {
+            if (AppSaveService_ShouldDeferFlashWrite())
+                return;
+
             app_save_service_state = APP_SAVE_SERVICE_STATE_SAVE_RUNTIME_STATE;
+        }
         return;
 
     case APP_SAVE_SERVICE_STATE_SHOW_COMBINED_POPUP:
+        if (AppSaveService_ShouldDeferFlashWrite())
+            return;
+
         Display_ShowSavingPopup();
         app_save_service_state = APP_SAVE_SERVICE_STATE_SAVE_COMBINED;
         return;
 
     case APP_SAVE_SERVICE_STATE_SAVE_COMBINED:
+        if (AppSaveService_ShouldDeferFlashWrite())
+        {
+            app_save_service_state = APP_SAVE_SERVICE_STATE_HIDE_COMBINED_POPUP;
+            return;
+        }
+
         (void)Presets_SaveIfDirty();
         app_save_service_requested_mask &= (uint8_t)~combined_mask;
         app_save_service_state = APP_SAVE_SERVICE_STATE_HIDE_COMBINED_POPUP;
@@ -108,6 +135,9 @@ void AppSaveService_Service(void)
         return;
 
     case APP_SAVE_SERVICE_STATE_SAVE_RUNTIME_STATE:
+        if (AppSaveService_ShouldDeferFlashWrite())
+            return;
+
 #if BPM_FLASH_WRITES_ENABLED
         RuntimeState_Flash_Save(AppState_GetTempoBpm(),
                                 AppState_GetActivePresetIndex(),

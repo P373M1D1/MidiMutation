@@ -6,56 +6,63 @@
 
 #define MIDI_BARBEAT_BEATS_PER_BAR  4U
 
-static uint8_t midi_clock_pulse_count = 0U;
-
-__attribute__((section(".RamFunc")))
-static void midi_transport_cycle_advance_quarter_note(void);
-
 __attribute__((section(".RamFunc")))
 void MidiTransportCycle_Reset(void)
 {
-    midi_clock_pulse_count = 0U;
+    midi_transport_origin_tick_count = midi_transport_global_tick_count;
 }
 
 __attribute__((section(".RamFunc")))
 void MidiTransportCycle_Arm(void)
 {
+    midi_transport_origin_tick_count = midi_transport_global_tick_count;
     midi_barbeat_valid = 1U;
-    midi_barbeat_bar = 1U;
-    midi_barbeat_beat = 1U;
 }
 
 __attribute__((section(".RamFunc")))
 uint8_t MidiTransportCycle_OnClockPulse(void)
 {
-    midi_clock_pulse_count++;
-    if (midi_clock_pulse_count < MIDI_CLOCK_PULSES_PER_QUARTER_NOTE)
+    uint32_t relative_tick_count;
+
+    midi_transport_global_tick_count++;
+
+    if (!midi_barbeat_valid)
         return 0U;
 
-    midi_clock_pulse_count = 0U;
+    relative_tick_count = midi_transport_global_tick_count - midi_transport_origin_tick_count;
+    if (relative_tick_count == 0U)
+        return 0U;
 
-    midi_transport_cycle_advance_quarter_note();
-    return 1U;
+    return ((relative_tick_count % MIDI_CLOCK_PULSES_PER_QUARTER_NOTE) == 0U) ? 1U : 0U;
 }
 
-__attribute__((section(".RamFunc")))
-static void midi_transport_cycle_advance_quarter_note(void)
+uint8_t MidiTransportCycle_GetBarBeat(uint8_t *bar, uint8_t *beat)
 {
-    if (!midi_barbeat_valid)
-        return;
+    uint32_t primask = __get_PRIMASK();
+    uint32_t total_tick_count;
+    uint32_t origin_tick_count;
+    uint32_t quarter_note_count;
+    uint8_t valid;
+    uint8_t bars_per_cycle;
 
-    if (midi_barbeat_beat < MIDI_BARBEAT_BEATS_PER_BAR)
-    {
-        midi_barbeat_beat++;
-        return;
-    }
+    if (!bar || !beat)
+        return 0U;
 
-    {
-        uint8_t bars_per_cycle = RuntimeConfig_GetMidiClockBarCountFast(current_bank);
+    __disable_irq();
+    valid = midi_barbeat_valid;
+    total_tick_count = midi_transport_global_tick_count;
+    origin_tick_count = midi_transport_origin_tick_count;
+    if (primask == 0U)
+        __enable_irq();
 
-        midi_barbeat_beat = 1U;
-        midi_barbeat_bar = (midi_barbeat_bar < bars_per_cycle)
-            ? (uint8_t)(midi_barbeat_bar + 1U)
-            : 1U;
-    }
+    if (!valid)
+        return 0U;
+
+    quarter_note_count = (total_tick_count - origin_tick_count) / MIDI_CLOCK_PULSES_PER_QUARTER_NOTE;
+    bars_per_cycle = RuntimeConfig_GetMidiClockBarCountFast(current_bank);
+
+    *beat = (uint8_t)((quarter_note_count % MIDI_BARBEAT_BEATS_PER_BAR) + 1U);
+    *bar = (uint8_t)(((quarter_note_count / MIDI_BARBEAT_BEATS_PER_BAR) % bars_per_cycle) + 1U);
+
+    return 1U;
 }

@@ -1,6 +1,8 @@
 #include "runtime_config.h"
 #include "persistent_store_layout.h"
 
+#include "midi_functions.h"
+
 #include <stdio.h>
 #include <string.h>
 #include "st7796_rgb565_colors.h"
@@ -223,9 +225,22 @@ typedef enum {
 static RuntimeConfig_t runtime_config_store;
 static uint8_t runtime_config_initialized = 0U;
 static uint8_t runtime_config_dirty = 0U;
+static uint8_t runtime_config_metronome_dirty = 0U;
+static RuntimeConfigMetronome_t runtime_config_persisted_metronome = RUNTIME_CONFIG_METRONOME_DEFAULT;
 static RuntimeConfigPersistentStoreDiagnosticMode_t runtime_config_persistent_store_diag_mode = RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_DEFAULT;
 static uint8_t runtime_config_persistent_store_diag_slot = 0U;
 static uint32_t runtime_config_persistent_store_diag_generation = 0U;
+
+static uint8_t RuntimeConfig_ShouldDeferMetronomePersistence(void)
+{
+    return MidiClockIsExternalSignalPresent();
+}
+
+static void RuntimeConfig_SyncPersistedMetronome(void)
+{
+    runtime_config_persisted_metronome = runtime_config_store.metronome;
+    runtime_config_metronome_dirty = 0U;
+}
 
 static void RuntimeConfig_ResetUserThemesToDefaults(void)
 {
@@ -897,6 +912,7 @@ static void RuntimeConfig_EnsureInitialized(void)
     RuntimeConfig_TryLoadPersistentStore();
     runtime_config_initialized = 1U;
     runtime_config_dirty = 0U;
+    RuntimeConfig_SyncPersistedMetronome();
 }
 
 void RuntimeConfig_Init(void)
@@ -1095,26 +1111,50 @@ void RuntimeConfig_MarkDirty(void)
     runtime_config_dirty = 1U;
 }
 
+void RuntimeConfig_MarkMetronomeDirty(void)
+{
+    RuntimeConfig_EnsureInitialized();
+    runtime_config_metronome_dirty = (memcmp(&runtime_config_store.metronome,
+                                             &runtime_config_persisted_metronome,
+                                             sizeof(runtime_config_store.metronome)) != 0) ? 1U : 0U;
+}
+
 uint8_t RuntimeConfig_IsDirty(void)
 {
     RuntimeConfig_EnsureInitialized();
-    return runtime_config_dirty;
+    return (runtime_config_dirty
+         || (runtime_config_metronome_dirty && !RuntimeConfig_ShouldDeferMetronomePersistence())) ? 1U : 0U;
 }
 
 void RuntimeConfig_ClearDirty(void)
 {
     RuntimeConfig_EnsureInitialized();
     runtime_config_dirty = 0U;
+
+    if (!RuntimeConfig_ShouldDeferMetronomePersistence())
+        RuntimeConfig_SyncPersistedMetronome();
 }
 
 uint8_t RuntimeConfig_SaveIfDirty(void)
 {
     RuntimeConfig_EnsureInitialized();
 
-    if (!runtime_config_dirty)
+    if (!RuntimeConfig_IsDirty())
         return 1U;
 
     return Presets_SaveIfDirty();
+}
+
+void RuntimeConfig_CopyPersistentSaveSnapshot(RuntimeConfig_t *snapshot)
+{
+    RuntimeConfig_EnsureInitialized();
+
+    if (!snapshot)
+        return;
+
+    *snapshot = runtime_config_store;
+    if (RuntimeConfig_ShouldDeferMetronomePersistence())
+        snapshot->metronome = runtime_config_persisted_metronome;
 }
 
 void RuntimeConfig_FormatPersistentStoreStatusText(char *buffer, size_t buffer_size)
@@ -1152,6 +1192,7 @@ void RuntimeConfig_ApplySnapshot(const RuntimeConfig_t *snapshot)
     memcpy(&runtime_config_store, snapshot, sizeof(runtime_config_store));
     runtime_config_initialized = 1U;
     runtime_config_dirty = 0U;
+    RuntimeConfig_SyncPersistedMetronome();
 }
 
 void RuntimeConfig_ResetToDefaults(void)
@@ -1159,4 +1200,5 @@ void RuntimeConfig_ResetToDefaults(void)
     memcpy(&runtime_config_store, &runtime_config_defaults, sizeof(runtime_config_store));
     runtime_config_initialized = 1U;
     runtime_config_dirty = 0U;
+    RuntimeConfig_SyncPersistedMetronome();
 }

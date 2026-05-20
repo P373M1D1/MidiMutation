@@ -164,8 +164,13 @@ void AppMetronome_ResetCycle(void)
 __attribute__((section(".RamFunc")))
 void AppMetronome_OnQuarterNote(AppMetronomeSource_t source)
 {
+    AppMetronome_OnQuarterNoteAt(source, app_metronome_now_us());
+}
+
+__attribute__((section(".RamFunc")))
+void AppMetronome_OnQuarterNoteAt(AppMetronomeSource_t source, uint32_t anchor_us)
+{
     uint32_t primask = app_metronome_enter_critical();
-    uint32_t now_us = app_metronome_now_us();
     uint32_t quarter_interval_us = app_metronome_quarter_interval_us;
     uint8_t beats_per_bar = app_metronome_config_beats_per_bar;
     uint8_t next_beat_in_bar;
@@ -175,29 +180,29 @@ void AppMetronome_OnQuarterNote(AppMetronomeSource_t source)
      || beats_per_bar > RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_MAX)
         beats_per_bar = 4U;
 
-    if (app_metronome_last_quarter_anchor_us != 0U && now_us != app_metronome_last_quarter_anchor_us)
-        quarter_interval_us = app_metronome_diff_us(now_us, app_metronome_last_quarter_anchor_us);
+    if (app_metronome_last_quarter_anchor_us != 0U && anchor_us != app_metronome_last_quarter_anchor_us)
+        quarter_interval_us = app_metronome_diff_us(anchor_us, app_metronome_last_quarter_anchor_us);
 
     if (quarter_interval_us == 0U)
         quarter_interval_us = app_metronome_quarter_interval_from_bpm(AppState_GetTempoBpm());
 
     app_metronome_last_source = source;
     app_metronome_quarter_interval_us = quarter_interval_us;
-    app_metronome_last_quarter_anchor_us = now_us;
+    app_metronome_last_quarter_anchor_us = anchor_us;
     next_beat_in_bar = (app_metronome_beat_in_bar == 0U || app_metronome_beat_in_bar >= beats_per_bar)
         ? 1U
         : (uint8_t)(app_metronome_beat_in_bar + 1U);
     app_metronome_beat_in_bar = next_beat_in_bar;
     app_metronome_pending_click_count = 0U;
     app_metronome_pending_click_index = 0U;
-    app_metronome_prepare_schedule(now_us,
+    app_metronome_prepare_schedule(anchor_us,
                                    quarter_interval_us,
                                    next_beat_in_bar,
                                    rhythm);
     app_metronome_schedule_generation++;
 
     if (app_metronome_output_ready_locked() && app_metronome_pending_click_count != 0U)
-        app_metronome_arm_next_click_compare(now_us);
+        app_metronome_arm_next_click_compare(anchor_us);
     else
         app_metronome_disarm_click_compare();
 

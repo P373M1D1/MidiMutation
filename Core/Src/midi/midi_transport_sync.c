@@ -46,7 +46,7 @@ void MidiTransport_OnClockPulse(uint32_t now)
 
     if (!MidiTransport_IsFlashBusyFast())
         MidiFeedback_PulseExternalClockBeat();
-    AppMetronome_OnQuarterNote(APP_METRONOME_SOURCE_EXTERNAL);
+    AppMetronome_OnQuarterNoteAt(APP_METRONOME_SOURCE_EXTERNAL, now);
 }
 
 __attribute__((section(".RamFunc")))

@@ -89,6 +89,13 @@ void Midi_SendDeviceProgramSlot(uint8_t device_index, uint8_t program);
 void MidiReceive(uint8_t byte);
 
 /**
+ * @brief  Drain timestamped realtime MIDI bytes captured by the USART2 IRQ.
+ *         Transport interpretation runs here in foreground context using the
+ *         original TIM2 capture timestamp from IRQ time.
+ */
+void MidiInput_ServiceRealtimeRx(void);
+
+/**
  * @brief  Configure and start the internal MIDI clock output timer.
  * @param  bpm  Initial whole-number tempo in beats per minute.
  */
