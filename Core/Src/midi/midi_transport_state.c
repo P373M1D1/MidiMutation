@@ -15,6 +15,7 @@ volatile uint32_t midi_clock_external_activity_timeout_us = 0U;
 volatile uint32_t midi_clock_last_captured_pulse_us = 0U;
 volatile uint16_t midi_clock_external_bpm_x10 = 0U;
 volatile uint8_t midi_clock_external_bpm_valid = 0U;
+volatile uint8_t midi_clock_external_bpm_window_pulses = 0U;
 volatile uint8_t midi_barbeat_valid = 0U;
 volatile uint32_t midi_transport_global_tick_count = 0U;
 volatile uint32_t midi_transport_origin_tick_count = 0U;
@@ -137,6 +138,7 @@ void MidiClockDiagnosticService(void)
     uint16_t count;
     uint16_t quarter_service_count;
     uint16_t bpm_x10 = 0U;
+    uint8_t estimator_window_pulses;
     uint8_t active;
     uint8_t running;
     uint8_t rearm_required;
@@ -161,6 +163,7 @@ void MidiClockDiagnosticService(void)
         quarter_service_sum_us = midi_quarter_service_latency_sum_us;
         quarter_service_max_us = midi_quarter_service_latency_max_us;
         quarter_service_count = midi_quarter_service_latency_count;
+        estimator_window_pulses = midi_clock_external_bpm_window_pulses;
         running = midi_transport_running;
         rearm_required = midi_transport_rearm_required;
         barbeat_valid = midi_barbeat_valid;
@@ -188,7 +191,7 @@ void MidiClockDiagnosticService(void)
         return;
 
     (void)MidiClockGetExternalBpmX10(&bpm_x10);
-        printf("CLKDIAG active=%u run=%u rearm=%u bb=%u samples=%u avg=%luus min=%lu max=%lu pkpk=%lu bpm=%u.%u q=%u qpk=%u qmax=%u drop=%lu/%lu lat=%lu/%luus ls=%u bsvc=%lu/%luus bs=%u\r\n",
+          printf("CLKDIAG active=%u run=%u rearm=%u bb=%u samples=%u avg=%luus min=%lu max=%lu pkpk=%lu bpm=%u.%u ew=%u q=%u qpk=%u qmax=%u drop=%lu/%lu lat=%lu/%luus ls=%u bsvc=%lu/%luus bs=%u\r\n",
            (unsigned)active,
             (unsigned)running,
             (unsigned)rearm_required,
@@ -200,6 +203,7 @@ void MidiClockDiagnosticService(void)
            (unsigned long)(have_clock_interval_stats ? (max_us - min_us) : 0U),
            (unsigned)(bpm_x10 / 10U),
            (unsigned)(bpm_x10 % 10U),
+              (unsigned)estimator_window_pulses,
            (unsigned)realtime_rx_diag.current_depth,
            (unsigned)realtime_rx_diag.interval_peak_depth,
            (unsigned)realtime_rx_diag.lifetime_peak_depth,

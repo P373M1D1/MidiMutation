@@ -28,6 +28,7 @@ extern volatile uint32_t midi_clock_external_activity_timeout_us;
 extern volatile uint32_t midi_clock_last_captured_pulse_us;
 extern volatile uint16_t midi_clock_external_bpm_x10;
 extern volatile uint8_t midi_clock_external_bpm_valid;
+extern volatile uint8_t midi_clock_external_bpm_window_pulses;
 extern volatile uint8_t midi_barbeat_valid;
 extern volatile uint32_t midi_transport_global_tick_count;
 extern volatile uint32_t midi_transport_origin_tick_count;
@@ -54,7 +55,7 @@ void MidiTransport_OnStart(uint32_t now);
 __attribute__((section(".RamFunc")))
 void MidiTransport_OnContinue(uint32_t now);
 __attribute__((section(".RamFunc")))
-void MidiTransport_OnStop(void);
+void MidiTransport_OnStop(uint32_t now);
 __attribute__((section(".RamFunc")))
 void MidiTransport_ResetForInternalTempo(void);
 MidiTransportEvent_t MidiTransport_TakeEvent(void);

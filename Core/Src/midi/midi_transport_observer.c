@@ -35,6 +35,7 @@ void MidiTransport_ResetObservedState(void)
         (uint32_t)MIDI_CLOCK_LOST_TIMEOUT_MIN_MS * MIDI_CLOCK_US_PER_MS;
     midi_clock_external_bpm_x10 = 0U;
     midi_clock_external_bpm_valid = 0U;
+    midi_clock_external_bpm_window_pulses = 0U;
     midi_barbeat_valid = 0U;
     midi_transport_origin_tick_count = midi_transport_global_tick_count;
     midi_clock_sync_lost = 0U;
@@ -65,6 +66,7 @@ void MidiTransport_UpdateSyncState(void)
         midi_transport_rearm_required = 1U;
         midi_transport_running = 0U;
         midi_clock_external_bpm_valid = 0U;
+        midi_clock_external_bpm_window_pulses = 0U;
         midi_clock_last_pulse_us = 0U;
         midi_clock_last_captured_pulse_us = 0U;
         midi_clock_sync_lost = 0U;

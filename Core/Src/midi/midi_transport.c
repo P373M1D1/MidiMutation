@@ -26,7 +26,7 @@ uint8_t MidiTransport_HandleRealtimeByteFast(uint8_t byte, uint32_t now)
         return 1U;
 
     case MIDI_REALTIME_STOP:
-        MidiTransport_OnStop();
+        MidiTransport_OnStop(now);
         return 1U;
 
     case MIDI_REALTIME_CLOCK:
@@ -59,7 +59,7 @@ void MidiReceive(uint8_t byte)
 
     if (byte == MIDI_REALTIME_STOP)
     {
-        MidiTransport_OnStop();
+        MidiTransport_OnStop(TIM2->CNT);
         return;
     }
 
