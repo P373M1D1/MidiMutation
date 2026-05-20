@@ -12,7 +12,7 @@
  *
  * This file owns the compact BPM and bar.beat readout at the top of the main
  * screen, including internal/external clock formatting, sync-lost messaging,
- * and redraw suppression so tiny tempo changes do not repaint more than needed. */
+ * and fixed-cadence external BPM updates so live tempo stays readable. */
 
 typedef enum
 {
@@ -115,18 +115,6 @@ static void Display_FormatBpmText(char *buffer,
     }
 
     snprintf(buffer, buffer_size, "INT %u", (unsigned)bpm_or_bpm_x10);
-}
-
-static uint16_t Display_GetExternalBpmHysteresisX10(uint16_t reference_bpm_x10)
-{
-    uint32_t hysteresis_x10 = (((uint32_t)reference_bpm_x10 * BPM_EXT_HYSTERESIS_BPS) + 5000U) / 10000U;
-
-    /* External clock estimates can wobble by small fractions every update, so
-     * hold off redraws until the change exceeds a tempo-scaled deadband. */
-    if (hysteresis_x10 < BPM_EXT_HYSTERESIS_MIN_X10)
-        hysteresis_x10 = BPM_EXT_HYSTERESIS_MIN_X10;
-
-    return (uint16_t)hysteresis_x10;
 }
 
 static void Display_DrawBpmAreaComposed(uint16_t primary_text_x,
@@ -248,40 +236,15 @@ void Display_UpdateBPM(uint16_t bpm)
     full_redraw = (uint8_t)(!display_state.bpm_display_valid || was_sync_lost || !display_state.bpm_display_external);
     if (!full_redraw)
     {
-        uint16_t delta_x10;
-        uint16_t hysteresis_x10;
-        uint16_t upper_threshold_x10;
-        uint16_t lower_threshold_x10;
-
         if ((now_ms - display_state.bpm_display_external_update_tick) < BPM_EXT_UPDATE_MIN_INTERVAL_MS)
             return;
 
-        hysteresis_x10 = Display_GetExternalBpmHysteresisX10(display_state.bpm_display_value_x10);
-        upper_threshold_x10 = (uint16_t)(display_state.bpm_display_value_x10 + hysteresis_x10);
-        lower_threshold_x10 = (display_state.bpm_display_value_x10 > hysteresis_x10)
-            ? (uint16_t)(display_state.bpm_display_value_x10 - hysteresis_x10)
-            : 0U;
+        /* Keep external tempo readable by sampling the live estimator on a
+         * strict cadence instead of redrawing opportunistically mid-interval. */
+        display_state.bpm_display_external_update_tick = now_ms;
 
-        if (display_bpm_x10 <= upper_threshold_x10 && display_bpm_x10 >= lower_threshold_x10)
+        if (display_state.bpm_display_value_x10 == display_bpm_x10)
             return;
-
-        delta_x10 = (display_bpm_x10 >= display_state.bpm_display_value_x10)
-            ? (uint16_t)(display_bpm_x10 - display_state.bpm_display_value_x10)
-            : (uint16_t)(display_state.bpm_display_value_x10 - display_bpm_x10);
-
-        if (delta_x10 < BPM_EXT_FORCE_UPDATE_DELTA_X10)
-        {
-            if (display_bpm_x10 > display_state.bpm_display_value_x10)
-            {
-                display_bpm_x10 = (uint16_t)(display_state.bpm_display_value_x10 + BPM_EXT_SLEW_STEP_X10);
-            }
-            else
-            {
-                display_bpm_x10 = (display_state.bpm_display_value_x10 > BPM_EXT_SLEW_STEP_X10)
-                    ? (uint16_t)(display_state.bpm_display_value_x10 - BPM_EXT_SLEW_STEP_X10)
-                    : 0U;
-            }
-        }
     }
 
     Display_FormatBpmText(buf, sizeof(buf), BPM_TEXT_MODE_EXTERNAL, display_bpm_x10);
@@ -306,16 +269,13 @@ void Display_BpmDiagnosticService(void)
     uint32_t now_ms = HAL_GetTick();
     uint16_t raw_bpm_x10 = 0U;
     uint16_t displayed_bpm_x10 = display_state.bpm_display_value_x10;
-    uint16_t hysteresis_x10 = 0U;
     uint16_t delta_x10 = 0U;
     uint32_t age_ms = 0U;
     uint8_t raw_valid;
     uint8_t display_valid = display_state.bpm_display_valid;
     uint8_t display_external = display_state.bpm_display_external;
     uint8_t sync_lost = display_state.bpm_display_sync_lost;
-    uint8_t rate_hold = 0U;
-    uint8_t deadband_hold = 0U;
-    uint8_t slew_candidate = 0U;
+    uint8_t cadence_hold = 0U;
 
     if ((now_ms - last_report_tick) < BPM_DISPLAY_DIAGNOSTIC_REPORT_MS)
         return;
@@ -331,24 +291,17 @@ void Display_BpmDiagnosticService(void)
 
     if (display_valid && display_external)
     {
-        hysteresis_x10 = Display_GetExternalBpmHysteresisX10(displayed_bpm_x10);
-
         if (raw_valid)
         {
             delta_x10 = (raw_bpm_x10 >= displayed_bpm_x10)
                 ? (uint16_t)(raw_bpm_x10 - displayed_bpm_x10)
                 : (uint16_t)(displayed_bpm_x10 - raw_bpm_x10);
 
-            rate_hold = (age_ms < BPM_EXT_UPDATE_MIN_INTERVAL_MS) ? 1U : 0U;
-            deadband_hold = (raw_bpm_x10 <= (uint16_t)(displayed_bpm_x10 + hysteresis_x10)
-                          && raw_bpm_x10 >= ((displayed_bpm_x10 > hysteresis_x10)
-                              ? (uint16_t)(displayed_bpm_x10 - hysteresis_x10)
-                              : 0U)) ? 1U : 0U;
-            slew_candidate = (!deadband_hold && delta_x10 < BPM_EXT_FORCE_UPDATE_DELTA_X10) ? 1U : 0U;
+            cadence_hold = (age_ms < BPM_EXT_UPDATE_MIN_INTERVAL_MS) ? 1U : 0U;
         }
     }
 
-    printf("BPMDIAG raw=%u.%u valid=%u disp=%u.%u ext=%u sync=%u age=%lums hyst=%u.%u delta=%u.%u hold=%u slew=%u\r\n",
+    printf("BPMDIAG raw=%u.%u valid=%u disp=%u.%u ext=%u sync=%u age=%lums delta=%u.%u gate=%u\r\n",
            (unsigned)(raw_bpm_x10 / 10U),
            (unsigned)(raw_bpm_x10 % 10U),
            (unsigned)raw_valid,
@@ -357,11 +310,8 @@ void Display_BpmDiagnosticService(void)
            (unsigned)display_external,
            (unsigned)sync_lost,
            (unsigned long)age_ms,
-           (unsigned)(hysteresis_x10 / 10U),
-           (unsigned)(hysteresis_x10 % 10U),
            (unsigned)(delta_x10 / 10U),
            (unsigned)(delta_x10 % 10U),
-           (unsigned)(rate_hold || deadband_hold),
-           (unsigned)slew_candidate);
+           (unsigned)cadence_hold);
 #endif
 }
