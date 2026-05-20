@@ -42,6 +42,19 @@ typedef enum
     MIDI_TRANSPORT_EVENT_STOP,
 } MidiTransportEvent_t;
 
+typedef struct
+{
+    uint16_t current_depth;
+    uint16_t interval_peak_depth;
+    uint16_t lifetime_peak_depth;
+    uint32_t total_enqueued_count;
+    uint32_t total_dropped_count;
+    uint32_t interval_dropped_count;
+    uint32_t interval_latency_average_us;
+    uint32_t interval_latency_max_us;
+    uint16_t interval_latency_sample_count;
+} MidiInputRealtimeRxDiagnostics_t;
+
 /**
  * @brief  Initialise MIDI input on USART2 and enable its soft-thru output.
  *         RX bytes are echoed on USART2 TX while the parser still filters
@@ -94,6 +107,12 @@ void MidiReceive(uint8_t byte);
  *         original TIM2 capture timestamp from IRQ time.
  */
 void MidiInput_ServiceRealtimeRx(void);
+
+/**
+ * @brief  Snapshot realtime RX queue diagnostics.
+ *         Interval fields are measured since the previous snapshot.
+ */
+void MidiInput_TakeRealtimeRxDiagnostics(MidiInputRealtimeRxDiagnostics_t *diagnostics);
 
 /**
  * @brief  Configure and start the internal MIDI clock output timer.

@@ -20,6 +20,8 @@ static void midi_transport_note_clock_interval(uint32_t interval_us);
 __attribute__((section(".RamFunc")))
 void MidiTransport_OnClockPulse(uint32_t now)
 {
+    uint32_t quarter_note_count;
+
     if (midi_clock_sync_lost)
     {
         midi_transport_resync_clock(now);
@@ -44,9 +46,16 @@ void MidiTransport_OnClockPulse(uint32_t now)
     if (!MidiTransportCycle_OnClockPulse())
         return;
 
+    MidiTransport_NoteQuarterServiceLatency(TIM2->CNT - now);
+
+    quarter_note_count = (midi_transport_global_tick_count - midi_transport_origin_tick_count)
+        / MIDI_CLOCK_PULSES_PER_QUARTER_NOTE;
+
     if (!MidiTransport_IsFlashBusyFast())
-        MidiFeedback_PulseExternalClockBeat();
-    AppMetronome_OnQuarterNoteAt(APP_METRONOME_SOURCE_EXTERNAL, now);
+        MidiFeedback_PulseExternalClockBeatAt(now);
+    AppMetronome_OnQuarterNoteAtCount(APP_METRONOME_SOURCE_EXTERNAL,
+                                      now,
+                                      quarter_note_count);
 }
 
 __attribute__((section(".RamFunc")))

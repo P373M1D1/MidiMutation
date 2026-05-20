@@ -44,7 +44,9 @@ void Display_BL_FadeOut(void);
 /* -- Main/live screen ---------------------------------------------------------- */
 
 void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm);
+void Display_RefreshMainScreenContent(const Preset_t *p, uint16_t bpm);
 void Display_UpdateBPM(uint16_t bpm);
+void Display_BpmDiagnosticService(void);
 void Display_MainInfoScrollReset(void);
 uint8_t Display_MainInfoScrollBy(int8_t delta);
 uint8_t Display_MainInfoScrollAndRefresh(const Preset_t *p, int8_t delta);

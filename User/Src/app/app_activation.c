@@ -3,6 +3,7 @@
 #include "app_event.h"
 #include "app/app_requests.h"
 #include "app/app_state.h"
+#include "app/app_ui.h"
 #include "app/app_ui_events.h"
 #include "presets.h"
 
@@ -78,19 +79,19 @@ static void AppActivation_HandlePresetActivateEvent(uint8_t preset_index)
 
     AppUiEvents_PreparePresetActivation(0U);
     App_ActivatePreset(preset_index);
-    App_QueueRedrawMainScreenEvent();
+    AppUi_RequestLiveContentRefresh();
 }
 
 static void AppActivation_HandlePresetActivateRandomEvent(void)
 {
     AppUiEvents_PreparePresetActivation(1U);
     Presets_ActivateRandom();
-    App_QueueRedrawMainScreenEvent();
+    AppUi_RequestLiveContentRefresh();
 }
 
 static void AppActivation_HandlePresetActivateMuteEvent(void)
 {
     AppUiEvents_PreparePresetActivation(1U);
     Presets_ActivateMute();
-    App_QueueRedrawMainScreenEvent();
+    AppUi_RequestLiveContentRefresh();
 }

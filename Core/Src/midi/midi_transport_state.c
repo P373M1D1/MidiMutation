@@ -23,6 +23,9 @@ volatile uint8_t midi_transport_running = 0U;
 volatile uint8_t midi_transport_stop_latched = 0U;
 volatile uint8_t midi_transport_rearm_required = 0U;
 volatile MidiTransportEvent_t midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
+static volatile uint32_t midi_quarter_service_latency_sum_us = 0U;
+static volatile uint32_t midi_quarter_service_latency_max_us = 0U;
+static volatile uint16_t midi_quarter_service_latency_count = 0U;
 
 void MidiTransport_NoteDiagnosticInterval(uint32_t interval_us)
 {
@@ -41,6 +44,19 @@ void MidiTransport_NoteDiagnosticInterval(uint32_t interval_us)
         midi_clock_diag_interval_count++;
 #else
     (void)interval_us;
+#endif
+}
+
+void MidiTransport_NoteQuarterServiceLatency(uint32_t latency_us)
+{
+#if MIDI_CLOCK_DIAGNOSTICS_ENABLED
+    midi_quarter_service_latency_sum_us += latency_us;
+    if (latency_us > midi_quarter_service_latency_max_us)
+        midi_quarter_service_latency_max_us = latency_us;
+    if (midi_quarter_service_latency_count < UINT16_MAX)
+        midi_quarter_service_latency_count++;
+#else
+    (void)latency_us;
 #endif
 }
 
@@ -111,13 +127,22 @@ void MidiClockDiagnosticService(void)
 {
 #if MIDI_CLOCK_DIAGNOSTICS_ENABLED
     static uint32_t last_report_tick = 0U;
+    MidiInputRealtimeRxDiagnostics_t realtime_rx_diag;
     uint32_t now = HAL_GetTick();
     uint32_t sum_us;
     uint32_t min_us;
     uint32_t max_us;
+    uint32_t quarter_service_sum_us;
+    uint32_t quarter_service_max_us;
     uint16_t count;
+    uint16_t quarter_service_count;
     uint16_t bpm_x10 = 0U;
     uint8_t active;
+    uint8_t running;
+    uint8_t rearm_required;
+    uint8_t barbeat_valid;
+    uint8_t have_clock_interval_stats;
+    uint8_t have_quarter_service_stats;
 
     if ((now - last_report_tick) < MIDI_CLOCK_DIAGNOSTIC_REPORT_MS)
         return;
@@ -133,26 +158,58 @@ void MidiClockDiagnosticService(void)
         min_us = midi_clock_diag_interval_min_us;
         max_us = midi_clock_diag_interval_max_us;
         count = midi_clock_diag_interval_count;
+        quarter_service_sum_us = midi_quarter_service_latency_sum_us;
+        quarter_service_max_us = midi_quarter_service_latency_max_us;
+        quarter_service_count = midi_quarter_service_latency_count;
+        running = midi_transport_running;
+        rearm_required = midi_transport_rearm_required;
+        barbeat_valid = midi_barbeat_valid;
         midi_clock_diag_interval_sum_us = 0U;
         midi_clock_diag_interval_min_us = UINT32_MAX;
         midi_clock_diag_interval_max_us = 0U;
         midi_clock_diag_interval_count = 0U;
+        midi_quarter_service_latency_sum_us = 0U;
+        midi_quarter_service_latency_max_us = 0U;
+        midi_quarter_service_latency_count = 0U;
         if (primask == 0U)
             __enable_irq();
     }
 
-    if (count == 0U || min_us == UINT32_MAX)
+    MidiInput_TakeRealtimeRxDiagnostics(&realtime_rx_diag);
+    have_clock_interval_stats = (count != 0U && min_us != UINT32_MAX) ? 1U : 0U;
+    have_quarter_service_stats = (quarter_service_count != 0U) ? 1U : 0U;
+
+    if (!have_clock_interval_stats
+     && !have_quarter_service_stats
+     && !active
+     && realtime_rx_diag.current_depth == 0U
+     && realtime_rx_diag.interval_peak_depth == 0U
+     && realtime_rx_diag.interval_dropped_count == 0U)
         return;
 
     (void)MidiClockGetExternalBpmX10(&bpm_x10);
-    printf("CLKDIAG active=%u samples=%u avg=%luus min=%lu max=%lu pkpk=%lu bpm=%u.%u\r\n",
+        printf("CLKDIAG active=%u run=%u rearm=%u bb=%u samples=%u avg=%luus min=%lu max=%lu pkpk=%lu bpm=%u.%u q=%u qpk=%u qmax=%u drop=%lu/%lu lat=%lu/%luus ls=%u bsvc=%lu/%luus bs=%u\r\n",
            (unsigned)active,
-           (unsigned)count,
-           (unsigned long)(sum_us / (uint32_t)count),
-           (unsigned long)min_us,
-           (unsigned long)max_us,
-           (unsigned long)(max_us - min_us),
+            (unsigned)running,
+            (unsigned)rearm_required,
+            (unsigned)barbeat_valid,
+           (unsigned)(have_clock_interval_stats ? count : 0U),
+           (unsigned long)(have_clock_interval_stats ? (sum_us / (uint32_t)count) : 0U),
+           (unsigned long)(have_clock_interval_stats ? min_us : 0U),
+           (unsigned long)(have_clock_interval_stats ? max_us : 0U),
+           (unsigned long)(have_clock_interval_stats ? (max_us - min_us) : 0U),
            (unsigned)(bpm_x10 / 10U),
-           (unsigned)(bpm_x10 % 10U));
+           (unsigned)(bpm_x10 % 10U),
+           (unsigned)realtime_rx_diag.current_depth,
+           (unsigned)realtime_rx_diag.interval_peak_depth,
+           (unsigned)realtime_rx_diag.lifetime_peak_depth,
+           (unsigned long)realtime_rx_diag.interval_dropped_count,
+           (unsigned long)realtime_rx_diag.total_dropped_count,
+           (unsigned long)realtime_rx_diag.interval_latency_average_us,
+           (unsigned long)realtime_rx_diag.interval_latency_max_us,
+           (unsigned)realtime_rx_diag.interval_latency_sample_count,
+           (unsigned long)(have_quarter_service_stats ? (quarter_service_sum_us / (uint32_t)quarter_service_count) : 0U),
+           (unsigned long)(have_quarter_service_stats ? quarter_service_max_us : 0U),
+           (unsigned)quarter_service_count);
 #endif
 }

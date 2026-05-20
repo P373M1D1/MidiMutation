@@ -19,7 +19,7 @@ __attribute__((section(".RamFunc")))
 static void midi_transport_arm(MidiTransportEvent_t event, uint32_t now)
 {
     if (!MidiTransport_IsFlashBusyFast())
-        MidiFeedback_PulseTransportAnchor();
+        MidiFeedback_PulseTransportAnchorAt(now);
     MidiClock_ResetInternalPulseCount();
 #if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
     MidiClock_ResetOutputPhase();
@@ -30,7 +30,7 @@ static void midi_transport_arm(MidiTransportEvent_t event, uint32_t now)
     midi_transport_event = event;
     MidiTransport_ResetClockTracking();
     MidiTransportCycle_Arm();
-    AppMetronome_OnQuarterNoteAt(APP_METRONOME_SOURCE_EXTERNAL, now);
+    AppMetronome_OnQuarterNoteAtCount(APP_METRONOME_SOURCE_EXTERNAL, now, 0U);
 }
 
 __attribute__((section(".RamFunc")))

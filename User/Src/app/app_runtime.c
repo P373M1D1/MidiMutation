@@ -10,29 +10,46 @@
 #include "app_event.h"
 #include "bpm_functions.h"
 #include "button_functions.h"
+#include "display_functions.h"
+#include "led_functions.h"
 #include "midi_functions.h"
 
 #define EXT_CLOCK_HOLDOVER_MIRROR_ENABLED 1U
 
+static uint8_t AppRuntime_IsFeedbackWindowActive(void);
+
 void AppRuntime_ServiceForeground(void)
 {
-    /* Deferred work stays in the foreground loop: BPM/UI updates and flash-save
-     * scheduling on one side, queued EXTI button events on the other. */
+    /* Keep transport-adjacent work running every loop, but defer input/UI/save
+     * activity while the beat LED or metronome output is actively visible or
+     * audible so those feedback windows stay clear under load. */
     MidiInput_ServiceRealtimeRx();
 #if EXT_CLOCK_HOLDOVER_MIRROR_ENABLED
     AppTempo_ExternalClockHoldoverMirrorService();
 #endif
+    MidiOutputSchedulerService();
+    AppMetronome_Service();
+    LED_Update();
+    App_QueuePeriodicUiServiceEvent();
+    BPM_Service();
+
+    if (AppRuntime_IsFeedbackWindowActive())
+        return;
+
     AppInput_ProcessPending();
     AppDispatch_ProcessPendingEvents();
     AppUi_ServiceMenuPreviewHold(AppInput_Encoder2SwitchIsPressed());
-    MidiOutputSchedulerService();
-    AppMetronome_Service();
-    App_QueuePeriodicUiServiceEvent();
-    BPM_Service();
     AppDispatch_ProcessPendingEvents();
     AppUi_ServiceRender();
     AppSaveService_Service();
     AppEvent_DiagnosticService();
     MidiClockDiagnosticService();
+    Display_BpmDiagnosticService();
+    AppMetronome_DiagnosticService();
     Button_ProcessPendingEvents();
+}
+
+static uint8_t AppRuntime_IsFeedbackWindowActive(void)
+{
+    return (uint8_t)(AppMetronome_IsOutputActive() || LED_IsPulseActive());
 }

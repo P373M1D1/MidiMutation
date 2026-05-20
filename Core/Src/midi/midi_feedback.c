@@ -2,18 +2,18 @@
 
 #include "led_functions.h"
 
-void MidiFeedback_PulseTransportAnchor(void)
+void MidiFeedback_PulseTransportAnchorAt(uint32_t timestamp_us)
 {
-    LED_MidiClockPulse();
+    LED_MidiClockPulseAtUs(timestamp_us);
     LED_MidiInPulse();
 }
 
-void MidiFeedback_PulseExternalClockBeat(void)
+void MidiFeedback_PulseExternalClockBeatAt(uint32_t timestamp_us)
 {
-    LED_MidiClockPulse();
+    LED_MidiClockPulseAtUs(timestamp_us);
 }
 
-void MidiFeedback_PulseInternalBeat(void)
+void MidiFeedback_PulseInternalBeatAt(uint32_t timestamp_us)
 {
-    LED_BeatPulse();
+    LED_BeatPulseAtUs(timestamp_us);
 }

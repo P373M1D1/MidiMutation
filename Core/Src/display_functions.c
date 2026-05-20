@@ -1365,6 +1365,26 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
     Display_DrawMainInfoRows(p);
 }
 
+void Display_RefreshMainScreenContent(const Preset_t *p, uint16_t bpm)
+{
+    if (menu_mode_active && !menu_preview_active)
+    {
+        Display_MenuRefresh();
+        return;
+    }
+
+    if (main_layout_dirty)
+    {
+        Display_DrawMainScreen(p, bpm);
+        return;
+    }
+
+    Display_UpdateBPM(bpm);
+    Display_DrawPresetName(p);
+    Display_DrawCurrentBankNameLine();
+    Display_DrawMainInfoRows(p);
+}
+
 void Display_RefreshPresetEditMode(const Preset_t *p, uint16_t bpm)
 {
     if (menu_mode_active && !menu_preview_active)

@@ -38,12 +38,17 @@ typedef struct {
 
 void AppMetronome_Init(void);
 void AppMetronome_Service(void);
+void AppMetronome_DiagnosticService(void);
 void AppMetronome_HandleTimingCounterIrq(void);
 void AppMetronome_ResetCycle(void);
 void AppMetronome_OnQuarterNote(AppMetronomeSource_t source);
 void AppMetronome_OnQuarterNoteAt(AppMetronomeSource_t source, uint32_t anchor_us);
+void AppMetronome_OnQuarterNoteAtCount(AppMetronomeSource_t source,
+                                       uint32_t anchor_us,
+                                       uint32_t quarter_note_count);
 void AppMetronome_SetEnabled(uint8_t enabled);
 uint8_t AppMetronome_IsEnabled(void);
+uint8_t AppMetronome_IsOutputActive(void);
 void AppMetronome_SetOutput(AppMetronomeOutput_t output);
 AppMetronomeOutput_t AppMetronome_GetOutput(void);
 uint8_t AppMetronome_IsOutputAvailable(AppMetronomeOutput_t output);

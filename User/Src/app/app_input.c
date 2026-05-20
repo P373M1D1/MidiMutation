@@ -11,7 +11,9 @@
 #include "app_event.h"
 #include "display_functions.h"
 
-#define ENCODER_CHECK_SERIAL_ENABLED      0U
+#include <stdio.h>
+
+#define ENCODER_CHECK_SERIAL_ENABLED      1U
 
 static void AppInput_EncoderCheckLogTurn(uint8_t encoder_index, int8_t delta);
 static void AppInput_EncoderProcessPendingMotion(AppEncoderSamplerId_t encoder_id,
@@ -73,9 +75,9 @@ static void AppInput_EncoderCheckLogTurn(uint8_t encoder_index, int8_t delta)
 {
 #if ENCODER_CHECK_SERIAL_ENABLED
     if (delta > 0)
-        printf("ENC%u CW\r\n", (unsigned)encoder_index);
+        printf("Encoder %u CW\r\n", (unsigned)encoder_index);
     else if (delta < 0)
-        printf("ENC%u CCW\r\n", (unsigned)encoder_index);
+        printf("Encoder %u CCW\r\n", (unsigned)encoder_index);
 #else
     (void)encoder_index;
     (void)delta;

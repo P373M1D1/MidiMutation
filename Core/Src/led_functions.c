@@ -4,6 +4,8 @@
 #include "stm32f4xx_hal.h"
 
 #define LED_PULSE_MS  50U  /* pulse width for all LED blinks */
+#define LED_PULSE_US ((uint32_t)LED_PULSE_MS * 1000UL)
+#define LED_TIMING_COMPARE_GUARD_US 20UL
 #define BUTTON_MONITOR_LED_PINS_MASK (PRESET_LED1_Pin | PRESET_LED2_Pin | PRESET_LED3_Pin | PRESET_LED4_Pin \
                                     | PRESET_LED5_Pin | PRESET_LED6_Pin | PRESET_LED7_Pin | PRESET_LED8_Pin \
                                     | PRESET_LED9_Pin | PRESET_LED10_Pin | PRESET_LED11_Pin)
@@ -13,10 +15,22 @@ static volatile uint32_t beat_off_tick  = 0U;  /* LD1 green – tap tempo beat *
 static volatile uint32_t flash_off_tick = 0U;  /* LD2 blue  – Flash write    */
 static volatile uint32_t tap_press_off_tick = 0U; /* PF10     – tap press      */
 static volatile uint32_t midi_in_off_tick = 0U; /* PF15      – MIDI in start  */
+static volatile uint8_t beat_pulse_compare_active = 0U;
+static volatile uint32_t beat_pulse_compare_on_us = 0U;
+static volatile uint32_t beat_pulse_compare_off_us = 0U;
 static uint16_t active_button_led_pin = 0U; /* one active selection LED across preset/random/mute */
 static uint8_t special_function_led_active = 0U; /* sticky state for button 10 mode */
 
 static uint8_t LED_BeatPulseIsAllowed(void);
+static uint8_t LED_PulseDeadlineIsActive(uint32_t off_tick, uint32_t now);
+__attribute__((section(".RamFunc")))
+static uint32_t LED_TimingNowUs(void);
+__attribute__((section(".RamFunc")))
+static uint8_t LED_TimeReachedUs(uint32_t now_us, uint32_t due_us);
+__attribute__((section(".RamFunc")))
+static void LED_ArmBeatPulseCompare(uint32_t due_us);
+__attribute__((section(".RamFunc")))
+static void LED_DisarmBeatPulseCompare(void);
 
 static const uint16_t preset_led_pins[8] = {
     PRESET_LED1_Pin,
@@ -155,22 +169,124 @@ static void LED_UpdateExpiredOutputs(uint32_t now)
 
 }
 
+static uint8_t LED_PulseDeadlineIsActive(uint32_t off_tick, uint32_t now)
+{
+    return (off_tick != 0U && ((int32_t)(off_tick - now) > 0)) ? 1U : 0U;
+}
+
+__attribute__((section(".RamFunc")))
+static uint32_t LED_TimingNowUs(void)
+{
+    return TIM2->CNT;
+}
+
+__attribute__((section(".RamFunc")))
+static uint8_t LED_TimeReachedUs(uint32_t now_us, uint32_t due_us)
+{
+    return ((int32_t)(now_us - due_us) >= 0) ? 1U : 0U;
+}
+
+__attribute__((section(".RamFunc")))
+static void LED_ArmBeatPulseCompare(uint32_t due_us)
+{
+    uint32_t now_us = LED_TimingNowUs();
+    uint32_t earliest_due_us = now_us + LED_TIMING_COMPARE_GUARD_US;
+
+    if (LED_TimeReachedUs(earliest_due_us, due_us))
+        due_us = earliest_due_us;
+
+    TIM2->CCR3 = due_us;
+    TIM2->SR = ~TIM_SR_CC3IF;
+    TIM2->DIER |= TIM_DIER_CC3IE;
+}
+
+__attribute__((section(".RamFunc")))
+static void LED_DisarmBeatPulseCompare(void)
+{
+    beat_pulse_compare_active = 0U;
+    beat_pulse_compare_on_us = 0U;
+    beat_pulse_compare_off_us = 0U;
+    TIM2->DIER &= ~TIM_DIER_CC3IE;
+    TIM2->SR = ~TIM_SR_CC3IF;
+    HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+}
+
 static uint8_t LED_BeatPulseIsAllowed(void)
 {
     return (Display_MenuIsActive() || Display_PresetEditIsActive()) ? 0U : 1U;
 }
 
-void LED_BeatPulse(void)
+void LED_HandleTimingCounterIrq(void)
 {
-    if (!LED_BeatPulseIsAllowed())
+    if (((TIM2->SR & TIM_SR_CC3IF) == 0U)
+     || ((TIM2->DIER & TIM_DIER_CC3IE) == 0U))
     {
-        beat_off_tick = 0U;
-        HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
         return;
     }
 
-    HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_SET);
-    beat_off_tick = HAL_GetTick() + LED_PULSE_MS;
+    TIM2->SR = ~TIM_SR_CC3IF;
+
+    if (!LED_BeatPulseIsAllowed())
+    {
+        LED_DisarmBeatPulseCompare();
+        return;
+    }
+
+    if (!beat_pulse_compare_active)
+    {
+        HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_SET);
+        beat_pulse_compare_active = 1U;
+        LED_ArmBeatPulseCompare(beat_pulse_compare_off_us);
+        return;
+    }
+
+    LED_DisarmBeatPulseCompare();
+}
+
+uint8_t LED_IsPulseActive(void)
+{
+    uint32_t now;
+    uint8_t beat_pulse_active;
+
+    if (!LED_BeatPulseIsAllowed())
+        return 0U;
+
+    now = HAL_GetTick();
+    beat_pulse_active = (uint8_t)(beat_pulse_compare_active || (beat_pulse_compare_on_us != 0U));
+    return (uint8_t)(beat_pulse_active
+                   || LED_PulseDeadlineIsActive(flash_off_tick, now)
+                   || LED_PulseDeadlineIsActive(tap_press_off_tick, now)
+                   || LED_PulseDeadlineIsActive(midi_in_off_tick, now));
+}
+
+void LED_BeatPulse(void)
+{
+    LED_BeatPulseAtUs(LED_TimingNowUs());
+}
+
+void LED_BeatPulseAtUs(uint32_t start_us)
+{
+    uint32_t primask;
+
+    if (!LED_BeatPulseIsAllowed())
+    {
+        primask = __get_PRIMASK();
+        __disable_irq();
+        LED_DisarmBeatPulseCompare();
+        if (primask == 0U)
+            __enable_irq();
+        return;
+    }
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    beat_pulse_compare_active = 0U;
+    beat_pulse_compare_on_us = start_us;
+    beat_pulse_compare_off_us = start_us + LED_PULSE_US;
+    HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+    LED_ArmBeatPulseCompare(start_us);
+    if (primask == 0U)
+        __enable_irq();
 }
 
 void LED_FlashPulse(void)
@@ -188,7 +304,12 @@ void LED_FlashPulse(void)
 
 void LED_MidiClockPulse(void)
 {
-    LED_BeatPulse();
+    LED_MidiClockPulseAtUs(LED_TimingNowUs());
+}
+
+void LED_MidiClockPulseAtUs(uint32_t start_us)
+{
+    LED_BeatPulseAtUs(start_us);
 }
 
 void LED_TapPressPulse(void)
@@ -271,11 +392,15 @@ void LED_Update(void)
 
     if (!LED_BeatPulseIsAllowed())
     {
-        beat_off_tick = 0U;
+        uint32_t primask = __get_PRIMASK();
+
+        __disable_irq();
+        LED_DisarmBeatPulseCompare();
+        if (primask == 0U)
+            __enable_irq();
         flash_off_tick = 0U;
         tap_press_off_tick = 0U;
         midi_in_off_tick = 0U;
-        HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(TAP_FEEDBACK_LED_GPIO_Port, TAP_FEEDBACK_LED_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_RESET);

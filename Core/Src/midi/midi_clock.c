@@ -69,9 +69,11 @@ void MidiClockOutputIrqHandler(void)
         TIM6->SR = ~TIM_SR_UIF;
         if (MidiClockHandleInternalPulse() && !midi_clock_external_signal_present_fast())
         {
+            uint32_t now = TIM2->CNT;
+
             if (!midi_clock_flash_busy())
-                MidiFeedback_PulseInternalBeat();
-            AppMetronome_OnQuarterNote(APP_METRONOME_SOURCE_INTERNAL);
+                MidiFeedback_PulseInternalBeatAt(now);
+            AppMetronome_OnQuarterNoteAt(APP_METRONOME_SOURCE_INTERNAL, now);
         }
     }
 

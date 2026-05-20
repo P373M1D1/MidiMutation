@@ -8,6 +8,7 @@
 #define APP_UI_RENDER_INVALIDATE_MAIN_SCREEN       0x04U
 #define APP_UI_RENDER_INVALIDATE_PRESET_EDIT_MODE  0x08U
 #define APP_UI_RENDER_INVALIDATE_PRESET_EDIT_FIELD 0x10U
+#define APP_UI_RENDER_INVALIDATE_LIVE_CONTENT      0x20U
 
 static uint8_t app_ui_render_pending_mask = 0U;
 
@@ -40,6 +41,11 @@ void AppUi_RequestActiveDisplayRefresh(void)
     app_ui_render_pending_mask |= APP_UI_RENDER_INVALIDATE_ACTIVE_DISPLAY;
 }
 
+void AppUi_RequestLiveContentRefresh(void)
+{
+    app_ui_render_pending_mask |= APP_UI_RENDER_INVALIDATE_LIVE_CONTENT;
+}
+
 void AppUi_RequestMainScreenRefresh(void)
 {
     app_ui_render_pending_mask |= APP_UI_RENDER_INVALIDATE_MAIN_SCREEN;
@@ -55,6 +61,7 @@ void AppUi_ServiceRender(void)
     {
         app_ui_render_pending_mask &= (uint8_t)~(APP_UI_RENDER_INVALIDATE_MAIN_SCREEN
                                                | APP_UI_RENDER_INVALIDATE_ACTIVE_DISPLAY
+                                               | APP_UI_RENDER_INVALIDATE_LIVE_CONTENT
                                                | APP_UI_RENDER_INVALIDATE_STATUS_STRIP);
         Display_DrawMainScreen(AppUi_GetCurrentDisplayPreset(), bpm);
         return;
@@ -63,8 +70,17 @@ void AppUi_ServiceRender(void)
     if ((pending_mask & APP_UI_RENDER_INVALIDATE_ACTIVE_DISPLAY) != 0U)
     {
         app_ui_render_pending_mask &= (uint8_t)~(APP_UI_RENDER_INVALIDATE_ACTIVE_DISPLAY
+                                               | APP_UI_RENDER_INVALIDATE_LIVE_CONTENT
                                                | APP_UI_RENDER_INVALIDATE_STATUS_STRIP);
         Display_DrawMainScreen(active_preset ? active_preset : AppUi_GetCurrentDisplayPreset(), bpm);
+        return;
+    }
+
+    if ((pending_mask & APP_UI_RENDER_INVALIDATE_LIVE_CONTENT) != 0U)
+    {
+        app_ui_render_pending_mask &= (uint8_t)~(APP_UI_RENDER_INVALIDATE_LIVE_CONTENT
+                                               | APP_UI_RENDER_INVALIDATE_STATUS_STRIP);
+        Display_RefreshMainScreenContent(active_preset ? active_preset : AppUi_GetCurrentDisplayPreset(), bpm);
         return;
     }
 

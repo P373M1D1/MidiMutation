@@ -19,6 +19,7 @@ void LED_InitBoardOutputs(void);
  *         Call from the TIM6 beat ISR.
  */
 void LED_BeatPulse(void);
+void LED_BeatPulseAtUs(uint32_t start_us);
 
 /**
  * @brief  Turn on the Flash-write LED (LD2, blue) for 50 ms.
@@ -31,6 +32,7 @@ void LED_FlashPulse(void);
  *         Call on each received MIDI quarter note.
  */
 void LED_MidiClockPulse(void);
+void LED_MidiClockPulseAtUs(uint32_t start_us);
 
 /**
  * @brief  Turn on the dedicated tap-press feedback LED for 50 ms.
@@ -86,6 +88,13 @@ const char *LED_GetButtonMonitorLabel(uint8_t button_index);
  * @param  now  Current HAL tick value in milliseconds.
  */
 void LED_TickUpdate(uint32_t now);
+void LED_HandleTimingCounterIrq(void);
+
+/**
+ * @brief  Return whether any transient visible feedback pulse is still active.
+ *         This ignores the steady preset/special-function indicators.
+ */
+uint8_t LED_IsPulseActive(void);
 
 /**
  * @brief  Poll both LED timers and turn off when their periods expire.

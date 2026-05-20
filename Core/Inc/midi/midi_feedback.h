@@ -1,13 +1,15 @@
 #ifndef MIDI_FEEDBACK_H
 #define MIDI_FEEDBACK_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void MidiFeedback_PulseTransportAnchor(void);
-void MidiFeedback_PulseExternalClockBeat(void);
-void MidiFeedback_PulseInternalBeat(void);
+void MidiFeedback_PulseTransportAnchorAt(uint32_t timestamp_us);
+void MidiFeedback_PulseExternalClockBeatAt(uint32_t timestamp_us);
+void MidiFeedback_PulseInternalBeatAt(uint32_t timestamp_us);
 
 #ifdef __cplusplus
 }

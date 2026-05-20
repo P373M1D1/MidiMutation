@@ -20,6 +20,9 @@ typedef enum
     BPM_TEXT_MODE_EXTERNAL = 1
 } DisplayBpmTextMode_t;
 
+#define BPM_DISPLAY_DIAGNOSTICS_ENABLED    1U
+#define BPM_DISPLAY_DIAGNOSTIC_REPORT_MS 1000U
+
 static void Display_UpdateTransportBarBeat(void)
 {
     uint8_t bar;
@@ -294,4 +297,71 @@ void Display_UpdateBPM(uint16_t bpm)
     display_state.bpm_display_sync_lost = 0U;
     display_state.bpm_display_value_x10 = display_bpm_x10;
     display_state.bpm_display_external_update_tick = now_ms;
+}
+
+void Display_BpmDiagnosticService(void)
+{
+#if BPM_DISPLAY_DIAGNOSTICS_ENABLED
+    static uint32_t last_report_tick = 0U;
+    uint32_t now_ms = HAL_GetTick();
+    uint16_t raw_bpm_x10 = 0U;
+    uint16_t displayed_bpm_x10 = display_state.bpm_display_value_x10;
+    uint16_t hysteresis_x10 = 0U;
+    uint16_t delta_x10 = 0U;
+    uint32_t age_ms = 0U;
+    uint8_t raw_valid;
+    uint8_t display_valid = display_state.bpm_display_valid;
+    uint8_t display_external = display_state.bpm_display_external;
+    uint8_t sync_lost = display_state.bpm_display_sync_lost;
+    uint8_t rate_hold = 0U;
+    uint8_t deadband_hold = 0U;
+    uint8_t slew_candidate = 0U;
+
+    if ((now_ms - last_report_tick) < BPM_DISPLAY_DIAGNOSTIC_REPORT_MS)
+        return;
+
+    last_report_tick = now_ms;
+    raw_valid = MidiClockGetExternalBpmX10(&raw_bpm_x10);
+
+    if (!raw_valid && !(display_valid && display_external) && !sync_lost)
+        return;
+
+    if (display_external && display_state.bpm_display_external_update_tick != 0U)
+        age_ms = now_ms - display_state.bpm_display_external_update_tick;
+
+    if (display_valid && display_external)
+    {
+        hysteresis_x10 = Display_GetExternalBpmHysteresisX10(displayed_bpm_x10);
+
+        if (raw_valid)
+        {
+            delta_x10 = (raw_bpm_x10 >= displayed_bpm_x10)
+                ? (uint16_t)(raw_bpm_x10 - displayed_bpm_x10)
+                : (uint16_t)(displayed_bpm_x10 - raw_bpm_x10);
+
+            rate_hold = (age_ms < BPM_EXT_UPDATE_MIN_INTERVAL_MS) ? 1U : 0U;
+            deadband_hold = (raw_bpm_x10 <= (uint16_t)(displayed_bpm_x10 + hysteresis_x10)
+                          && raw_bpm_x10 >= ((displayed_bpm_x10 > hysteresis_x10)
+                              ? (uint16_t)(displayed_bpm_x10 - hysteresis_x10)
+                              : 0U)) ? 1U : 0U;
+            slew_candidate = (!deadband_hold && delta_x10 < BPM_EXT_FORCE_UPDATE_DELTA_X10) ? 1U : 0U;
+        }
+    }
+
+    printf("BPMDIAG raw=%u.%u valid=%u disp=%u.%u ext=%u sync=%u age=%lums hyst=%u.%u delta=%u.%u hold=%u slew=%u\r\n",
+           (unsigned)(raw_bpm_x10 / 10U),
+           (unsigned)(raw_bpm_x10 % 10U),
+           (unsigned)raw_valid,
+           (unsigned)(displayed_bpm_x10 / 10U),
+           (unsigned)(displayed_bpm_x10 % 10U),
+           (unsigned)display_external,
+           (unsigned)sync_lost,
+           (unsigned long)age_ms,
+           (unsigned)(hysteresis_x10 / 10U),
+           (unsigned)(hysteresis_x10 % 10U),
+           (unsigned)(delta_x10 / 10U),
+           (unsigned)(delta_x10 % 10U),
+           (unsigned)(rate_hold || deadband_hold),
+           (unsigned)slew_candidate);
+#endif
 }

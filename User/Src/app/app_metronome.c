@@ -5,6 +5,8 @@
 #include "main.h"
 #include "runtime_config.h"
 
+#include <stdio.h>
+
 #define APP_METRONOME_MAX_CLICKS_PER_QUARTER 3U
 #define APP_METRONOME_US_PER_MINUTE         60000000UL
 #define APP_METRONOME_TIMING_COMPARE_GUARD_US 20UL
@@ -30,6 +32,9 @@ static volatile uint16_t app_metronome_last_click_pitch_hz = 0U;
 static volatile uint8_t app_metronome_output_active = 0U;
 static volatile uint8_t app_metronome_output_stop_requested = 0U;
 static volatile uint32_t app_metronome_output_stop_due_us = 0U;
+static volatile uint32_t app_metronome_click_latency_sum_us = 0U;
+static volatile uint32_t app_metronome_click_latency_max_us = 0U;
+static volatile uint16_t app_metronome_click_latency_count = 0U;
 
 static RuntimeConfigMetronome_t app_metronome_last_config_snapshot;
 static uint8_t app_metronome_last_config_valid = 0U;
@@ -52,6 +57,10 @@ static inline void app_metronome_exit_critical(uint32_t primask)
 
 static RuntimeConfigMetronome_t app_metronome_get_config_snapshot(void);
 static void app_metronome_sync_config_snapshot(const RuntimeConfigMetronome_t *config);
+static void app_metronome_on_quarter_note_locked(AppMetronomeSource_t source,
+                                                 uint32_t anchor_us,
+                                                 uint8_t use_quarter_note_count,
+                                                 uint32_t quarter_note_count);
 __attribute__((section(".RamFunc")))
 static uint32_t app_metronome_now_us(void);
 __attribute__((section(".RamFunc")))
@@ -107,6 +116,9 @@ void AppMetronome_Init(void)
     app_metronome_output_active = 0U;
     app_metronome_output_stop_requested = 0U;
     app_metronome_output_stop_due_us = 0U;
+    app_metronome_click_latency_sum_us = 0U;
+    app_metronome_click_latency_max_us = 0U;
+    app_metronome_click_latency_count = 0U;
     app_metronome_disarm_click_compare();
     app_metronome_exit_critical(primask);
 
@@ -133,6 +145,54 @@ void AppMetronome_Service(void)
         app_metronome_request_output_stop();
         app_metronome_service_output_timeout();
     }
+}
+
+void AppMetronome_DiagnosticService(void)
+{
+    static uint32_t last_report_tick = 0U;
+    uint32_t now_tick = HAL_GetTick();
+    uint32_t click_latency_sum_us;
+    uint32_t click_latency_max_us;
+    uint16_t click_latency_count;
+    uint32_t quarter_interval_us;
+    uint8_t beat_in_bar;
+    uint8_t enabled;
+    AppMetronomeSource_t last_source;
+    uint32_t primask;
+
+    if ((now_tick - last_report_tick) < 1000U)
+        return;
+
+    last_report_tick = now_tick;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    click_latency_sum_us = app_metronome_click_latency_sum_us;
+    click_latency_max_us = app_metronome_click_latency_max_us;
+    click_latency_count = app_metronome_click_latency_count;
+    quarter_interval_us = app_metronome_quarter_interval_us;
+    beat_in_bar = app_metronome_beat_in_bar;
+    enabled = (app_metronome_enabled && app_metronome_config_volume > 0U) ? 1U : 0U;
+    last_source = app_metronome_last_source;
+    app_metronome_click_latency_sum_us = 0U;
+    app_metronome_click_latency_max_us = 0U;
+    app_metronome_click_latency_count = 0U;
+    if (primask == 0U)
+        __enable_irq();
+
+    if (!enabled && click_latency_count == 0U)
+        return;
+
+    printf("METDIAG en=%u src=%u beat=%u qint=%luus click=%lu/%luus cs=%u\r\n",
+           (unsigned)enabled,
+           (unsigned)last_source,
+           (unsigned)beat_in_bar,
+           (unsigned long)quarter_interval_us,
+           (unsigned long)((click_latency_count != 0U)
+               ? (click_latency_sum_us / (uint32_t)click_latency_count)
+               : 0U),
+           (unsigned long)click_latency_max_us,
+           (unsigned)click_latency_count);
 }
 
 __attribute__((section(".RamFunc")))
@@ -171,6 +231,27 @@ __attribute__((section(".RamFunc")))
 void AppMetronome_OnQuarterNoteAt(AppMetronomeSource_t source, uint32_t anchor_us)
 {
     uint32_t primask = app_metronome_enter_critical();
+
+    app_metronome_on_quarter_note_locked(source, anchor_us, 0U, 0U);
+    app_metronome_exit_critical(primask);
+}
+
+__attribute__((section(".RamFunc")))
+void AppMetronome_OnQuarterNoteAtCount(AppMetronomeSource_t source,
+                                       uint32_t anchor_us,
+                                       uint32_t quarter_note_count)
+{
+    uint32_t primask = app_metronome_enter_critical();
+
+    app_metronome_on_quarter_note_locked(source, anchor_us, 1U, quarter_note_count);
+    app_metronome_exit_critical(primask);
+}
+
+static void app_metronome_on_quarter_note_locked(AppMetronomeSource_t source,
+                                                 uint32_t anchor_us,
+                                                 uint8_t use_quarter_note_count,
+                                                 uint32_t quarter_note_count)
+{
     uint32_t quarter_interval_us = app_metronome_quarter_interval_us;
     uint8_t beats_per_bar = app_metronome_config_beats_per_bar;
     uint8_t next_beat_in_bar;
@@ -189,9 +270,14 @@ void AppMetronome_OnQuarterNoteAt(AppMetronomeSource_t source, uint32_t anchor_u
     app_metronome_last_source = source;
     app_metronome_quarter_interval_us = quarter_interval_us;
     app_metronome_last_quarter_anchor_us = anchor_us;
-    next_beat_in_bar = (app_metronome_beat_in_bar == 0U || app_metronome_beat_in_bar >= beats_per_bar)
-        ? 1U
-        : (uint8_t)(app_metronome_beat_in_bar + 1U);
+
+    if (use_quarter_note_count)
+        next_beat_in_bar = (uint8_t)((quarter_note_count % beats_per_bar) + 1U);
+    else
+        next_beat_in_bar = (app_metronome_beat_in_bar == 0U || app_metronome_beat_in_bar >= beats_per_bar)
+            ? 1U
+            : (uint8_t)(app_metronome_beat_in_bar + 1U);
+
     app_metronome_beat_in_bar = next_beat_in_bar;
     app_metronome_pending_click_count = 0U;
     app_metronome_pending_click_index = 0U;
@@ -202,11 +288,9 @@ void AppMetronome_OnQuarterNoteAt(AppMetronomeSource_t source, uint32_t anchor_u
     app_metronome_schedule_generation++;
 
     if (app_metronome_output_ready_locked() && app_metronome_pending_click_count != 0U)
-        app_metronome_arm_next_click_compare(anchor_us);
+        app_metronome_arm_next_click_compare(app_metronome_now_us());
     else
         app_metronome_disarm_click_compare();
-
-    app_metronome_exit_critical(primask);
 }
 
 void AppMetronome_SetEnabled(uint8_t enabled)
@@ -228,6 +312,11 @@ void AppMetronome_SetEnabled(uint8_t enabled)
 uint8_t AppMetronome_IsEnabled(void)
 {
     return (app_metronome_enabled && app_metronome_config_volume > 0U) ? 1U : 0U;
+}
+
+uint8_t AppMetronome_IsOutputActive(void)
+{
+    return app_metronome_output_active;
 }
 
 void AppMetronome_SetOutput(AppMetronomeOutput_t output)
@@ -536,8 +625,16 @@ static void app_metronome_dispatch_due_clicks(uint32_t now_us)
                                       app_metronome_pending_click_due_us[app_metronome_pending_click_index]))
     {
         uint8_t accent = app_metronome_pending_click_accents[app_metronome_pending_click_index];
+        uint32_t click_due_us = app_metronome_pending_click_due_us[app_metronome_pending_click_index];
+        uint32_t click_latency_us = now_us - click_due_us;
         uint16_t pitch_hz = app_metronome_pitch_hz(app_metronome_config_pitch, accent);
         uint32_t duration_us = app_metronome_click_duration_us(accent);
+
+        app_metronome_click_latency_sum_us += click_latency_us;
+        if (click_latency_us > app_metronome_click_latency_max_us)
+            app_metronome_click_latency_max_us = click_latency_us;
+        if (app_metronome_click_latency_count < UINT16_MAX)
+            app_metronome_click_latency_count++;
 
         app_metronome_last_click_pitch_hz = pitch_hz;
         if (AppBoard_MetronomePwmStart(pitch_hz, app_metronome_config_volume, duration_us))

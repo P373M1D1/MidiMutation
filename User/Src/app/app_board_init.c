@@ -1,7 +1,10 @@
 #include "app/app_board_init.h"
 
+#include "app/app_metronome.h"
+
 #include "main.h"
 
+#include "led_functions.h"
 #include "midi_functions.h"
 
 #define APP_BOARD_MIDI_OUTPUT_UART_INSTANCE UART4
@@ -26,15 +29,13 @@
 #define APP_BOARD_METRONOME_PWM_TIMER_PRESCALER_DIVISOR 96U
 #define APP_BOARD_METRONOME_PWM_DEFAULT_FREQUENCY_HZ 1000U
 #define APP_BOARD_METRONOME_PWM_MIN_FREQUENCY_HZ 100U
-#define APP_BOARD_METRONOME_PWM_MIN_DURATION_MS 1U
+#define APP_BOARD_TIMING_COMPARE_GUARD_US 20UL
 
 static TIM_HandleTypeDef app_board_tim2;
 static TIM_HandleTypeDef app_board_metronome_pwm_timer;
 static UART_HandleTypeDef app_board_midi_output_uart;
 static uint8_t app_board_metronome_pwm_initialized = 0U;
 static volatile uint8_t app_board_metronome_pwm_running = 0U;
-static volatile uint8_t app_board_metronome_pwm_stop_armed = 0U;
-static volatile uint32_t app_board_metronome_pwm_stop_tick = 0U;
 
 __attribute__((always_inline))
 static inline uint32_t AppBoard_EnterCritical(void)
@@ -56,11 +57,11 @@ static void AppBoard_InitMidiOutputUart(void);
 static void AppBoard_InitMetronomePwm(void);
 static void AppBoard_InitTimingCounter(void);
 __attribute__((section(".RamFunc")))
+static uint8_t AppBoard_TimingCompareReached(uint32_t now_us, uint32_t due_us);
+__attribute__((section(".RamFunc")))
 static uint32_t AppBoard_MetronomePwmPeriodCounts(uint16_t frequency_hz);
 __attribute__((section(".RamFunc")))
 static uint32_t AppBoard_MetronomePwmPulseCounts(uint32_t period_counts, uint8_t volume);
-__attribute__((section(".RamFunc")))
-static uint32_t AppBoard_MetronomePwmDurationMs(uint32_t duration_us);
 __attribute__((section(".RamFunc")))
 static void AppBoard_MetronomePwmStopImmediate(void);
 
@@ -125,10 +126,18 @@ static void AppBoard_InitTimingCounter(void)
     if (HAL_TIM_Base_Init(&app_board_tim2) != HAL_OK)
         Error_Handler();
 
-    app_board_tim2.Instance->CCMR1 &= ~(TIM_CCMR1_CC1S | TIM_CCMR1_OC1M);
-    app_board_tim2.Instance->CCER &= ~TIM_CCER_CC1E;
+    app_board_tim2.Instance->CCMR1 &= ~(TIM_CCMR1_CC1S | TIM_CCMR1_OC1M
+                                      | TIM_CCMR1_CC2S | TIM_CCMR1_OC2M);
+    app_board_tim2.Instance->CCMR2 &= ~(TIM_CCMR2_CC3S | TIM_CCMR2_OC3M
+                                      | TIM_CCMR2_CC4S | TIM_CCMR2_OC4M);
+    app_board_tim2.Instance->CCER &= ~(TIM_CCER_CC1E | TIM_CCER_CC2E
+                                     | TIM_CCER_CC3E | TIM_CCER_CC4E);
     app_board_tim2.Instance->CCR1 = 0U;
-    app_board_tim2.Instance->DIER &= ~TIM_DIER_CC1IE;
+    app_board_tim2.Instance->CCR2 = 0U;
+    app_board_tim2.Instance->CCR3 = 0U;
+    app_board_tim2.Instance->CCR4 = 0U;
+    app_board_tim2.Instance->DIER &= ~(TIM_DIER_CC1IE | TIM_DIER_CC2IE
+                                     | TIM_DIER_CC3IE | TIM_DIER_CC4IE);
     app_board_tim2.Instance->SR = 0U;
 
     HAL_NVIC_SetPriority(TIM2_IRQn,
@@ -137,6 +146,19 @@ static void AppBoard_InitTimingCounter(void)
     HAL_NVIC_EnableIRQ(TIM2_IRQn);
 
     HAL_TIM_Base_Start(&app_board_tim2);
+}
+
+__attribute__((section(".RamFunc")))
+void AppBoard_HandleTimingCounterIrq(void)
+{
+    if (((TIM2->SR & TIM_SR_CC2IF) != 0U)
+     && ((TIM2->DIER & TIM_DIER_CC2IE) != 0U))
+    {
+        AppBoard_MetronomePwmStopImmediate();
+    }
+
+    LED_HandleTimingCounterIrq();
+    AppMetronome_HandleTimingCounterIrq();
 }
 
 __attribute__((section(".RamFunc")))
@@ -151,8 +173,8 @@ uint8_t AppBoard_MetronomePwmStart(uint16_t frequency_hz, uint8_t volume, uint32
     uint32_t primask;
     uint32_t period_counts;
     uint32_t pulse_counts;
-    uint32_t duration_ms;
-    uint32_t start_tick;
+    uint32_t now_us;
+    uint32_t stop_due_us;
 
     if (!app_board_metronome_pwm_initialized || volume == 0U)
         return 0U;
@@ -161,9 +183,6 @@ uint8_t AppBoard_MetronomePwmStart(uint16_t frequency_hz, uint8_t volume, uint32
     pulse_counts = AppBoard_MetronomePwmPulseCounts(period_counts, volume);
     if (pulse_counts == 0U)
         return 0U;
-
-    duration_ms = AppBoard_MetronomePwmDurationMs(duration_us);
-    start_tick = uwTick;
 
     primask = AppBoard_EnterCritical();
 
@@ -176,9 +195,16 @@ uint8_t AppBoard_MetronomePwmStart(uint16_t frequency_hz, uint8_t volume, uint32
     app_board_metronome_pwm_timer.Instance->CCER |= TIM_CCER_CC3E;
     app_board_metronome_pwm_timer.Instance->CR1 |= TIM_CR1_CEN;
 
+    now_us = TIM2->CNT;
+    stop_due_us = now_us + duration_us;
+    if (AppBoard_TimingCompareReached(now_us + APP_BOARD_TIMING_COMPARE_GUARD_US, stop_due_us))
+        stop_due_us = now_us + APP_BOARD_TIMING_COMPARE_GUARD_US;
+
+    TIM2->CCR2 = stop_due_us;
+    TIM2->SR = ~TIM_SR_CC2IF;
+    TIM2->DIER |= TIM_DIER_CC2IE;
+
     app_board_metronome_pwm_running = 1U;
-    app_board_metronome_pwm_stop_tick = start_tick + duration_ms;
-    app_board_metronome_pwm_stop_armed = 1U;
 
     AppBoard_ExitCritical(primask);
 
@@ -198,16 +224,9 @@ void AppBoard_MetronomePwmStop(void)
 }
 
 __attribute__((section(".RamFunc")))
-void AppBoard_MetronomePwmHandleSysTickIrq(void)
+static uint8_t AppBoard_TimingCompareReached(uint32_t now_us, uint32_t due_us)
 {
-    if (!app_board_metronome_pwm_running
-     || !app_board_metronome_pwm_stop_armed)
-        return;
-
-    if ((int32_t)(uwTick - app_board_metronome_pwm_stop_tick) < 0)
-        return;
-
-    AppBoard_MetronomePwmStopImmediate();
+    return ((int32_t)(now_us - due_us) >= 0) ? 1U : 0U;
 }
 
 static void AppBoard_InitMetronomePwm(void)
@@ -290,26 +309,16 @@ static uint32_t AppBoard_MetronomePwmPulseCounts(uint32_t period_counts, uint8_t
 }
 
 __attribute__((section(".RamFunc")))
-static uint32_t AppBoard_MetronomePwmDurationMs(uint32_t duration_us)
-{
-    uint32_t duration_ms = (duration_us + 999U) / 1000U;
-
-    return (duration_ms >= APP_BOARD_METRONOME_PWM_MIN_DURATION_MS)
-        ? duration_ms
-        : APP_BOARD_METRONOME_PWM_MIN_DURATION_MS;
-}
-
-__attribute__((section(".RamFunc")))
 static void AppBoard_MetronomePwmStopImmediate(void)
 {
     if (!app_board_metronome_pwm_initialized)
         return;
 
+    TIM2->DIER &= ~TIM_DIER_CC2IE;
+    TIM2->SR = ~TIM_SR_CC2IF;
     app_board_metronome_pwm_timer.Instance->CCER &= ~TIM_CCER_CC3E;
     app_board_metronome_pwm_timer.Instance->CR1 &= ~TIM_CR1_CEN;
     app_board_metronome_pwm_timer.Instance->CCR3 = 0U;
     app_board_metronome_pwm_timer.Instance->CNT = 0U;
-    app_board_metronome_pwm_stop_armed = 0U;
-    app_board_metronome_pwm_stop_tick = 0U;
     app_board_metronome_pwm_running = 0U;
 }

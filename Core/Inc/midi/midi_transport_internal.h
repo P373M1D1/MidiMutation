@@ -46,6 +46,7 @@ static inline uint8_t MidiTransport_IsFlashBusyFast(void)
 __attribute__((section(".RamFunc")))
 uint32_t MidiTransport_ComputeActivityTimeoutUs(uint32_t pulse_interval_sum_us,
                                                 uint8_t pulse_interval_count);
+void MidiTransport_NoteQuarterServiceLatency(uint32_t latency_us);
 __attribute__((section(".RamFunc")))
 void MidiTransport_ResetClockTracking(void);
 __attribute__((section(".RamFunc")))

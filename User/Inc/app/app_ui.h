@@ -20,6 +20,7 @@ void AppUi_RequestPresetEditModeRefresh(void);
 void AppUi_RequestPresetEditFieldRefresh(void);
 void AppUi_RequestStatusStripRefresh(void);
 void AppUi_RequestActiveDisplayRefresh(void);
+void AppUi_RequestLiveContentRefresh(void);
 void AppUi_RequestMainScreenRefresh(void);
 void AppUi_ServiceRender(void);
 void AppUi_ServiceMenuPreviewHold(uint8_t encoder2_switch_pressed);

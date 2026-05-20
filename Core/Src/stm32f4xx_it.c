@@ -205,7 +205,6 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
-  AppBoard_MetronomePwmHandleSysTickIrq();
   LED_TickUpdate(HAL_GetTick());
 
   /* USER CODE END SysTick_IRQn 1 */
@@ -229,7 +228,7 @@ void DMA2_Stream3_IRQHandler(void)
 __attribute__((section(".RamFunc")))
 void TIM2_IRQHandler(void)
 {
-  AppMetronome_HandleTimingCounterIrq();
+  AppBoard_HandleTimingCounterIrq();
 }
 
 __attribute__((section(".RamFunc")))
