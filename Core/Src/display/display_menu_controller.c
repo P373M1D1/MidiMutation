@@ -241,6 +241,7 @@ void Display_MenuEnter(void)
     display_state.menu_active_user_theme_mode = (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_USER;
     display_state.main_layout_dirty = 1U;
     display_state.bpm_display_valid = 0U;
+    display_state.transport_status_valid = 0U;
     Display_MenuRefresh();
 }
 
@@ -254,6 +255,7 @@ void Display_MenuExit(void)
     display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT;
     display_state.main_layout_dirty = 1U;
     display_state.bpm_display_valid = 0U;
+    display_state.transport_status_valid = 0U;
 }
 
 void Display_MenuTextEditExit(void)
@@ -367,6 +369,7 @@ void Display_MenuPreviewEnter(const Preset_t *p, uint16_t bpm)
     display_state.menu_preview_active = 1U;
     display_state.main_layout_dirty = 1U;
     display_state.bpm_display_valid = 0U;
+    display_state.transport_status_valid = 0U;
     Display_DrawMainScreen(p, bpm);
 }
 

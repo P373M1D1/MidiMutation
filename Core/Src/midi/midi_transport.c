@@ -31,7 +31,10 @@ uint8_t MidiTransport_HandleRealtimeByteFast(uint8_t byte, uint32_t now)
 
     case MIDI_REALTIME_CLOCK:
         if (midi_transport_rearm_required)
+        {
+            MidiTransport_NoteClockDuringRecoveryWait(now);
             return 1U;
+        }
         MidiTransport_OnClockPulse(now);
         return 1U;
 
@@ -67,7 +70,10 @@ void MidiReceive(uint8_t byte)
         return;
 
     if (midi_transport_rearm_required)
+    {
+        MidiTransport_NoteClockDuringRecoveryWait(TIM2->CNT);
         return;
+    }
 
     MidiTransport_OnClockPulse(TIM2->CNT);
 }

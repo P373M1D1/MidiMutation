@@ -33,6 +33,7 @@ extern volatile uint8_t midi_barbeat_valid;
 extern volatile uint32_t midi_transport_global_tick_count;
 extern volatile uint32_t midi_transport_origin_tick_count;
 extern volatile uint8_t midi_clock_sync_lost;
+extern volatile uint8_t midi_clock_recovery_hint;
 extern volatile uint8_t midi_transport_running;
 extern volatile uint8_t midi_transport_stop_latched;
 extern volatile uint8_t midi_transport_rearm_required;
@@ -73,6 +74,11 @@ uint8_t MidiTransportCycle_OnClockPulse(void);
 uint8_t MidiTransportCycle_GetBarBeat(uint8_t *bar, uint8_t *beat);
 __attribute__((section(".RamFunc")))
 void MidiTransport_ResetObservedState(void);
+__attribute__((section(".RamFunc")))
+void MidiTransport_ClearRecoveryHint(void);
+__attribute__((section(".RamFunc")))
+void MidiTransport_NoteClockDuringRecoveryWait(uint32_t now);
+uint8_t MidiTransport_IsRecoveryClockActive(void);
 void MidiTransport_NoteDiagnosticInterval(uint32_t interval_us);
 void MidiTransport_UpdateSyncState(void);
 uint8_t MidiTransport_IsExternalClockActive(void);

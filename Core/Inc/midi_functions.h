@@ -42,6 +42,34 @@ typedef enum
     MIDI_TRANSPORT_EVENT_STOP,
 } MidiTransportEvent_t;
 
+typedef enum
+{
+    MIDI_CLOCK_RECOVERY_HINT_NONE = 0,
+    MIDI_CLOCK_RECOVERY_HINT_PHASE_DELTA,
+    MIDI_CLOCK_RECOVERY_HINT_BPM_DELTA,
+} MidiClockRecoveryHint_t;
+
+typedef enum
+{
+    MIDI_CLOCK_LOCK_QUALITY_NONE = 0,
+    MIDI_CLOCK_LOCK_QUALITY_ACQUIRING,
+    MIDI_CLOCK_LOCK_QUALITY_LOCKED,
+} MidiClockLockQuality_t;
+
+typedef enum
+{
+    MIDI_TRANSPORT_PHASE_SOURCE_NONE = 0,
+    MIDI_TRANSPORT_PHASE_SOURCE_INTERNAL,
+    MIDI_TRANSPORT_PHASE_SOURCE_EXTERNAL,
+} MidiTransportPhaseSource_t;
+
+typedef struct
+{
+    uint32_t tick_count;
+    uint16_t tick_fraction_q16;
+    MidiTransportPhaseSource_t source;
+} MidiTransportPhaseSnapshot_t;
+
 typedef struct
 {
     uint16_t current_depth;
@@ -143,6 +171,23 @@ uint8_t MidiTransportIsRunning(void);
 uint8_t MidiClockIsSyncLost(void);
 
 /**
+ * @brief  Return 1 once the external clock estimator has enough timing data
+ *         to operate meaningfully.
+ */
+uint8_t MidiClockIsEstimatorValid(void);
+
+/**
+ * @brief  Return the current external clock lock quality.
+ */
+MidiClockLockQuality_t MidiClockGetLockQuality(void);
+
+/**
+ * @brief  Return 1 once the external clock tempo is considered safe for
+ *         downstream musical consumers to trust.
+ */
+uint8_t MidiClockIsPublicationReady(void);
+
+/**
  * @brief  Return 1 after an explicit MIDI Stop until Start/Continue or
  *         switching back to internal tempo clears that transport-stop latch.
  */
@@ -166,18 +211,61 @@ uint32_t MidiClockOutputTimerPeriodForBpm(uint16_t bpm);
 void MidiClockOutputSetTempoBpm(uint16_t bpm);
 
 /**
- * @brief  Return the currently measured external MIDI clock tempo.
- * @param  bpm  Output pointer for the last valid measured BPM.
+ * @brief  Return the public external MIDI clock tempo.
+ *         Prefers the recovered PLL tempo when it is valid and otherwise
+ *         falls back to the stable in-range raw estimator tempo. This getter
+ *         stays invalid until the external clock has produced a minimum
+ *         settled observation window.
+ * @param  bpm  Output pointer for the last valid external BPM.
  * @retval 1 if a valid external tempo is available, 0 otherwise.
  */
 uint8_t MidiClockGetExternalBpm(uint16_t *bpm);
 
 /**
- * @brief  Return the currently measured external MIDI clock tempo in tenths.
- * @param  bpm_x10  Output pointer for the last valid measured BPM x10.
+ * @brief  Return the public external MIDI clock tempo in tenths.
+ *         Prefers the recovered PLL tempo when it is valid and otherwise
+ *         falls back to the stable in-range raw estimator tempo. This getter
+ *         stays invalid until the external clock has produced a minimum
+ *         settled observation window.
+ * @param  bpm_x10  Output pointer for the last valid external BPM x10.
  * @retval 1 if a valid external tempo is available, 0 otherwise.
  */
 uint8_t MidiClockGetExternalBpmX10(uint16_t *bpm_x10);
+
+/**
+ * @brief  Return the display-facing external MIDI clock tempo in tenths.
+ *         Prefers the recovered PLL tempo when it is valid, and otherwise
+ *         falls back to the latest measured estimator tempo so the UI can
+ *         still show `LOW/HIGH` while external clock is present. This getter
+ *         also waits for the minimum settled observation window.
+ * @param  bpm_x10  Output pointer for the last measured BPM x10.
+ * @retval 1 if a measured external tempo is available, 0 otherwise.
+ */
+uint8_t MidiClockGetMeasuredExternalBpmX10(uint16_t *bpm_x10);
+
+/**
+ * @brief  Return the current estimator window size in pulses.
+ *         Intended for diagnostics so raw/source validity can be compared
+ *         against the current external-clock observation window.
+ * @retval Current external BPM estimator window in pulses.
+ */
+uint8_t MidiClockGetExternalBpmWindowPulses(void);
+
+/**
+ * @brief  Return the unfiltered external MIDI clock estimator tempo in tenths.
+ *         Intended for diagnostics when comparing raw clock jitter against the
+ *         recovered/public external tempo.
+ * @param  bpm_x10  Output pointer for the raw estimator BPM x10.
+ * @retval 1 if a valid raw estimator tempo is available, 0 otherwise.
+ */
+uint8_t MidiClockGetRawExternalBpmX10(uint16_t *bpm_x10);
+
+/**
+ * @brief  Report what kind of returned clock has been observed after a sync
+ *         timeout while transport is still waiting for explicit rearm.
+ * @retval MIDI_CLOCK_RECOVERY_HINT_NONE when no returned-clock verdict exists.
+ */
+MidiClockRecoveryHint_t MidiClockGetRecoveryHint(void);
 
 /**
  * @brief  Return 1 when external MIDI clock pulses are currently present.
@@ -195,6 +283,18 @@ uint8_t MidiClockIsExternalSignalPresent(void);
  * @retval 1 when a valid Start/Continue anchor exists, 0 otherwise.
  */
 uint8_t MidiClockGetBarBeat(uint8_t *bar, uint8_t *beat);
+
+/**
+ * @brief  Snapshot the continuous transport phase since the last Start or Continue.
+ *         While externally synced the phase advances from the recovered clock
+ *         estimator between incoming F8 pulses; otherwise it advances from the
+ *         internal TIM6 pulse phase after handoff.
+ * @param  phase  Output snapshot. `tick_fraction_q16` is the fractional part
+ *                of the current tick in unsigned Q0.16 format.
+ * @retval 1 when transport phase is anchored to a valid Start/Continue event,
+ *         0 otherwise.
+ */
+uint8_t MidiTransportGetContinuousPhase(MidiTransportPhaseSnapshot_t *phase);
 
 /**
  * @brief  Re-arm the UART4 message scheduler once a safe gap opens between

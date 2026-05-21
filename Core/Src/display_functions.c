@@ -1355,6 +1355,7 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
          * screensaver wake, or mode transitions, so repaint the full backdrop. */
         ST7796_FillScreen(Display_GetBackgroundColour());
         bpm_display_valid = 0U;
+        display_state.transport_status_valid = 0U;
         Display_DrawMainLayout();
     }
 

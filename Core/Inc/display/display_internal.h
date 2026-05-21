@@ -45,6 +45,9 @@ typedef struct DisplayState {
 	uint8_t bpm_display_valid;
 	uint8_t bpm_display_external;
 	uint8_t bpm_display_sync_lost;
+	uint8_t transport_status_valid;
+	uint8_t transport_status_mode;
+	uint8_t transport_status_blink_visible;
 	uint16_t bpm_display_value_x10;
 	uint32_t bpm_display_external_update_tick;
 	char transport_barbeat_text[5];

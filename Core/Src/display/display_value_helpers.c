@@ -104,6 +104,7 @@ void Display_ForceFullDisplayRedraw(void)
     display_state.menu_last_drawn_page = DISPLAY_MENU_PAGE_ROOT;
     display_state.main_layout_dirty = 1U;
     display_state.bpm_display_valid = 0U;
+    display_state.transport_status_valid = 0U;
 
     if (display_state.menu_mode_active)
         Display_MenuRefresh();

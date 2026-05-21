@@ -13,6 +13,13 @@ void MidiClock_ResetInternalPulseCount(void);
 void MidiClock_AlignInternalPhaseToExternal(uint32_t now_us,
 											uint32_t last_pulse_us,
 											uint32_t external_pulse_count);
+__attribute__((section(".RamFunc")))
+void MidiClock_HandoffExternalPhaseToInternal(uint32_t now_us);
+__attribute__((section(".RamFunc")))
+uint32_t MidiClock_GetOutputPulseIntervalUs(void);
+void MidiClock_GetInternalPhaseSnapshot(uint32_t *pulse_count,
+										uint32_t *phase_counts,
+										uint32_t *pulse_counts);
 
 #if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
 void MidiClock_ResetOutputPhase(void);

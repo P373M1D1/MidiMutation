@@ -11,15 +11,16 @@
 __attribute__((section(".RamFunc")))
 static void midi_transport_resync_clock(uint32_t now);
 __attribute__((section(".RamFunc")))
-static void midi_transport_anchor_first_clock_pulse(void);
+static void midi_transport_anchor_first_clock_pulse(uint32_t now);
 __attribute__((section(".RamFunc")))
 static uint32_t midi_transport_clock_interval_us(uint32_t now, uint32_t previous_pulse_us);
 __attribute__((section(".RamFunc")))
-static void midi_transport_note_clock_interval(uint32_t interval_us);
+static void midi_transport_note_clock_interval(uint32_t now, uint32_t interval_us);
 
 __attribute__((section(".RamFunc")))
 void MidiTransport_OnClockPulse(uint32_t now)
 {
+    uint32_t quarter_note_anchor_us = now;
     uint32_t quarter_note_count;
 
     if (midi_clock_sync_lost)
@@ -30,11 +31,12 @@ void MidiTransport_OnClockPulse(uint32_t now)
 
     if (midi_clock_last_pulse_us == 0U)
     {
-        midi_transport_anchor_first_clock_pulse();
+        midi_transport_anchor_first_clock_pulse(now);
     }
     else if (now != midi_clock_last_pulse_us)
     {
         midi_transport_note_clock_interval(
+            now,
             midi_transport_clock_interval_us(now, midi_clock_last_pulse_us));
     }
 
@@ -50,11 +52,12 @@ void MidiTransport_OnClockPulse(uint32_t now)
 
     quarter_note_count = (midi_transport_global_tick_count - midi_transport_origin_tick_count)
         / MIDI_CLOCK_PULSES_PER_QUARTER_NOTE;
+    (void)MidiClockEstimator_GetRecoveredPulseTimestampUs(&quarter_note_anchor_us);
 
     if (!MidiTransport_IsFlashBusyFast())
-        MidiFeedback_PulseExternalClockBeatAt(now);
+        MidiFeedback_PulseExternalClockBeatAt(quarter_note_anchor_us);
     AppMetronome_OnQuarterNoteAtCount(APP_METRONOME_SOURCE_EXTERNAL,
-                                      now,
+                                      quarter_note_anchor_us,
                                       quarter_note_count);
 }
 
@@ -64,6 +67,7 @@ static void midi_transport_resync_clock(uint32_t now)
     MidiTransport_ResetClockTracking();
     midi_transport_running = 1U;
     midi_clock_last_pulse_us = now;
+    MidiClockEstimator_AnchorPulse(now);
 
 #if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
     MidiClock_ResetOutputPhase();
@@ -71,8 +75,9 @@ static void midi_transport_resync_clock(uint32_t now)
 }
 
 __attribute__((section(".RamFunc")))
-static void midi_transport_anchor_first_clock_pulse(void)
+static void midi_transport_anchor_first_clock_pulse(uint32_t now)
 {
+    MidiClockEstimator_AnchorPulse(now);
 #if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
     MidiClock_ResetOutputPhase();
 #endif
@@ -87,13 +92,16 @@ static uint32_t midi_transport_clock_interval_us(uint32_t now, uint32_t previous
 }
 
 __attribute__((section(".RamFunc")))
-static void midi_transport_note_clock_interval(uint32_t interval_us)
+static void midi_transport_note_clock_interval(uint32_t now, uint32_t interval_us)
 {
-    MidiClockEstimator_NotePulseInterval(interval_us);
+    MidiClockEstimator_NotePulseInterval(now, interval_us);
     if (!MidiTransport_IsFlashBusyFast())
         MidiTransport_NoteDiagnosticInterval(interval_us);
 
 #if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
-    MidiClock_TrackExternalPulseInterval(interval_us);
+    uint32_t published_interval_us = interval_us;
+
+    (void)MidiClockEstimator_GetRecoveredPulseIntervalUs(&published_interval_us);
+    MidiClock_TrackExternalPulseInterval(published_interval_us);
 #endif
 }
