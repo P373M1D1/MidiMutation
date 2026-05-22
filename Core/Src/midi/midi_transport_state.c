@@ -6,12 +6,95 @@
 #include <stdio.h>
 
 #define MIDI_BPM_X10_ROUNDING_OFFSET 5U
+#define MIDI_SYNC_STATE_INVALID ((MidiSyncState_t)0xFFU)
+#define MIDI_SYNC_DWELL_ACQUIRE_TO_TRACKING_MS 120U
+#define MIDI_SYNC_DWELL_TRACKING_TO_LOCKED_MS 180U
+#define MIDI_SYNC_DWELL_LOCKED_TO_RELOCK_MS   120U
+#define MIDI_SYNC_DWELL_RELOCK_TO_LOCKED_MS   150U
+#define MIDI_SYNC_EVENT_QUEUE_DEPTH            8U
+#define MIDI_SYNC_ADAPTIVE_CONTROL_ENABLED      1U
+#define MIDI_SYNC_ADAPTIVE_WINDOW_MS        10000U
+#define MIDI_SYNC_ADAPTIVE_EARLY_WINDOW_MS   2000U
+#define MIDI_SYNC_ADAPTIVE_COOLDOWN_WINDOWS    1U
+#define MIDI_SYNC_ADAPTIVE_DECAY_WINDOWS       3U
+#define MIDI_SYNC_ADAPTIVE_RELOCK_HIGH_MS    900U
+#define MIDI_SYNC_ADAPTIVE_RELOCK_RISE_MS      80U
+#define MIDI_SYNC_ADAPTIVE_JITTER_HIGH_US    900U
+#define MIDI_SYNC_ADAPTIVE_EARLY_JITTER_HIGH_US 1400U
+#define MIDI_SYNC_ADAPTIVE_EARLY_JITTER_MIN_SAMPLES 48U
+#define MIDI_SYNC_ADAPTIVE_JITTER_RISE_US     120U
+#define MIDI_SYNC_ADAPTIVE_LOCK_LOSS_HIGH_PER_WINDOW 2U
+#define MIDI_SYNC_ADAPTIVE_LEVEL_MAX           4U
+
+typedef enum
+{
+    MIDI_SYNC_TRANSITION_REASON_NONE = 0,
+    MIDI_SYNC_TRANSITION_REASON_TRANSPORT_ARMED,
+    MIDI_SYNC_TRANSITION_REASON_TRACKING_READY,
+    MIDI_SYNC_TRANSITION_REASON_LOCK_CONFIRMED,
+    MIDI_SYNC_TRANSITION_REASON_LOCK_DEGRADED,
+    MIDI_SYNC_TRANSITION_REASON_SOURCE_TIMEOUT,
+    MIDI_SYNC_TRANSITION_REASON_SOURCE_RETURNED,
+    MIDI_SYNC_TRANSITION_REASON_ENTER_REARM,
+    MIDI_SYNC_TRANSITION_REASON_SYNC_LOST,
+    MIDI_SYNC_TRANSITION_REASON_TRANSPORT_IDLE,
+} MidiSyncTransitionReason_t;
+
+typedef struct
+{
+    uint8_t active;
+    uint8_t running;
+    uint8_t rearm_required;
+    uint8_t sync_lost;
+    MidiClockEstimatorStatus_t estimator_status;
+    int32_t phase_error_us;
+} MidiSyncLifecycleInputs_t;
+
+typedef struct
+{
+    MidiSyncState_t from_state;
+    MidiSyncState_t to_state;
+    MidiSyncTransitionReason_t reason;
+    uint32_t tick_ms;
+    int32_t phase_error_us;
+    uint8_t window_pulses;
+    uint8_t observed_pulses;
+} MidiSyncTransitionEvent_t;
+
+typedef enum
+{
+    MIDI_SYNC_ADAPT_ACTION_NONE = 0,
+    MIDI_SYNC_ADAPT_ACTION_ACQUIRE_AGGRESSIVE,
+    MIDI_SYNC_ADAPT_ACTION_TRACK_NARROW,
+    MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_INCREASE,
+    MIDI_SYNC_ADAPT_ACTION_ACQUIRE_DECAY,
+    MIDI_SYNC_ADAPT_ACTION_TRACK_DECAY,
+    MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_DECAY,
+} MidiSyncAdaptiveAction_t;
 
 static uint32_t midi_transport_phase_elapsed_nonnegative_us(uint32_t now_us,
                                                             uint32_t pulse_us);
 static uint16_t midi_transport_phase_fraction_q16(uint32_t numerator,
                                                   uint32_t denominator);
 static uint16_t midi_transport_phase_fraction_milli(uint16_t fraction_q16);
+static MidiSyncState_t midi_transport_compute_sync_state(const MidiSyncLifecycleInputs_t *inputs,
+                                                         uint8_t has_lock_history);
+static const char *midi_transport_sync_state_name(MidiSyncState_t state);
+static const char *midi_transport_transition_reason_name(MidiSyncTransitionReason_t reason);
+static const char *midi_transport_transition_event_name(MidiSyncState_t from,
+                                                        MidiSyncState_t to);
+static MidiSyncTransitionReason_t midi_transport_transition_reason(MidiSyncState_t from,
+                                                                   MidiSyncState_t to,
+                                                                   const MidiSyncLifecycleInputs_t *inputs);
+static uint32_t midi_transport_transition_dwell_ms(MidiSyncState_t from,
+                                                   MidiSyncState_t to);
+static void midi_transport_enqueue_sync_event(const MidiSyncTransitionEvent_t *event);
+static uint8_t midi_transport_dequeue_sync_event(MidiSyncTransitionEvent_t *event);
+static const char *midi_transport_adaptive_action_name(MidiSyncAdaptiveAction_t action);
+static void midi_transport_adaptive_window_reset(uint32_t now_ms);
+static void midi_transport_adaptive_control_service(const MidiSyncLifecycleInputs_t *inputs,
+                                                    uint32_t now_ms);
+static void midi_transport_update_sync_lifecycle(void);
 
 static uint32_t midi_transport_phase_elapsed_nonnegative_us(uint32_t now_us,
                                                             uint32_t pulse_us)
@@ -68,6 +151,758 @@ volatile MidiTransportEvent_t midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
 static volatile uint32_t midi_quarter_service_latency_sum_us = 0U;
 static volatile uint32_t midi_quarter_service_latency_max_us = 0U;
 static volatile uint16_t midi_quarter_service_latency_count = 0U;
+static volatile MidiSyncState_t midi_sync_state = MIDI_SYNC_STATE_IDLE;
+static volatile uint32_t midi_sync_state_enter_tick_ms = 0U;
+static volatile uint32_t midi_sync_last_lock_tick_ms = 0U;
+static volatile uint32_t midi_sync_holdover_enter_tick_ms = 0U;
+static volatile uint8_t midi_sync_has_lock_history = 0U;
+static volatile MidiSyncState_t midi_sync_pending_state = MIDI_SYNC_STATE_INVALID;
+static volatile uint32_t midi_sync_pending_enter_tick_ms = 0U;
+static volatile MidiSyncTransitionReason_t midi_sync_pending_reason = MIDI_SYNC_TRANSITION_REASON_NONE;
+static volatile MidiSyncState_t midi_sync_last_transition_from = MIDI_SYNC_STATE_IDLE;
+static volatile MidiSyncState_t midi_sync_last_transition_to = MIDI_SYNC_STATE_IDLE;
+static volatile MidiSyncTransitionReason_t midi_sync_last_transition_reason = MIDI_SYNC_TRANSITION_REASON_NONE;
+static volatile uint32_t midi_sync_last_transition_tick_ms = 0U;
+static volatile int32_t midi_sync_last_transition_phase_error_us = 0;
+static volatile uint8_t midi_sync_last_transition_window_pulses = 0U;
+static volatile uint8_t midi_sync_last_transition_observed_pulses = 0U;
+static MidiSyncTransitionEvent_t midi_sync_event_queue[MIDI_SYNC_EVENT_QUEUE_DEPTH];
+static volatile uint8_t midi_sync_event_head = 0U;
+static volatile uint8_t midi_sync_event_tail = 0U;
+static volatile uint8_t midi_sync_event_count = 0U;
+static volatile uint32_t midi_sync_event_overflow_count = 0U;
+static volatile uint32_t midi_sync_metric_lock_acquired_count = 0U;
+static volatile uint32_t midi_sync_metric_lock_lost_count = 0U;
+static volatile uint32_t midi_sync_metric_holdover_entry_count = 0U;
+static volatile uint32_t midi_sync_metric_acquire_success_count = 0U;
+static volatile uint32_t midi_sync_metric_acquire_latency_last_ms = 0U;
+static volatile uint32_t midi_sync_metric_acquire_latency_max_ms = 0U;
+static volatile uint32_t midi_sync_metric_acquire_latency_sum_ms = 0U;
+static volatile uint32_t midi_sync_metric_relock_success_count = 0U;
+static volatile uint32_t midi_sync_metric_relock_latency_last_ms = 0U;
+static volatile uint32_t midi_sync_metric_relock_latency_max_ms = 0U;
+static volatile uint32_t midi_sync_metric_relock_latency_sum_ms = 0U;
+static volatile uint32_t midi_sync_acquire_start_tick_ms = 0U;
+static volatile uint32_t midi_sync_relock_start_tick_ms = 0U;
+static uint32_t midi_sync_adapt_window_start_tick_ms = 0U;
+static uint32_t midi_sync_adapt_snapshot_relock_sum_ms = 0U;
+static uint32_t midi_sync_adapt_snapshot_relock_success_count = 0U;
+static uint32_t midi_sync_adapt_snapshot_lock_lost_count = 0U;
+static uint32_t midi_sync_adapt_snapshot_holdover_entry_count = 0U;
+static uint64_t midi_sync_adapt_window_jitter_sum_us = 0ULL;
+static uint32_t midi_sync_adapt_window_jitter_samples = 0U;
+static uint32_t midi_sync_adapt_last_sampled_pulse_us = 0U;
+static uint32_t midi_sync_adapt_prev_window_relock_avg_ms = 0U;
+static uint32_t midi_sync_adapt_prev_window_jitter_avg_us = 0U;
+static uint32_t midi_sync_adapt_prev_window_lock_lost = 0U;
+static uint32_t midi_sync_adapt_last_window_relock_avg_ms = 0U;
+static uint32_t midi_sync_adapt_last_window_jitter_avg_us = 0U;
+static uint32_t midi_sync_adapt_last_window_lock_lost = 0U;
+static uint32_t midi_sync_adapt_last_window_holdover_entries = 0U;
+static uint8_t midi_sync_adapt_cooldown_windows = 0U;
+static uint8_t midi_sync_adapt_stable_windows = 0U;
+static MidiSyncAdaptiveAction_t midi_sync_adapt_last_action = MIDI_SYNC_ADAPT_ACTION_NONE;
+static uint32_t midi_sync_adapt_last_action_tick_ms = 0U;
+
+static MidiSyncState_t midi_transport_compute_sync_state(const MidiSyncLifecycleInputs_t *inputs,
+                                                         uint8_t has_lock_history)
+{
+    const MidiClockEstimatorStatus_t *status = &inputs->estimator_status;
+
+    if (inputs->rearm_required)
+        return inputs->sync_lost ? MIDI_SYNC_STATE_HOLDOVER : MIDI_SYNC_STATE_REARM;
+
+    if (inputs->sync_lost)
+        return MIDI_SYNC_STATE_LOST;
+
+    if (!inputs->running)
+        return MIDI_SYNC_STATE_IDLE;
+
+    if (!inputs->active)
+        return has_lock_history ? MIDI_SYNC_STATE_RELOCK : MIDI_SYNC_STATE_ACQUIRE;
+
+    if (status->live_lock == MIDI_CLOCK_LOCK_QUALITY_LOCKED
+     && status->history_confidence >= MIDI_CLOCK_TRANSPORT_CONFIDENCE_STABLE
+     && status->publication_ready)
+    {
+        return MIDI_SYNC_STATE_LOCKED;
+    }
+
+    if (status->history_confidence >= MIDI_CLOCK_TRANSPORT_CONFIDENCE_TRACKING)
+        return has_lock_history ? MIDI_SYNC_STATE_RELOCK : MIDI_SYNC_STATE_TRACKING;
+
+    return MIDI_SYNC_STATE_ACQUIRE;
+}
+
+static const char *midi_transport_transition_reason_name(MidiSyncTransitionReason_t reason)
+{
+    switch (reason)
+    {
+    case MIDI_SYNC_TRANSITION_REASON_TRANSPORT_ARMED:
+        return "TRANSPORT_ARMED";
+    case MIDI_SYNC_TRANSITION_REASON_TRACKING_READY:
+        return "TRACKING_READY";
+    case MIDI_SYNC_TRANSITION_REASON_LOCK_CONFIRMED:
+        return "LOCK_CONFIRMED";
+    case MIDI_SYNC_TRANSITION_REASON_LOCK_DEGRADED:
+        return "LOCK_DEGRADED";
+    case MIDI_SYNC_TRANSITION_REASON_SOURCE_TIMEOUT:
+        return "SOURCE_TIMEOUT";
+    case MIDI_SYNC_TRANSITION_REASON_SOURCE_RETURNED:
+        return "SOURCE_RETURNED";
+    case MIDI_SYNC_TRANSITION_REASON_ENTER_REARM:
+        return "ENTER_REARM";
+    case MIDI_SYNC_TRANSITION_REASON_SYNC_LOST:
+        return "SYNC_LOST";
+    case MIDI_SYNC_TRANSITION_REASON_TRANSPORT_IDLE:
+        return "TRANSPORT_IDLE";
+    default:
+        return "NONE";
+    }
+}
+
+static const char *midi_transport_transition_event_name(MidiSyncState_t from,
+                                                        MidiSyncState_t to)
+{
+    if (to == MIDI_SYNC_STATE_LOCKED)
+    {
+        if (from == MIDI_SYNC_STATE_RELOCK)
+            return "SYNC_EVENT_RELOCK_COMPLETE";
+
+        return "SYNC_EVENT_LOCK_ACQUIRED";
+    }
+
+    if (to == MIDI_SYNC_STATE_HOLDOVER)
+        return "SYNC_EVENT_ENTER_HOLDOVER";
+
+    if (from == MIDI_SYNC_STATE_LOCKED && to == MIDI_SYNC_STATE_REARM)
+        return "SYNC_EVENT_TRANSPORT_REARM";
+
+    if (from == MIDI_SYNC_STATE_LOCKED
+     && (to == MIDI_SYNC_STATE_RELOCK
+      || to == MIDI_SYNC_STATE_TRACKING
+      || to == MIDI_SYNC_STATE_ACQUIRE
+      || to == MIDI_SYNC_STATE_LOST))
+    {
+        return "SYNC_EVENT_LOCK_LOST";
+    }
+
+    return "SYNC_EVENT_STATE_TRANSITION";
+}
+
+static const char *midi_transport_adaptive_action_name(MidiSyncAdaptiveAction_t action)
+{
+    switch (action)
+    {
+    case MIDI_SYNC_ADAPT_ACTION_ACQUIRE_AGGRESSIVE:
+        return "ACQUIRE_AGGRESSIVE";
+    case MIDI_SYNC_ADAPT_ACTION_TRACK_NARROW:
+        return "TRACK_NARROW";
+    case MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_INCREASE:
+        return "HYSTERESIS_INCREASE";
+    case MIDI_SYNC_ADAPT_ACTION_ACQUIRE_DECAY:
+        return "ACQUIRE_DECAY";
+    case MIDI_SYNC_ADAPT_ACTION_TRACK_DECAY:
+        return "TRACK_DECAY";
+    case MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_DECAY:
+        return "HYSTERESIS_DECAY";
+    default:
+        return "NONE";
+    }
+}
+
+static void midi_transport_adaptive_window_reset(uint32_t now_ms)
+{
+    uint32_t recovered_pulse_us = 0U;
+    uint8_t have_recovered_pulse;
+
+    have_recovered_pulse = MidiClockEstimator_GetRecoveredPulseTimestampUs(&recovered_pulse_us);
+    midi_sync_adapt_window_start_tick_ms = now_ms;
+    midi_sync_adapt_snapshot_relock_sum_ms = midi_sync_metric_relock_latency_sum_ms;
+    midi_sync_adapt_snapshot_relock_success_count = midi_sync_metric_relock_success_count;
+    midi_sync_adapt_snapshot_lock_lost_count = midi_sync_metric_lock_lost_count;
+    midi_sync_adapt_snapshot_holdover_entry_count = midi_sync_metric_holdover_entry_count;
+    midi_sync_adapt_window_jitter_sum_us = 0ULL;
+    midi_sync_adapt_window_jitter_samples = 0U;
+    midi_sync_adapt_last_sampled_pulse_us = have_recovered_pulse ? recovered_pulse_us : 0U;
+}
+
+static void midi_transport_adaptive_control_service(const MidiSyncLifecycleInputs_t *inputs,
+                                                    uint32_t now_ms)
+{
+#if !MIDI_SYNC_ADAPTIVE_CONTROL_ENABLED
+    (void)inputs;
+    (void)now_ms;
+#else
+    MidiClockEstimatorAdaptiveTuning_t tuning;
+    MidiSyncAdaptiveAction_t action = MIDI_SYNC_ADAPT_ACTION_NONE;
+    uint32_t abs_phase_error_avg_us = 0U;
+    uint32_t recovered_pulse_us = 0U;
+    uint32_t window_elapsed_ms;
+    uint32_t relock_sum_ms;
+    uint32_t relock_success_count;
+    uint32_t lock_lost_count;
+    uint32_t holdover_entry_count;
+    uint8_t early_window_stress = 0U;
+    uint8_t early_window_jitter = 0U;
+    uint32_t relock_sum_delta;
+    uint32_t relock_success_delta;
+    uint32_t lock_lost_delta;
+    uint32_t holdover_entry_delta;
+    uint32_t relock_avg_ms = 0U;
+    uint32_t jitter_avg_us = 0U;
+    uint8_t should_increase_acquire = 0U;
+    uint8_t should_narrow_tracking = 0U;
+    uint8_t should_increase_hysteresis = 0U;
+    uint8_t have_recovered_pulse = 0U;
+
+    if (!inputs)
+        return;
+
+    MidiClockEstimator_GetRecoveredAbsPhaseErrorAvgUs(&abs_phase_error_avg_us);
+    have_recovered_pulse = MidiClockEstimator_GetRecoveredPulseTimestampUs(&recovered_pulse_us);
+    if (inputs->running && inputs->active && inputs->estimator_status.estimator_valid)
+    {
+        if (have_recovered_pulse && recovered_pulse_us != midi_sync_adapt_last_sampled_pulse_us)
+        {
+            midi_sync_adapt_last_sampled_pulse_us = recovered_pulse_us;
+
+            if (UINT64_MAX - midi_sync_adapt_window_jitter_sum_us >= abs_phase_error_avg_us)
+                midi_sync_adapt_window_jitter_sum_us += abs_phase_error_avg_us;
+            else
+                midi_sync_adapt_window_jitter_sum_us = UINT64_MAX;
+
+            if (midi_sync_adapt_window_jitter_samples < UINT32_MAX)
+                midi_sync_adapt_window_jitter_samples++;
+        }
+    }
+
+    if (midi_sync_adapt_window_start_tick_ms == 0U)
+    {
+        midi_transport_adaptive_window_reset(now_ms);
+        return;
+    }
+
+    if (!inputs->running)
+    {
+        midi_sync_adapt_stable_windows = 0U;
+        return;
+    }
+
+    window_elapsed_ms = now_ms - midi_sync_adapt_window_start_tick_ms;
+    relock_sum_ms = midi_sync_metric_relock_latency_sum_ms;
+    relock_success_count = midi_sync_metric_relock_success_count;
+    lock_lost_count = midi_sync_metric_lock_lost_count;
+    holdover_entry_count = midi_sync_metric_holdover_entry_count;
+
+    if (midi_sync_adapt_window_jitter_samples > 0U)
+    {
+        jitter_avg_us = (uint32_t)(midi_sync_adapt_window_jitter_sum_us
+            / (uint64_t)midi_sync_adapt_window_jitter_samples);
+    }
+
+    if (window_elapsed_ms < MIDI_SYNC_ADAPTIVE_WINDOW_MS)
+    {
+        early_window_stress = (uint8_t)((lock_lost_count > midi_sync_adapt_snapshot_lock_lost_count)
+            || (holdover_entry_count > midi_sync_adapt_snapshot_holdover_entry_count));
+        early_window_jitter = (uint8_t)(midi_sync_adapt_window_jitter_samples
+            >= MIDI_SYNC_ADAPTIVE_EARLY_JITTER_MIN_SAMPLES
+            && jitter_avg_us >= MIDI_SYNC_ADAPTIVE_EARLY_JITTER_HIGH_US);
+        if (window_elapsed_ms < MIDI_SYNC_ADAPTIVE_EARLY_WINDOW_MS
+         || (!early_window_stress && !early_window_jitter))
+            return;
+    }
+
+    relock_sum_delta = (relock_sum_ms >= midi_sync_adapt_snapshot_relock_sum_ms)
+        ? (relock_sum_ms - midi_sync_adapt_snapshot_relock_sum_ms)
+        : relock_sum_ms;
+    relock_success_delta = (relock_success_count >= midi_sync_adapt_snapshot_relock_success_count)
+        ? (relock_success_count - midi_sync_adapt_snapshot_relock_success_count)
+        : relock_success_count;
+    lock_lost_delta = (lock_lost_count >= midi_sync_adapt_snapshot_lock_lost_count)
+        ? (lock_lost_count - midi_sync_adapt_snapshot_lock_lost_count)
+        : lock_lost_count;
+    holdover_entry_delta = (holdover_entry_count >= midi_sync_adapt_snapshot_holdover_entry_count)
+        ? (holdover_entry_count - midi_sync_adapt_snapshot_holdover_entry_count)
+        : holdover_entry_count;
+
+    if (relock_success_delta > 0U)
+        relock_avg_ms = relock_sum_delta / relock_success_delta;
+
+    midi_sync_adapt_last_window_relock_avg_ms = relock_avg_ms;
+    midi_sync_adapt_last_window_jitter_avg_us = jitter_avg_us;
+    midi_sync_adapt_last_window_lock_lost = lock_lost_delta;
+    midi_sync_adapt_last_window_holdover_entries = holdover_entry_delta;
+
+    if (relock_success_delta > 0U)
+    {
+        if (relock_avg_ms >= MIDI_SYNC_ADAPTIVE_RELOCK_HIGH_MS)
+            should_increase_acquire = 1U;
+        else if (midi_sync_adapt_prev_window_relock_avg_ms > 0U
+              && relock_avg_ms >= (midi_sync_adapt_prev_window_relock_avg_ms
+                  + MIDI_SYNC_ADAPTIVE_RELOCK_RISE_MS))
+        {
+            should_increase_acquire = 1U;
+        }
+    }
+
+    if (jitter_avg_us > 0U)
+    {
+        if (jitter_avg_us >= MIDI_SYNC_ADAPTIVE_JITTER_HIGH_US)
+            should_narrow_tracking = 1U;
+        else if (midi_sync_adapt_prev_window_jitter_avg_us > 0U
+              && jitter_avg_us >= (midi_sync_adapt_prev_window_jitter_avg_us
+                  + MIDI_SYNC_ADAPTIVE_JITTER_RISE_US))
+        {
+            should_narrow_tracking = 1U;
+        }
+    }
+
+    if (lock_lost_delta >= MIDI_SYNC_ADAPTIVE_LOCK_LOSS_HIGH_PER_WINDOW
+     || (midi_sync_adapt_prev_window_lock_lost > 0U
+      && lock_lost_delta > midi_sync_adapt_prev_window_lock_lost)
+     || (lock_lost_delta > 0U && holdover_entry_delta > 0U))
+    {
+        should_increase_hysteresis = 1U;
+    }
+
+    if (midi_sync_adapt_cooldown_windows > 0U)
+    {
+        midi_sync_adapt_cooldown_windows--;
+    }
+    else
+    {
+        MidiClockEstimator_GetAdaptiveTuning(&tuning);
+
+        if (should_increase_hysteresis
+         && tuning.hysteresis_level < MIDI_SYNC_ADAPTIVE_LEVEL_MAX)
+        {
+            MidiClockEstimator_AdjustLockHysteresis(+1);
+            action = MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_INCREASE;
+        }
+        else if (should_increase_acquire
+              && tuning.acquire_aggression_level < MIDI_SYNC_ADAPTIVE_LEVEL_MAX)
+        {
+            MidiClockEstimator_AdjustAcquireAggressiveness(+1);
+            action = MIDI_SYNC_ADAPT_ACTION_ACQUIRE_AGGRESSIVE;
+        }
+        else if (should_narrow_tracking
+              && tuning.tracking_bandwidth_level < MIDI_SYNC_ADAPTIVE_LEVEL_MAX)
+        {
+            MidiClockEstimator_AdjustTrackingBandwidth(+1);
+            action = MIDI_SYNC_ADAPT_ACTION_TRACK_NARROW;
+        }
+        else
+        {
+            uint8_t healthy_window = (uint8_t)(lock_lost_delta == 0U
+                && holdover_entry_delta == 0U
+                && !should_increase_acquire
+                && !should_narrow_tracking
+                && !should_increase_hysteresis);
+
+            if (healthy_window)
+            {
+                if (midi_sync_adapt_stable_windows < UINT8_MAX)
+                    midi_sync_adapt_stable_windows++;
+
+                if (midi_sync_adapt_stable_windows >= MIDI_SYNC_ADAPTIVE_DECAY_WINDOWS)
+                {
+                    if (tuning.acquire_aggression_level > 0U)
+                    {
+                        MidiClockEstimator_AdjustAcquireAggressiveness(-1);
+                        action = MIDI_SYNC_ADAPT_ACTION_ACQUIRE_DECAY;
+                    }
+                    else if (tuning.tracking_bandwidth_level > 0U)
+                    {
+                        MidiClockEstimator_AdjustTrackingBandwidth(-1);
+                        action = MIDI_SYNC_ADAPT_ACTION_TRACK_DECAY;
+                    }
+                    else if (tuning.hysteresis_level > 0U)
+                    {
+                        MidiClockEstimator_AdjustLockHysteresis(-1);
+                        action = MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_DECAY;
+                    }
+                }
+            }
+            else
+            {
+                midi_sync_adapt_stable_windows = 0U;
+            }
+        }
+    }
+
+    if (action != MIDI_SYNC_ADAPT_ACTION_NONE)
+    {
+        midi_sync_adapt_last_action = action;
+        midi_sync_adapt_last_action_tick_ms = now_ms;
+        midi_sync_adapt_stable_windows = 0U;
+        midi_sync_adapt_cooldown_windows = MIDI_SYNC_ADAPTIVE_COOLDOWN_WINDOWS;
+
+        MidiClockEstimator_GetAdaptiveTuning(&tuning);
+        printf("SYNCADAPT action=%s relock_avg_ms=%lu jitter_avg_us=%lu lock_lost=%lu holdover_entries=%lu levels=acq%u,track%u,hyst%u gains=ap%u,af%u,tp%u,tf%u lock_div=enter%u,exit%u lock_stable=%u\\r\\n",
+               midi_transport_adaptive_action_name(action),
+               (unsigned long)relock_avg_ms,
+               (unsigned long)jitter_avg_us,
+               (unsigned long)lock_lost_delta,
+               (unsigned long)holdover_entry_delta,
+               (unsigned)tuning.acquire_aggression_level,
+               (unsigned)tuning.tracking_bandwidth_level,
+               (unsigned)tuning.hysteresis_level,
+               (unsigned)tuning.acquire_phase_gain_divisor,
+               (unsigned)tuning.acquire_frequency_gain_divisor,
+               (unsigned)tuning.track_phase_gain_divisor,
+               (unsigned)tuning.track_frequency_gain_divisor,
+               (unsigned)tuning.lock_enter_threshold_divisor,
+               (unsigned)tuning.lock_exit_threshold_divisor,
+               (unsigned)tuning.lock_stable_pulses);
+    }
+
+    midi_sync_adapt_prev_window_relock_avg_ms = relock_avg_ms;
+    midi_sync_adapt_prev_window_jitter_avg_us = jitter_avg_us;
+    midi_sync_adapt_prev_window_lock_lost = lock_lost_delta;
+    midi_transport_adaptive_window_reset(now_ms);
+#endif
+}
+
+static void midi_transport_enqueue_sync_event(const MidiSyncTransitionEvent_t *event)
+{
+    uint32_t primask;
+
+    if (!event)
+        return;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+
+    if (midi_sync_event_count >= MIDI_SYNC_EVENT_QUEUE_DEPTH)
+    {
+        midi_sync_event_head = (uint8_t)((midi_sync_event_head + 1U) % MIDI_SYNC_EVENT_QUEUE_DEPTH);
+        if (midi_sync_event_overflow_count < UINT32_MAX)
+            midi_sync_event_overflow_count++;
+    }
+    else
+    {
+        midi_sync_event_count++;
+    }
+
+    midi_sync_event_queue[midi_sync_event_tail] = *event;
+    midi_sync_event_tail = (uint8_t)((midi_sync_event_tail + 1U) % MIDI_SYNC_EVENT_QUEUE_DEPTH);
+
+    if (primask == 0U)
+        __enable_irq();
+}
+
+static uint8_t midi_transport_dequeue_sync_event(MidiSyncTransitionEvent_t *event)
+{
+    uint32_t primask;
+
+    if (!event)
+        return 0U;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+
+    if (midi_sync_event_count == 0U)
+    {
+        if (primask == 0U)
+            __enable_irq();
+        return 0U;
+    }
+
+    *event = midi_sync_event_queue[midi_sync_event_head];
+    midi_sync_event_head = (uint8_t)((midi_sync_event_head + 1U) % MIDI_SYNC_EVENT_QUEUE_DEPTH);
+    midi_sync_event_count--;
+
+    if (primask == 0U)
+        __enable_irq();
+
+    return 1U;
+}
+
+static MidiSyncTransitionReason_t midi_transport_transition_reason(MidiSyncState_t from,
+                                                                   MidiSyncState_t to,
+                                                                   const MidiSyncLifecycleInputs_t *inputs)
+{
+    (void)inputs;
+
+    if (from == to)
+        return MIDI_SYNC_TRANSITION_REASON_NONE;
+
+    if (to == MIDI_SYNC_STATE_HOLDOVER)
+        return MIDI_SYNC_TRANSITION_REASON_SOURCE_TIMEOUT;
+
+    if (to == MIDI_SYNC_STATE_REARM)
+        return MIDI_SYNC_TRANSITION_REASON_ENTER_REARM;
+
+    if (to == MIDI_SYNC_STATE_LOST)
+        return MIDI_SYNC_TRANSITION_REASON_SYNC_LOST;
+
+    if (to == MIDI_SYNC_STATE_LOCKED)
+        return MIDI_SYNC_TRANSITION_REASON_LOCK_CONFIRMED;
+
+    if (to == MIDI_SYNC_STATE_RELOCK)
+    {
+        if (from == MIDI_SYNC_STATE_LOCKED)
+            return MIDI_SYNC_TRANSITION_REASON_LOCK_DEGRADED;
+
+        return MIDI_SYNC_TRANSITION_REASON_SOURCE_RETURNED;
+    }
+
+    if (to == MIDI_SYNC_STATE_TRACKING)
+        return MIDI_SYNC_TRANSITION_REASON_TRACKING_READY;
+
+    if (to == MIDI_SYNC_STATE_IDLE)
+        return MIDI_SYNC_TRANSITION_REASON_TRANSPORT_IDLE;
+
+    if (to == MIDI_SYNC_STATE_ACQUIRE)
+    {
+        if (from == MIDI_SYNC_STATE_LOCKED)
+            return MIDI_SYNC_TRANSITION_REASON_LOCK_DEGRADED;
+
+        return MIDI_SYNC_TRANSITION_REASON_TRANSPORT_ARMED;
+    }
+
+    return MIDI_SYNC_TRANSITION_REASON_NONE;
+}
+
+static uint32_t midi_transport_transition_dwell_ms(MidiSyncState_t from,
+                                                   MidiSyncState_t to)
+{
+    if (from == MIDI_SYNC_STATE_ACQUIRE && to == MIDI_SYNC_STATE_TRACKING)
+        return MIDI_SYNC_DWELL_ACQUIRE_TO_TRACKING_MS;
+
+    if (from == MIDI_SYNC_STATE_TRACKING && to == MIDI_SYNC_STATE_LOCKED)
+        return MIDI_SYNC_DWELL_TRACKING_TO_LOCKED_MS;
+
+    if (from == MIDI_SYNC_STATE_LOCKED && to == MIDI_SYNC_STATE_RELOCK)
+        return MIDI_SYNC_DWELL_LOCKED_TO_RELOCK_MS;
+
+    if (from == MIDI_SYNC_STATE_RELOCK && to == MIDI_SYNC_STATE_LOCKED)
+        return MIDI_SYNC_DWELL_RELOCK_TO_LOCKED_MS;
+
+    return 0U;
+}
+
+static const char *midi_transport_sync_state_name(MidiSyncState_t state)
+{
+    switch (state)
+    {
+    case MIDI_SYNC_STATE_IDLE:
+        return "IDLE";
+    case MIDI_SYNC_STATE_ACQUIRE:
+        return "ACQUIRE";
+    case MIDI_SYNC_STATE_TRACKING:
+        return "TRACKING";
+    case MIDI_SYNC_STATE_LOCKED:
+        return "LOCKED";
+    case MIDI_SYNC_STATE_HOLDOVER:
+        return "HOLDOVER";
+    case MIDI_SYNC_STATE_RELOCK:
+        return "RELOCK";
+    case MIDI_SYNC_STATE_LOST:
+        return "LOST";
+    case MIDI_SYNC_STATE_REARM:
+        return "REARM";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+static void midi_transport_update_sync_lifecycle(void)
+{
+    MidiSyncLifecycleInputs_t inputs;
+    MidiSyncTransitionEvent_t transition_event;
+    MidiSyncState_t desired_state;
+    uint32_t metric_latency_ms;
+    uint32_t transition_dwell_ms;
+    uint32_t now_ms = HAL_GetTick();
+
+    inputs.active = MidiTransport_IsExternalClockActive();
+    inputs.running = midi_transport_running;
+    inputs.rearm_required = midi_transport_rearm_required;
+    inputs.sync_lost = midi_clock_sync_lost;
+    MidiClockEstimator_GetStatus(&inputs.estimator_status);
+    MidiClockEstimator_GetRecoveredPllDiagnostics(&inputs.phase_error_us,
+                                                  NULL,
+                                                  NULL,
+                                                  NULL);
+    midi_transport_adaptive_control_service(&inputs, now_ms);
+
+    desired_state = midi_transport_compute_sync_state(&inputs,
+                                                      midi_sync_has_lock_history);
+
+    if (desired_state == midi_sync_state)
+    {
+        midi_sync_pending_state = MIDI_SYNC_STATE_INVALID;
+        midi_sync_pending_enter_tick_ms = 0U;
+        midi_sync_pending_reason = MIDI_SYNC_TRANSITION_REASON_NONE;
+        return;
+    }
+
+    if (midi_sync_pending_state != desired_state)
+    {
+        midi_sync_pending_state = desired_state;
+        midi_sync_pending_enter_tick_ms = now_ms;
+        midi_sync_pending_reason = midi_transport_transition_reason(midi_sync_state,
+                                                                    desired_state,
+                                                                    &inputs);
+        return;
+    }
+
+    transition_dwell_ms = midi_transport_transition_dwell_ms(midi_sync_state,
+                                                             desired_state);
+    if ((now_ms - midi_sync_pending_enter_tick_ms) < transition_dwell_ms)
+        return;
+
+    midi_sync_last_transition_from = midi_sync_state;
+    midi_sync_last_transition_to = desired_state;
+    midi_sync_last_transition_reason = midi_sync_pending_reason;
+    midi_sync_last_transition_tick_ms = now_ms;
+    midi_sync_last_transition_phase_error_us = inputs.phase_error_us;
+    midi_sync_last_transition_window_pulses = inputs.estimator_status.window_pulses;
+    midi_sync_last_transition_observed_pulses = inputs.estimator_status.observed_pulses;
+
+    if (midi_sync_last_transition_from == MIDI_SYNC_STATE_LOCKED
+     && midi_sync_last_transition_to != MIDI_SYNC_STATE_LOCKED
+     && midi_sync_last_transition_reason != MIDI_SYNC_TRANSITION_REASON_ENTER_REARM
+     && midi_sync_last_transition_reason != MIDI_SYNC_TRANSITION_REASON_TRANSPORT_IDLE
+     && midi_sync_metric_lock_lost_count < UINT32_MAX)
+    {
+        midi_sync_metric_lock_lost_count++;
+    }
+
+    if (midi_sync_last_transition_to == MIDI_SYNC_STATE_HOLDOVER
+     && midi_sync_last_transition_from != MIDI_SYNC_STATE_HOLDOVER
+     && midi_sync_metric_holdover_entry_count < UINT32_MAX)
+    {
+        midi_sync_metric_holdover_entry_count++;
+    }
+
+    transition_event.from_state = midi_sync_last_transition_from;
+    transition_event.to_state = midi_sync_last_transition_to;
+    transition_event.reason = midi_sync_last_transition_reason;
+    transition_event.tick_ms = midi_sync_last_transition_tick_ms;
+    transition_event.phase_error_us = midi_sync_last_transition_phase_error_us;
+    transition_event.window_pulses = midi_sync_last_transition_window_pulses;
+    transition_event.observed_pulses = midi_sync_last_transition_observed_pulses;
+    midi_transport_enqueue_sync_event(&transition_event);
+
+    midi_sync_state = desired_state;
+    midi_sync_state_enter_tick_ms = now_ms;
+    midi_sync_pending_state = MIDI_SYNC_STATE_INVALID;
+    midi_sync_pending_enter_tick_ms = 0U;
+    midi_sync_pending_reason = MIDI_SYNC_TRANSITION_REASON_NONE;
+
+    if (midi_sync_state == MIDI_SYNC_STATE_ACQUIRE)
+    {
+        MidiClockEstimatorAdaptiveTuning_t adaptive_tuning;
+
+        midi_sync_acquire_start_tick_ms = now_ms;
+        midi_sync_relock_start_tick_ms = 0U;
+        midi_transport_adaptive_window_reset(now_ms);
+        midi_sync_adapt_prev_window_relock_avg_ms = 0U;
+        midi_sync_adapt_prev_window_jitter_avg_us = 0U;
+        midi_sync_adapt_prev_window_lock_lost = 0U;
+        midi_sync_adapt_last_window_relock_avg_ms = 0U;
+        midi_sync_adapt_last_window_jitter_avg_us = 0U;
+        midi_sync_adapt_last_window_lock_lost = 0U;
+        midi_sync_adapt_last_window_holdover_entries = 0U;
+        midi_sync_adapt_cooldown_windows = 0U;
+        midi_sync_adapt_stable_windows = 0U;
+
+        MidiClockEstimator_GetAdaptiveTuning(&adaptive_tuning);
+        if (adaptive_tuning.acquire_aggression_level == 0U
+         && adaptive_tuning.tracking_bandwidth_level == 0U
+         && adaptive_tuning.hysteresis_level == 0U)
+        {
+            midi_sync_adapt_last_action = MIDI_SYNC_ADAPT_ACTION_NONE;
+            midi_sync_adapt_last_action_tick_ms = 0U;
+        }
+    }
+    else if (midi_sync_state == MIDI_SYNC_STATE_TRACKING)
+    {
+        if (midi_sync_acquire_start_tick_ms == 0U && !midi_sync_has_lock_history)
+            midi_sync_acquire_start_tick_ms = now_ms;
+    }
+    else if (midi_sync_state == MIDI_SYNC_STATE_RELOCK)
+    {
+        midi_sync_relock_start_tick_ms = now_ms;
+        midi_sync_acquire_start_tick_ms = 0U;
+    }
+
+    if (midi_sync_state == MIDI_SYNC_STATE_LOCKED)
+    {
+        if (midi_sync_metric_lock_acquired_count < UINT32_MAX)
+            midi_sync_metric_lock_acquired_count++;
+
+        if (midi_sync_relock_start_tick_ms != 0U)
+        {
+            metric_latency_ms = now_ms - midi_sync_relock_start_tick_ms;
+            midi_sync_metric_relock_latency_last_ms = metric_latency_ms;
+            if (metric_latency_ms > midi_sync_metric_relock_latency_max_ms)
+                midi_sync_metric_relock_latency_max_ms = metric_latency_ms;
+            if (UINT32_MAX - midi_sync_metric_relock_latency_sum_ms >= metric_latency_ms)
+                midi_sync_metric_relock_latency_sum_ms += metric_latency_ms;
+            else
+                midi_sync_metric_relock_latency_sum_ms = UINT32_MAX;
+            if (midi_sync_metric_relock_success_count < UINT32_MAX)
+                midi_sync_metric_relock_success_count++;
+            midi_sync_relock_start_tick_ms = 0U;
+        }
+        else if (midi_sync_acquire_start_tick_ms != 0U)
+        {
+            metric_latency_ms = now_ms - midi_sync_acquire_start_tick_ms;
+            midi_sync_metric_acquire_latency_last_ms = metric_latency_ms;
+            if (metric_latency_ms > midi_sync_metric_acquire_latency_max_ms)
+                midi_sync_metric_acquire_latency_max_ms = metric_latency_ms;
+            if (UINT32_MAX - midi_sync_metric_acquire_latency_sum_ms >= metric_latency_ms)
+                midi_sync_metric_acquire_latency_sum_ms += metric_latency_ms;
+            else
+                midi_sync_metric_acquire_latency_sum_ms = UINT32_MAX;
+            if (midi_sync_metric_acquire_success_count < UINT32_MAX)
+                midi_sync_metric_acquire_success_count++;
+            midi_sync_acquire_start_tick_ms = 0U;
+        }
+    }
+
+    if (midi_sync_state == MIDI_SYNC_STATE_IDLE
+     || midi_sync_state == MIDI_SYNC_STATE_REARM
+     || midi_sync_state == MIDI_SYNC_STATE_HOLDOVER
+     || midi_sync_state == MIDI_SYNC_STATE_LOST)
+    {
+        midi_sync_acquire_start_tick_ms = 0U;
+        midi_sync_relock_start_tick_ms = 0U;
+    }
+
+    if (midi_sync_state == MIDI_SYNC_STATE_LOCKED)
+    {
+        midi_sync_has_lock_history = 1U;
+        midi_sync_last_lock_tick_ms = now_ms;
+    }
+
+    if (midi_sync_state == MIDI_SYNC_STATE_HOLDOVER)
+    {
+        if (midi_sync_last_transition_from != MIDI_SYNC_STATE_HOLDOVER)
+            midi_sync_holdover_enter_tick_ms = now_ms;
+    }
+    else
+    {
+        midi_sync_holdover_enter_tick_ms = 0U;
+    }
+
+    if (midi_sync_state == MIDI_SYNC_STATE_REARM
+     && midi_sync_last_transition_from != MIDI_SYNC_STATE_REARM)
+    {
+        midi_sync_has_lock_history = 0U;
+        midi_sync_last_lock_tick_ms = 0U;
+    }
+
+    if (midi_sync_state == MIDI_SYNC_STATE_IDLE && !inputs.active)
+    {
+        midi_sync_has_lock_history = 0U;
+        midi_sync_last_lock_tick_ms = 0U;
+    }
+}
 
 void MidiTransport_NoteDiagnosticInterval(uint32_t interval_us)
 {
@@ -121,12 +956,14 @@ uint8_t MidiTransport_IsExternalClockActive(void)
 uint8_t MidiTransportIsRunning(void)
 {
     MidiTransport_UpdateSyncState();
+    midi_transport_update_sync_lifecycle();
     return midi_transport_running;
 }
 
 uint8_t MidiClockIsSyncLost(void)
 {
     MidiTransport_UpdateSyncState();
+    midi_transport_update_sync_lifecycle();
     return midi_clock_sync_lost;
 }
 
@@ -135,8 +972,19 @@ uint8_t MidiClockIsEstimatorValid(void)
     MidiClockEstimatorStatus_t status;
 
     MidiTransport_UpdateSyncState();
+    midi_transport_update_sync_lifecycle();
     MidiClockEstimator_GetStatus(&status);
     return status.estimator_valid;
+}
+
+MidiClockTransportConfidence_t MidiClockGetTransportConfidence(void)
+{
+    MidiClockEstimatorStatus_t status;
+
+    MidiTransport_UpdateSyncState();
+    midi_transport_update_sync_lifecycle();
+    MidiClockEstimator_GetStatus(&status);
+    return status.history_confidence;
 }
 
 MidiClockLockQuality_t MidiClockGetLockQuality(void)
@@ -144,17 +992,57 @@ MidiClockLockQuality_t MidiClockGetLockQuality(void)
     MidiClockEstimatorStatus_t status;
 
     MidiTransport_UpdateSyncState();
+    midi_transport_update_sync_lifecycle();
     MidiClockEstimator_GetStatus(&status);
-    return status.lock_quality;
+    return status.live_lock;
+}
+
+MidiSyncState_t MidiClockGetSyncState(void)
+{
+    MidiTransport_UpdateSyncState();
+    midi_transport_update_sync_lifecycle();
+    return midi_sync_state;
+}
+
+uint32_t MidiClockGetSyncStateAgeMs(void)
+{
+    uint32_t now_ms;
+
+    MidiTransport_UpdateSyncState();
+    midi_transport_update_sync_lifecycle();
+    now_ms = HAL_GetTick();
+    return now_ms - midi_sync_state_enter_tick_ms;
+}
+
+uint32_t MidiClockGetHoldoverAgeMs(void)
+{
+    uint32_t now_ms;
+
+    MidiTransport_UpdateSyncState();
+    midi_transport_update_sync_lifecycle();
+    if (midi_sync_state != MIDI_SYNC_STATE_HOLDOVER || midi_sync_holdover_enter_tick_ms == 0U)
+        return 0U;
+
+    now_ms = HAL_GetTick();
+    return now_ms - midi_sync_holdover_enter_tick_ms;
+}
+
+uint32_t MidiClockGetLastLockAgeMs(void)
+{
+    uint32_t now_ms;
+
+    MidiTransport_UpdateSyncState();
+    midi_transport_update_sync_lifecycle();
+    if (midi_sync_last_lock_tick_ms == 0U)
+        return 0U;
+
+    now_ms = HAL_GetTick();
+    return now_ms - midi_sync_last_lock_tick_ms;
 }
 
 uint8_t MidiClockIsPublicationReady(void)
 {
-    MidiClockEstimatorStatus_t status;
-
-    MidiTransport_UpdateSyncState();
-    MidiClockEstimator_GetStatus(&status);
-    return (uint8_t)(status.publication_ready && MidiTransport_IsExternalClockActive());
+    return (uint8_t)(MidiClockGetSyncState() == MIDI_SYNC_STATE_LOCKED);
 }
 
 uint8_t MidiTransportStopLatched(void)
@@ -314,6 +1202,7 @@ void MidiClockDiagnosticService(void)
 #if MIDI_CLOCK_DIAGNOSTICS_ENABLED
     static uint32_t last_report_tick = 0U;
     MidiTransportPhaseSnapshot_t phase_snapshot;
+    MidiSyncTransitionEvent_t sync_event;
     MidiInputRealtimeRxDiagnostics_t realtime_rx_diag;
     uint32_t now = HAL_GetTick();
     uint32_t sum_us;
@@ -332,15 +1221,69 @@ void MidiClockDiagnosticService(void)
     uint8_t barbeat_valid;
     uint8_t have_clock_interval_stats;
     uint8_t have_quarter_service_stats;
+    uint8_t sync_lost;
+    MidiSyncState_t sync_state;
+    const char *sync_state_text = "UNKNOWN";
+    uint32_t sync_state_age_ms = 0U;
+    uint32_t holdover_age_ms = 0U;
+    uint32_t last_lock_age_ms = 0U;
+    const char *last_transition_from_text = "UNKNOWN";
+    const char *last_transition_to_text = "UNKNOWN";
+    const char *transition_reason_text = "NONE";
+    uint32_t transition_age_ms = 0U;
+    int32_t transition_phase_error_us = 0;
+    uint8_t transition_window_pulses = 0U;
+    uint8_t transition_observed_pulses = 0U;
+    uint32_t acquire_latency_last_ms = 0U;
+    uint32_t acquire_latency_avg_ms = 0U;
+    uint32_t acquire_latency_max_ms = 0U;
+    uint32_t relock_latency_last_ms = 0U;
+    uint32_t relock_latency_avg_ms = 0U;
+    uint32_t relock_latency_max_ms = 0U;
+    uint32_t lock_acquired_count = 0U;
+    uint32_t lock_lost_count = 0U;
+    uint32_t holdover_entry_count = 0U;
+    uint32_t relock_success_count = 0U;
+    uint32_t acquire_success_count = 0U;
+    MidiClockEstimatorAdaptiveTuning_t adaptive_tuning;
+    const char *adaptive_last_action_text = "NONE";
+    uint32_t adaptive_last_action_age_ms = 0U;
+    uint32_t adaptive_window_relock_sum_ms = 0U;
+    uint32_t adaptive_window_relock_success = 0U;
+    uint32_t adaptive_window_relock_avg_ms = 0U;
+    uint32_t adaptive_window_jitter_avg_us = 0U;
+    uint32_t adaptive_window_lock_lost = 0U;
+    uint32_t adaptive_window_holdover_entries = 0U;
+    uint32_t adaptive_window_age_ms = 0U;
+    uint32_t adaptive_window_jitter_samples = 0U;
+    uint8_t adaptive_cooldown_windows = 0U;
+    uint8_t adaptive_stable_windows = 0U;
     uint32_t phase_tick_count = 0U;
     uint16_t phase_tick_milli = 0U;
     char phase_source = '-';
+    char transport_confidence = '-';
     uint8_t estimator_valid;
+    uint8_t estimator_observed_pulses;
     uint8_t publication_ready;
     int32_t pll_phase_error_us = 0;
     int32_t pll_phase_correction_us = 0;
     int32_t pll_frequency_correction_us = 0;
     char pll_mode = '-';
+
+    while (midi_transport_dequeue_sync_event(&sync_event))
+    {
+        printf("SYNCEVT event=%s from=%s to=%s reason=%s age_ms=%lu phase_err_us=%ld window=%u observed=%u overflow_total=%lu\r\n",
+               midi_transport_transition_event_name(sync_event.from_state,
+                                                    sync_event.to_state),
+               midi_transport_sync_state_name(sync_event.from_state),
+               midi_transport_sync_state_name(sync_event.to_state),
+               midi_transport_transition_reason_name(sync_event.reason),
+               (unsigned long)(now - sync_event.tick_ms),
+               (long)sync_event.phase_error_us,
+               (unsigned)sync_event.window_pulses,
+               (unsigned)sync_event.observed_pulses,
+               (unsigned long)midi_sync_event_overflow_count);
+    }
 
     if ((now - last_report_tick) < MIDI_CLOCK_DIAGNOSTIC_REPORT_MS)
         return;
@@ -362,6 +1305,7 @@ void MidiClockDiagnosticService(void)
         estimator_window_pulses = midi_clock_external_bpm_window_pulses;
         running = midi_transport_running;
         rearm_required = midi_transport_rearm_required;
+        sync_lost = midi_clock_sync_lost;
         barbeat_valid = midi_barbeat_valid;
         midi_clock_diag_interval_sum_us = 0U;
         midi_clock_diag_interval_min_us = UINT32_MAX;
@@ -376,7 +1320,72 @@ void MidiClockDiagnosticService(void)
 
     MidiInput_TakeRealtimeRxDiagnostics(&realtime_rx_diag);
     MidiClockEstimator_GetStatus(&estimator_status);
-    publication_ready = (uint8_t)(estimator_status.publication_ready && active);
+    midi_transport_update_sync_lifecycle();
+    sync_state = midi_sync_state;
+    sync_state_text = midi_transport_sync_state_name(sync_state);
+    sync_state_age_ms = now - midi_sync_state_enter_tick_ms;
+    holdover_age_ms = (midi_sync_holdover_enter_tick_ms == 0U)
+        ? 0U
+        : (now - midi_sync_holdover_enter_tick_ms);
+    last_lock_age_ms = (midi_sync_last_lock_tick_ms == 0U)
+        ? 0U
+        : (now - midi_sync_last_lock_tick_ms);
+    last_transition_from_text = midi_transport_sync_state_name(midi_sync_last_transition_from);
+    last_transition_to_text = midi_transport_sync_state_name(midi_sync_last_transition_to);
+    transition_reason_text = midi_transport_transition_reason_name(midi_sync_last_transition_reason);
+    transition_age_ms = (midi_sync_last_transition_tick_ms == 0U)
+        ? 0U
+        : (now - midi_sync_last_transition_tick_ms);
+    transition_phase_error_us = midi_sync_last_transition_phase_error_us;
+    transition_window_pulses = midi_sync_last_transition_window_pulses;
+    transition_observed_pulses = midi_sync_last_transition_observed_pulses;
+    acquire_latency_last_ms = midi_sync_metric_acquire_latency_last_ms;
+    acquire_latency_max_ms = midi_sync_metric_acquire_latency_max_ms;
+    acquire_success_count = midi_sync_metric_acquire_success_count;
+    acquire_latency_avg_ms = (acquire_success_count == 0U)
+        ? 0U
+        : (midi_sync_metric_acquire_latency_sum_ms / acquire_success_count);
+    relock_latency_last_ms = midi_sync_metric_relock_latency_last_ms;
+    relock_latency_max_ms = midi_sync_metric_relock_latency_max_ms;
+    relock_success_count = midi_sync_metric_relock_success_count;
+    relock_latency_avg_ms = (relock_success_count == 0U)
+        ? 0U
+        : (midi_sync_metric_relock_latency_sum_ms / relock_success_count);
+    lock_acquired_count = midi_sync_metric_lock_acquired_count;
+    lock_lost_count = midi_sync_metric_lock_lost_count;
+    holdover_entry_count = midi_sync_metric_holdover_entry_count;
+    MidiClockEstimator_GetAdaptiveTuning(&adaptive_tuning);
+    adaptive_last_action_text = midi_transport_adaptive_action_name(midi_sync_adapt_last_action);
+    adaptive_last_action_age_ms = (midi_sync_adapt_last_action_tick_ms == 0U)
+        ? 0U
+        : (now - midi_sync_adapt_last_action_tick_ms);
+    adaptive_window_relock_sum_ms = (midi_sync_metric_relock_latency_sum_ms >= midi_sync_adapt_snapshot_relock_sum_ms)
+        ? (midi_sync_metric_relock_latency_sum_ms - midi_sync_adapt_snapshot_relock_sum_ms)
+        : midi_sync_metric_relock_latency_sum_ms;
+    adaptive_window_relock_success = (midi_sync_metric_relock_success_count
+        >= midi_sync_adapt_snapshot_relock_success_count)
+        ? (midi_sync_metric_relock_success_count - midi_sync_adapt_snapshot_relock_success_count)
+        : midi_sync_metric_relock_success_count;
+    adaptive_window_relock_avg_ms = (adaptive_window_relock_success == 0U)
+        ? 0U
+        : (adaptive_window_relock_sum_ms / adaptive_window_relock_success);
+    adaptive_window_age_ms = (midi_sync_adapt_window_start_tick_ms == 0U)
+        ? 0U
+        : (now - midi_sync_adapt_window_start_tick_ms);
+    adaptive_window_jitter_samples = midi_sync_adapt_window_jitter_samples;
+    adaptive_window_jitter_avg_us = (adaptive_window_jitter_samples == 0U)
+        ? 0U
+        : (uint32_t)(midi_sync_adapt_window_jitter_sum_us / (uint64_t)adaptive_window_jitter_samples);
+    adaptive_window_lock_lost = (midi_sync_metric_lock_lost_count >= midi_sync_adapt_snapshot_lock_lost_count)
+        ? (midi_sync_metric_lock_lost_count - midi_sync_adapt_snapshot_lock_lost_count)
+        : midi_sync_metric_lock_lost_count;
+    adaptive_window_holdover_entries =
+        (midi_sync_metric_holdover_entry_count >= midi_sync_adapt_snapshot_holdover_entry_count)
+        ? (midi_sync_metric_holdover_entry_count - midi_sync_adapt_snapshot_holdover_entry_count)
+        : midi_sync_metric_holdover_entry_count;
+    adaptive_cooldown_windows = midi_sync_adapt_cooldown_windows;
+    adaptive_stable_windows = midi_sync_adapt_stable_windows;
+    publication_ready = (uint8_t)(sync_state == MIDI_SYNC_STATE_LOCKED);
     if (MidiTransportGetContinuousPhase(&phase_snapshot))
     {
         phase_tick_count = phase_snapshot.tick_count;
@@ -388,10 +1397,26 @@ void MidiClockDiagnosticService(void)
                                                   &pll_frequency_correction_us,
                                                   NULL);
     estimator_window_pulses = estimator_status.window_pulses;
+    estimator_observed_pulses = estimator_status.observed_pulses;
     estimator_valid = estimator_status.estimator_valid;
-    pll_mode = (estimator_status.lock_quality == MIDI_CLOCK_LOCK_QUALITY_LOCKED)
+    switch (estimator_status.history_confidence)
+    {
+    case MIDI_CLOCK_TRANSPORT_CONFIDENCE_STABLE:
+        transport_confidence = 'S';
+        break;
+    case MIDI_CLOCK_TRANSPORT_CONFIDENCE_TRACKING:
+        transport_confidence = 'T';
+        break;
+    case MIDI_CLOCK_TRANSPORT_CONFIDENCE_OPERATIONAL:
+        transport_confidence = 'O';
+        break;
+    default:
+        transport_confidence = '-';
+        break;
+    }
+    pll_mode = (estimator_status.live_lock == MIDI_CLOCK_LOCK_QUALITY_LOCKED)
         ? 'L'
-        : ((estimator_status.lock_quality == MIDI_CLOCK_LOCK_QUALITY_ACQUIRING) ? 'A' : '-');
+        : ((estimator_status.live_lock == MIDI_CLOCK_LOCK_QUALITY_ACQUIRING) ? 'A' : '-');
     have_clock_interval_stats = (count != 0U && min_us != UINT32_MAX) ? 1U : 0U;
     have_quarter_service_stats = (quarter_service_count != 0U) ? 1U : 0U;
 
@@ -401,13 +1426,16 @@ void MidiClockDiagnosticService(void)
      && realtime_rx_diag.current_depth == 0U
      && realtime_rx_diag.interval_peak_depth == 0U
      && realtime_rx_diag.interval_dropped_count == 0U)
+    {
         return;
+    }
 
     (void)MidiClockGetRawExternalBpmX10(&bpm_x10);
-          printf("CLKDIAG active=%u run=%u rearm=%u bb=%u samples=%u avg=%luus min=%lu max=%lu pkpk=%lu bpm=%u.%u ew=%u ev=%u pr=%u ph=%lu.%03u ps=%c pll=%c pe=%ld pc=%ld fc=%ld q=%u qpk=%u qmax=%u drop=%lu/%lu lat=%lu/%luus ls=%u bsvc=%lu/%luus bs=%u\r\n",
+        printf("CLKDIAG ext_active=%u transport_run=%u rearm_pending=%u sync_lost=%u barbeat_valid=%u interval_samples=%u interval_avg_us=%lu interval_min_us=%lu interval_max_us=%lu interval_pkpk_us=%lu raw_bpm=%u.%u est_window=%u est_observed=%u history_confidence=%c est_valid=%u publication_ready=%u sync_state=%s sync_state_age_ms=%lu holdover_ms=%lu last_lock_age_ms=%lu last_transition=%s->%s transition_reason=%s transition_age_ms=%lu transition_phase_err_us=%ld transition_window=%u transition_observed=%u acq_ms_last=%lu acq_ms_avg=%lu acq_ms_max=%lu relock_ms_last=%lu relock_ms_avg=%lu relock_ms_max=%lu lock_acquired=%lu acquire_success=%lu relock_success=%lu lock_lost=%lu holdover_entries=%lu adapt_action=%s adapt_action_age_ms=%lu adapt_win_age_ms=%lu adapt_win_relock_ms=%lu adapt_win_jitter_us=%lu adapt_win_jitter_samples=%lu adapt_win_lock_lost=%lu adapt_win_holdover=%lu adapt_cd_windows=%u adapt_stable_windows=%u adapt_levels=%u/%u/%u adapt_gains=%u/%u/%u/%u adapt_lock_div=%u/%u adapt_lock_stable=%u phase_tick=%lu.%03u phase_src=%c live_lock=%c pll_err_us=%ld pll_phase_corr_us=%ld pll_freq_corr_us=%ld rx_q_now=%u rx_q_peak=%u rx_q_lifetime_peak=%u rx_drop_interval=%lu rx_drop_total=%lu rx_latency_avg_us=%lu rx_latency_max_us=%lu rx_latency_samples=%u beat_service_avg_us=%lu beat_service_max_us=%lu beat_service_samples=%u\r\n",
            (unsigned)active,
             (unsigned)running,
             (unsigned)rearm_required,
+            (unsigned)sync_lost,
             (unsigned)barbeat_valid,
            (unsigned)(have_clock_interval_stats ? count : 0U),
            (unsigned long)(have_clock_interval_stats ? (sum_us / (uint32_t)count) : 0U),
@@ -417,8 +1445,52 @@ void MidiClockDiagnosticService(void)
            (unsigned)(bpm_x10 / 10U),
            (unsigned)(bpm_x10 % 10U),
            (unsigned)estimator_window_pulses,
+           (unsigned)estimator_observed_pulses,
+           transport_confidence,
            (unsigned)estimator_valid,
            (unsigned)publication_ready,
+           sync_state_text,
+           (unsigned long)sync_state_age_ms,
+           (unsigned long)holdover_age_ms,
+           (unsigned long)last_lock_age_ms,
+           last_transition_from_text,
+           last_transition_to_text,
+           transition_reason_text,
+           (unsigned long)transition_age_ms,
+           (long)transition_phase_error_us,
+           (unsigned)transition_window_pulses,
+           (unsigned)transition_observed_pulses,
+           (unsigned long)acquire_latency_last_ms,
+           (unsigned long)acquire_latency_avg_ms,
+           (unsigned long)acquire_latency_max_ms,
+           (unsigned long)relock_latency_last_ms,
+           (unsigned long)relock_latency_avg_ms,
+           (unsigned long)relock_latency_max_ms,
+           (unsigned long)lock_acquired_count,
+           (unsigned long)acquire_success_count,
+           (unsigned long)relock_success_count,
+           (unsigned long)lock_lost_count,
+           (unsigned long)holdover_entry_count,
+           adaptive_last_action_text,
+           (unsigned long)adaptive_last_action_age_ms,
+           (unsigned long)adaptive_window_age_ms,
+           (unsigned long)adaptive_window_relock_avg_ms,
+           (unsigned long)adaptive_window_jitter_avg_us,
+           (unsigned long)adaptive_window_jitter_samples,
+           (unsigned long)adaptive_window_lock_lost,
+           (unsigned long)adaptive_window_holdover_entries,
+           (unsigned)adaptive_cooldown_windows,
+           (unsigned)adaptive_stable_windows,
+           (unsigned)adaptive_tuning.acquire_aggression_level,
+           (unsigned)adaptive_tuning.tracking_bandwidth_level,
+           (unsigned)adaptive_tuning.hysteresis_level,
+           (unsigned)adaptive_tuning.acquire_phase_gain_divisor,
+           (unsigned)adaptive_tuning.acquire_frequency_gain_divisor,
+           (unsigned)adaptive_tuning.track_phase_gain_divisor,
+           (unsigned)adaptive_tuning.track_frequency_gain_divisor,
+           (unsigned)adaptive_tuning.lock_enter_threshold_divisor,
+           (unsigned)adaptive_tuning.lock_exit_threshold_divisor,
+           (unsigned)adaptive_tuning.lock_stable_pulses,
            (unsigned long)phase_tick_count,
            (unsigned)phase_tick_milli,
            phase_source,

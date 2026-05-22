@@ -10,20 +10,25 @@
 #define MIDI_CLOCK_BPM_WINDOW_SHRINK_BPS      100U
 #define MIDI_CLOCK_BPM_WINDOW_EXPAND_BPS      25U
 #define MIDI_CLOCK_BPM_WINDOW_HOLD_PULSES     24U
-#define MIDI_CLOCK_PLL_LOCK_ERROR_FILTER_DIVISOR      16U
-#define MIDI_CLOCK_PLL_LOCK_ENTER_THRESHOLD_DIVISOR    5U
-#define MIDI_CLOCK_PLL_LOCK_EXIT_THRESHOLD_DIVISOR     3U
+#define MIDI_CLOCK_PLL_LOCK_ERROR_FILTER_DIVISOR_DEFAULT      16U
+#define MIDI_CLOCK_PLL_LOCK_ENTER_THRESHOLD_DIVISOR_DEFAULT    5U
+#define MIDI_CLOCK_PLL_LOCK_EXIT_THRESHOLD_DIVISOR_DEFAULT     3U
 #define MIDI_CLOCK_PLL_LOCK_THRESHOLD_MIN_US         250U
-#define MIDI_CLOCK_PLL_LOCK_STABLE_PULSES             12U
-#define MIDI_CLOCK_PLL_TRACK_PHASE_GAIN_DIVISOR        8U
-#define MIDI_CLOCK_PLL_ACQUIRE_PHASE_GAIN_DIVISOR      2U
-#define MIDI_CLOCK_PLL_TRACK_FREQUENCY_GAIN_DIVISOR   64U
-#define MIDI_CLOCK_PLL_ACQUIRE_FREQUENCY_GAIN_DIVISOR 16U
-#define MIDI_CLOCK_PLL_FREQUENCY_CLAMP_DIVISOR        32U
+#define MIDI_CLOCK_PLL_LOCK_STABLE_PULSES_DEFAULT             12U
+#define MIDI_CLOCK_PLL_TRACK_PHASE_GAIN_DIVISOR_DEFAULT        8U
+#define MIDI_CLOCK_PLL_ACQUIRE_PHASE_GAIN_DIVISOR_DEFAULT      2U
+#define MIDI_CLOCK_PLL_TRACK_FREQUENCY_GAIN_DIVISOR_DEFAULT   64U
+#define MIDI_CLOCK_PLL_ACQUIRE_FREQUENCY_GAIN_DIVISOR_DEFAULT 16U
+#define MIDI_CLOCK_PLL_FREQUENCY_CLAMP_DIVISOR_DEFAULT        32U
 #define MIDI_CLOCK_PLL_FREQUENCY_CLAMP_MIN_US          8U
 #define MIDI_CLOCK_RECOVERED_PHASE_CLAMP_DIVISOR       2U
 #define MIDI_CLOCK_RECOVERED_PHASE_CLAMP_MIN_US      250U
+#define MIDI_CLOCK_CONFIDENCE_TRACKING_MIN_PULSES       6U
+#define MIDI_CLOCK_CONFIDENCE_TRACKING_MIN_WINDOW_PULSES 4U
+#define MIDI_CLOCK_CONFIDENCE_STABLE_MIN_PULSES        MIDI_CLOCK_BPM_WINDOW_MIN_PULSES
+#define MIDI_CLOCK_CONFIDENCE_STABLE_MIN_WINDOW_PULSES   8U
 #define MIDI_CLOCK_PUBLICATION_READY_MIN_PULSES       MIDI_CLOCK_BPM_WINDOW_MIN_PULSES
+#define MIDI_CLOCK_ADAPT_LEVEL_MAX                              4U
 
 static uint32_t midi_clock_pulse_intervals_us[MIDI_CLOCK_BPM_WINDOW_PULSES];
 static uint8_t midi_clock_pulse_interval_index = 0U;
@@ -45,6 +50,27 @@ static volatile uint32_t midi_clock_recovered_abs_phase_error_avg_us = 0U;
 static volatile uint8_t midi_clock_recovered_pll_lock_counter = 0U;
 static volatile uint8_t midi_clock_recovered_pll_locked = 0U;
 static volatile uint8_t midi_clock_recovered_pll_fast_mode = 0U;
+static volatile uint8_t midi_clock_adapt_acquire_aggression_level = 0U;
+static volatile uint8_t midi_clock_adapt_tracking_bandwidth_level = 0U;
+static volatile uint8_t midi_clock_adapt_hysteresis_level = 0U;
+static volatile uint8_t midi_clock_pll_lock_error_filter_divisor =
+    MIDI_CLOCK_PLL_LOCK_ERROR_FILTER_DIVISOR_DEFAULT;
+static volatile uint8_t midi_clock_pll_lock_enter_threshold_divisor =
+    MIDI_CLOCK_PLL_LOCK_ENTER_THRESHOLD_DIVISOR_DEFAULT;
+static volatile uint8_t midi_clock_pll_lock_exit_threshold_divisor =
+    MIDI_CLOCK_PLL_LOCK_EXIT_THRESHOLD_DIVISOR_DEFAULT;
+static volatile uint8_t midi_clock_pll_lock_stable_pulses =
+    MIDI_CLOCK_PLL_LOCK_STABLE_PULSES_DEFAULT;
+static volatile uint8_t midi_clock_pll_track_phase_gain_divisor =
+    MIDI_CLOCK_PLL_TRACK_PHASE_GAIN_DIVISOR_DEFAULT;
+static volatile uint8_t midi_clock_pll_acquire_phase_gain_divisor =
+    MIDI_CLOCK_PLL_ACQUIRE_PHASE_GAIN_DIVISOR_DEFAULT;
+static volatile uint8_t midi_clock_pll_track_frequency_gain_divisor =
+    MIDI_CLOCK_PLL_TRACK_FREQUENCY_GAIN_DIVISOR_DEFAULT;
+static volatile uint8_t midi_clock_pll_acquire_frequency_gain_divisor =
+    MIDI_CLOCK_PLL_ACQUIRE_FREQUENCY_GAIN_DIVISOR_DEFAULT;
+static volatile uint8_t midi_clock_pll_frequency_clamp_divisor =
+    MIDI_CLOCK_PLL_FREQUENCY_CLAMP_DIVISOR_DEFAULT;
 
 static uint32_t midi_clock_estimator_abs_delta_u32(uint32_t a, uint32_t b);
 static int32_t midi_clock_estimator_abs_s32(int32_t value);
@@ -56,6 +82,12 @@ static uint32_t midi_clock_estimator_step_toward_u32(uint32_t current,
 static uint32_t midi_clock_estimator_apply_signed_delta_u32(uint32_t value,
                                                             int32_t delta,
                                                             uint32_t minimum);
+static uint8_t midi_clock_estimator_clamp_u8(uint8_t value,
+                                             uint8_t minimum,
+                                             uint8_t maximum);
+static uint8_t midi_clock_estimator_apply_level_delta(uint8_t level,
+                                                      int8_t delta_steps);
+static void midi_clock_estimator_apply_adaptive_tuning_locked(void);
 static uint32_t midi_clock_estimator_phase_clamp_us(uint32_t interval_us);
 static void midi_clock_estimator_publish_recovered_bpm(void);
 
@@ -222,6 +254,130 @@ static uint32_t midi_clock_estimator_apply_signed_delta_u32(uint32_t value,
     return value;
 }
 
+static uint8_t midi_clock_estimator_clamp_u8(uint8_t value,
+                                             uint8_t minimum,
+                                             uint8_t maximum)
+{
+    if (value < minimum)
+        return minimum;
+
+    if (value > maximum)
+        return maximum;
+
+    return value;
+}
+
+static uint8_t midi_clock_estimator_apply_level_delta(uint8_t level,
+                                                      int8_t delta_steps)
+{
+    int16_t next_level = (int16_t)level + (int16_t)delta_steps;
+
+    if (next_level < 0)
+        return 0U;
+
+    if (next_level > (int16_t)MIDI_CLOCK_ADAPT_LEVEL_MAX)
+        return MIDI_CLOCK_ADAPT_LEVEL_MAX;
+
+    return (uint8_t)next_level;
+}
+
+static void midi_clock_estimator_apply_adaptive_tuning_locked(void)
+{
+    uint8_t acquire_level = midi_clock_adapt_acquire_aggression_level;
+    uint8_t tracking_level = midi_clock_adapt_tracking_bandwidth_level;
+    uint8_t hysteresis_level = midi_clock_adapt_hysteresis_level;
+    uint8_t acquire_phase_gain_divisor = MIDI_CLOCK_PLL_ACQUIRE_PHASE_GAIN_DIVISOR_DEFAULT;
+    uint8_t acquire_frequency_gain_divisor = MIDI_CLOCK_PLL_ACQUIRE_FREQUENCY_GAIN_DIVISOR_DEFAULT;
+    uint8_t track_phase_gain_divisor;
+    uint8_t track_frequency_gain_divisor;
+    uint8_t lock_enter_threshold_divisor;
+    uint8_t lock_exit_threshold_divisor = MIDI_CLOCK_PLL_LOCK_EXIT_THRESHOLD_DIVISOR_DEFAULT;
+    uint8_t lock_stable_pulses;
+    uint8_t lock_error_filter_divisor;
+    int16_t frequency_clamp_divisor;
+    uint16_t level_scale;
+
+    if (acquire_level > 0U)
+    {
+        if (acquire_phase_gain_divisor > acquire_level)
+            acquire_phase_gain_divisor -= acquire_level;
+        else
+            acquire_phase_gain_divisor = 1U;
+
+        level_scale = (uint16_t)acquire_level * 3U;
+        if (acquire_frequency_gain_divisor > level_scale)
+            acquire_frequency_gain_divisor -= (uint8_t)level_scale;
+        else
+            acquire_frequency_gain_divisor = 1U;
+    }
+
+    level_scale = (uint16_t)tracking_level * 2U;
+    track_phase_gain_divisor = midi_clock_estimator_clamp_u8(
+        (uint8_t)(MIDI_CLOCK_PLL_TRACK_PHASE_GAIN_DIVISOR_DEFAULT + level_scale),
+        4U,
+        32U);
+
+    level_scale = (uint16_t)tracking_level * 16U;
+    track_frequency_gain_divisor = midi_clock_estimator_clamp_u8(
+        (uint8_t)(MIDI_CLOCK_PLL_TRACK_FREQUENCY_GAIN_DIVISOR_DEFAULT + level_scale),
+        16U,
+        192U);
+
+    lock_enter_threshold_divisor = midi_clock_estimator_clamp_u8(
+        (uint8_t)(MIDI_CLOCK_PLL_LOCK_ENTER_THRESHOLD_DIVISOR_DEFAULT + hysteresis_level),
+        3U,
+        12U);
+
+    if (hysteresis_level > 0U)
+    {
+        uint8_t relax = (uint8_t)((hysteresis_level + 1U) / 2U);
+
+        if (lock_exit_threshold_divisor > relax)
+            lock_exit_threshold_divisor -= relax;
+        else
+            lock_exit_threshold_divisor = 1U;
+    }
+
+    level_scale = (uint16_t)hysteresis_level * 2U;
+    lock_stable_pulses = midi_clock_estimator_clamp_u8(
+        (uint8_t)(MIDI_CLOCK_PLL_LOCK_STABLE_PULSES_DEFAULT + level_scale),
+        8U,
+        32U);
+
+    level_scale = (uint16_t)tracking_level * 4U;
+    lock_error_filter_divisor = midi_clock_estimator_clamp_u8(
+        (uint8_t)(MIDI_CLOCK_PLL_LOCK_ERROR_FILTER_DIVISOR_DEFAULT + level_scale),
+        8U,
+        64U);
+
+    frequency_clamp_divisor = (int16_t)MIDI_CLOCK_PLL_FREQUENCY_CLAMP_DIVISOR_DEFAULT
+        + (int16_t)((uint16_t)tracking_level * 4U)
+        - (int16_t)((uint16_t)acquire_level * 2U);
+    if (frequency_clamp_divisor < 8)
+        frequency_clamp_divisor = 8;
+    if (frequency_clamp_divisor > 96)
+        frequency_clamp_divisor = 96;
+
+    midi_clock_pll_acquire_phase_gain_divisor = midi_clock_estimator_clamp_u8(
+        acquire_phase_gain_divisor,
+        1U,
+        8U);
+    midi_clock_pll_acquire_frequency_gain_divisor = midi_clock_estimator_clamp_u8(
+        acquire_frequency_gain_divisor,
+        4U,
+        64U);
+    midi_clock_pll_track_phase_gain_divisor = track_phase_gain_divisor;
+    midi_clock_pll_track_frequency_gain_divisor = track_frequency_gain_divisor;
+    midi_clock_pll_lock_enter_threshold_divisor = lock_enter_threshold_divisor;
+    midi_clock_pll_lock_exit_threshold_divisor = midi_clock_estimator_clamp_u8(
+        lock_exit_threshold_divisor,
+        2U,
+        6U);
+    midi_clock_pll_lock_stable_pulses = lock_stable_pulses;
+    midi_clock_pll_lock_error_filter_divisor = lock_error_filter_divisor;
+    midi_clock_pll_frequency_clamp_divisor = (uint8_t)frequency_clamp_divisor;
+}
+
 static uint32_t midi_clock_estimator_phase_clamp_us(uint32_t interval_us)
 {
     uint32_t clamp_us = interval_us / MIDI_CLOCK_RECOVERED_PHASE_CLAMP_DIVISOR;
@@ -267,10 +423,15 @@ static void midi_clock_estimator_note_recovered_timing(uint32_t now_us, uint32_t
     uint32_t predicted_phase_pulse_us;
     uint32_t recovered_interval_us;
     uint32_t phase_limit_us;
+    uint32_t lock_error_filter_divisor;
+    uint32_t lock_enter_threshold_divisor;
+    uint32_t lock_exit_threshold_divisor;
+    uint32_t lock_stable_pulses;
     uint32_t lock_enter_threshold_us;
     uint32_t lock_exit_threshold_us;
     uint32_t phase_gain_divisor;
     uint32_t frequency_gain_divisor;
+    uint32_t frequency_clamp_divisor;
     uint32_t frequency_limit_us;
     uint32_t recovered_phase_pulse_us;
     uint32_t abs_phase_error_us;
@@ -314,6 +475,23 @@ static void midi_clock_estimator_note_recovered_timing(uint32_t now_us, uint32_t
     }
 
     recovered_interval_us = midi_clock_recovered_pulse_interval_us;
+    lock_error_filter_divisor = midi_clock_pll_lock_error_filter_divisor;
+    lock_enter_threshold_divisor = midi_clock_pll_lock_enter_threshold_divisor;
+    lock_exit_threshold_divisor = midi_clock_pll_lock_exit_threshold_divisor;
+    lock_stable_pulses = midi_clock_pll_lock_stable_pulses;
+    frequency_clamp_divisor = midi_clock_pll_frequency_clamp_divisor;
+
+    if (lock_error_filter_divisor == 0U)
+        lock_error_filter_divisor = 1U;
+    if (lock_enter_threshold_divisor == 0U)
+        lock_enter_threshold_divisor = MIDI_CLOCK_PLL_LOCK_ENTER_THRESHOLD_DIVISOR_DEFAULT;
+    if (lock_exit_threshold_divisor == 0U)
+        lock_exit_threshold_divisor = MIDI_CLOCK_PLL_LOCK_EXIT_THRESHOLD_DIVISOR_DEFAULT;
+    if (lock_stable_pulses == 0U)
+        lock_stable_pulses = MIDI_CLOCK_PLL_LOCK_STABLE_PULSES_DEFAULT;
+    if (frequency_clamp_divisor == 0U)
+        frequency_clamp_divisor = MIDI_CLOCK_PLL_FREQUENCY_CLAMP_DIVISOR_DEFAULT;
+
     predicted_phase_pulse_us = midi_clock_recovered_phase_pulse_us + recovered_interval_us;
     phase_error_us = (int32_t)(now_us - predicted_phase_pulse_us);
     phase_limit_us = midi_clock_estimator_phase_clamp_us(recovered_interval_us);
@@ -326,12 +504,12 @@ static void midi_clock_estimator_note_recovered_timing(uint32_t now_us, uint32_t
         midi_clock_recovered_abs_phase_error_avg_us = midi_clock_estimator_step_toward_u32(
             midi_clock_recovered_abs_phase_error_avg_us,
             abs_phase_error_us,
-            MIDI_CLOCK_PLL_LOCK_ERROR_FILTER_DIVISOR);
+            lock_error_filter_divisor);
 
-    lock_enter_threshold_us = recovered_interval_us / MIDI_CLOCK_PLL_LOCK_ENTER_THRESHOLD_DIVISOR;
+    lock_enter_threshold_us = recovered_interval_us / lock_enter_threshold_divisor;
     if (lock_enter_threshold_us < MIDI_CLOCK_PLL_LOCK_THRESHOLD_MIN_US)
         lock_enter_threshold_us = MIDI_CLOCK_PLL_LOCK_THRESHOLD_MIN_US;
-    lock_exit_threshold_us = recovered_interval_us / MIDI_CLOCK_PLL_LOCK_EXIT_THRESHOLD_DIVISOR;
+    lock_exit_threshold_us = recovered_interval_us / lock_exit_threshold_divisor;
     if (lock_exit_threshold_us < MIDI_CLOCK_PLL_LOCK_THRESHOLD_MIN_US)
         lock_exit_threshold_us = MIDI_CLOCK_PLL_LOCK_THRESHOLD_MIN_US;
 
@@ -349,7 +527,7 @@ static void midi_clock_estimator_note_recovered_timing(uint32_t now_us, uint32_t
         if (midi_clock_recovered_pll_lock_counter < UINT8_MAX)
             midi_clock_recovered_pll_lock_counter++;
 
-        if (midi_clock_recovered_pll_lock_counter >= MIDI_CLOCK_PLL_LOCK_STABLE_PULSES)
+        if (midi_clock_recovered_pll_lock_counter >= lock_stable_pulses)
             midi_clock_recovered_pll_locked = 1U;
     }
     else
@@ -359,17 +537,22 @@ static void midi_clock_estimator_note_recovered_timing(uint32_t now_us, uint32_t
 
     locked = midi_clock_recovered_pll_locked;
     phase_gain_divisor = locked
-        ? MIDI_CLOCK_PLL_TRACK_PHASE_GAIN_DIVISOR
-        : MIDI_CLOCK_PLL_ACQUIRE_PHASE_GAIN_DIVISOR;
+        ? midi_clock_pll_track_phase_gain_divisor
+        : midi_clock_pll_acquire_phase_gain_divisor;
     frequency_gain_divisor = locked
-        ? MIDI_CLOCK_PLL_TRACK_FREQUENCY_GAIN_DIVISOR
-        : MIDI_CLOCK_PLL_ACQUIRE_FREQUENCY_GAIN_DIVISOR;
+        ? midi_clock_pll_track_frequency_gain_divisor
+        : midi_clock_pll_acquire_frequency_gain_divisor;
+
+    if (phase_gain_divisor == 0U)
+        phase_gain_divisor = 1U;
+    if (frequency_gain_divisor == 0U)
+        frequency_gain_divisor = 1U;
 
     phase_correction_us = midi_clock_estimator_divide_with_min_step(phase_error_us,
                                                                     phase_gain_divisor);
     frequency_correction_us = midi_clock_estimator_divide_with_min_step(phase_error_us,
                                                                         frequency_gain_divisor);
-    frequency_limit_us = recovered_interval_us / MIDI_CLOCK_PLL_FREQUENCY_CLAMP_DIVISOR;
+    frequency_limit_us = recovered_interval_us / frequency_clamp_divisor;
     if (frequency_limit_us < MIDI_CLOCK_PLL_FREQUENCY_CLAMP_MIN_US)
         frequency_limit_us = MIDI_CLOCK_PLL_FREQUENCY_CLAMP_MIN_US;
     frequency_correction_us = midi_clock_estimator_clamp_s32(frequency_correction_us,
@@ -418,6 +601,18 @@ void MidiClockEstimator_Reset(void)
     midi_clock_recovered_pll_lock_counter = 0U;
     midi_clock_recovered_pll_locked = 0U;
     midi_clock_recovered_pll_fast_mode = 0U;
+    midi_clock_adapt_acquire_aggression_level = 0U;
+    midi_clock_adapt_tracking_bandwidth_level = 0U;
+    midi_clock_adapt_hysteresis_level = 0U;
+    midi_clock_pll_lock_error_filter_divisor = MIDI_CLOCK_PLL_LOCK_ERROR_FILTER_DIVISOR_DEFAULT;
+    midi_clock_pll_lock_enter_threshold_divisor = MIDI_CLOCK_PLL_LOCK_ENTER_THRESHOLD_DIVISOR_DEFAULT;
+    midi_clock_pll_lock_exit_threshold_divisor = MIDI_CLOCK_PLL_LOCK_EXIT_THRESHOLD_DIVISOR_DEFAULT;
+    midi_clock_pll_lock_stable_pulses = MIDI_CLOCK_PLL_LOCK_STABLE_PULSES_DEFAULT;
+    midi_clock_pll_track_phase_gain_divisor = MIDI_CLOCK_PLL_TRACK_PHASE_GAIN_DIVISOR_DEFAULT;
+    midi_clock_pll_acquire_phase_gain_divisor = MIDI_CLOCK_PLL_ACQUIRE_PHASE_GAIN_DIVISOR_DEFAULT;
+    midi_clock_pll_track_frequency_gain_divisor = MIDI_CLOCK_PLL_TRACK_FREQUENCY_GAIN_DIVISOR_DEFAULT;
+    midi_clock_pll_acquire_frequency_gain_divisor = MIDI_CLOCK_PLL_ACQUIRE_FREQUENCY_GAIN_DIVISOR_DEFAULT;
+    midi_clock_pll_frequency_clamp_divisor = MIDI_CLOCK_PLL_FREQUENCY_CLAMP_DIVISOR_DEFAULT;
 
     for (uint8_t index = 0U; index < MIDI_CLOCK_BPM_WINDOW_PULSES; index++)
         midi_clock_pulse_intervals_us[index] = 0U;
@@ -510,11 +705,17 @@ void MidiClockEstimator_NotePulseInterval(uint32_t now_us, uint32_t interval_us)
 void MidiClockEstimator_GetStatus(MidiClockEstimatorStatus_t *status)
 {
     uint32_t primask;
+    uint32_t recovered_interval_us;
+    uint32_t abs_phase_error_avg_us;
+    uint32_t lock_enter_threshold_divisor;
+    uint32_t stable_phase_threshold_us = 0U;
     uint8_t interval_valid;
     uint8_t bpm_valid;
     uint8_t pll_locked;
+    uint8_t stable_phase_bounded = 0U;
     uint8_t window_pulses;
     uint8_t observed_pulses;
+    MidiClockTransportConfidence_t history_confidence = MIDI_CLOCK_TRANSPORT_CONFIDENCE_NONE;
 
     if (!status)
         return;
@@ -524,18 +725,49 @@ void MidiClockEstimator_GetStatus(MidiClockEstimatorStatus_t *status)
     interval_valid = midi_clock_recovered_interval_valid;
     bpm_valid = midi_clock_recovered_bpm_valid;
     pll_locked = midi_clock_recovered_pll_locked;
+    recovered_interval_us = midi_clock_recovered_pulse_interval_us;
+    abs_phase_error_avg_us = midi_clock_recovered_abs_phase_error_avg_us;
+    lock_enter_threshold_divisor = midi_clock_pll_lock_enter_threshold_divisor;
     window_pulses = midi_clock_estimator_window_pulses;
     observed_pulses = midi_clock_pulse_interval_count;
     if (primask == 0U)
         __enable_irq();
 
-    status->estimator_valid = interval_valid;
-    status->lock_quality = !interval_valid
+    if (lock_enter_threshold_divisor == 0U)
+        lock_enter_threshold_divisor = MIDI_CLOCK_PLL_LOCK_ENTER_THRESHOLD_DIVISOR_DEFAULT;
+
+    if (interval_valid && observed_pulses >= 1U)
+    {
+        history_confidence = MIDI_CLOCK_TRANSPORT_CONFIDENCE_OPERATIONAL;
+
+        if (observed_pulses >= MIDI_CLOCK_CONFIDENCE_TRACKING_MIN_PULSES
+         && window_pulses >= MIDI_CLOCK_CONFIDENCE_TRACKING_MIN_WINDOW_PULSES)
+            history_confidence = MIDI_CLOCK_TRANSPORT_CONFIDENCE_TRACKING;
+
+        if (observed_pulses >= MIDI_CLOCK_CONFIDENCE_STABLE_MIN_PULSES
+         && window_pulses >= MIDI_CLOCK_CONFIDENCE_STABLE_MIN_WINDOW_PULSES
+         && recovered_interval_us != 0U)
+        {
+            stable_phase_threshold_us =
+                recovered_interval_us / lock_enter_threshold_divisor;
+            if (stable_phase_threshold_us < MIDI_CLOCK_PLL_LOCK_THRESHOLD_MIN_US)
+                stable_phase_threshold_us = MIDI_CLOCK_PLL_LOCK_THRESHOLD_MIN_US;
+
+            stable_phase_bounded = (uint8_t)(abs_phase_error_avg_us <= stable_phase_threshold_us);
+            if (stable_phase_bounded)
+                history_confidence = MIDI_CLOCK_TRANSPORT_CONFIDENCE_STABLE;
+        }
+    }
+
+    status->estimator_valid = (uint8_t)(history_confidence >= MIDI_CLOCK_TRANSPORT_CONFIDENCE_TRACKING);
+    status->history_confidence = history_confidence;
+    status->live_lock = !interval_valid
         ? MIDI_CLOCK_LOCK_QUALITY_NONE
         : (pll_locked ? MIDI_CLOCK_LOCK_QUALITY_LOCKED : MIDI_CLOCK_LOCK_QUALITY_ACQUIRING);
-    status->publication_ready = (uint8_t)(bpm_valid
+    status->publication_ready = (uint8_t)(history_confidence >= MIDI_CLOCK_TRANSPORT_CONFIDENCE_STABLE
+        && bpm_valid
         && pll_locked
-        && window_pulses >= MIDI_CLOCK_PUBLICATION_READY_MIN_PULSES);
+        && observed_pulses >= MIDI_CLOCK_PUBLICATION_READY_MIN_PULSES);
     status->window_pulses = window_pulses;
     status->observed_pulses = observed_pulses;
 }
@@ -613,4 +845,86 @@ uint8_t MidiClockEstimator_GetRawBpmX10(uint16_t *bpm_x10)
 
     *bpm_x10 = midi_clock_external_bpm_x10;
     return 1U;
+}
+
+void MidiClockEstimator_GetRecoveredAbsPhaseErrorAvgUs(uint32_t *abs_phase_error_avg_us)
+{
+    if (!abs_phase_error_avg_us)
+        return;
+
+    *abs_phase_error_avg_us = midi_clock_recovered_abs_phase_error_avg_us;
+}
+
+void MidiClockEstimator_AdjustAcquireAggressiveness(int8_t delta_steps)
+{
+    uint32_t primask;
+
+    if (delta_steps == 0)
+        return;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    midi_clock_adapt_acquire_aggression_level = midi_clock_estimator_apply_level_delta(
+        midi_clock_adapt_acquire_aggression_level,
+        delta_steps);
+    midi_clock_estimator_apply_adaptive_tuning_locked();
+    if (primask == 0U)
+        __enable_irq();
+}
+
+void MidiClockEstimator_AdjustTrackingBandwidth(int8_t delta_steps)
+{
+    uint32_t primask;
+
+    if (delta_steps == 0)
+        return;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    midi_clock_adapt_tracking_bandwidth_level = midi_clock_estimator_apply_level_delta(
+        midi_clock_adapt_tracking_bandwidth_level,
+        delta_steps);
+    midi_clock_estimator_apply_adaptive_tuning_locked();
+    if (primask == 0U)
+        __enable_irq();
+}
+
+void MidiClockEstimator_AdjustLockHysteresis(int8_t delta_steps)
+{
+    uint32_t primask;
+
+    if (delta_steps == 0)
+        return;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    midi_clock_adapt_hysteresis_level = midi_clock_estimator_apply_level_delta(
+        midi_clock_adapt_hysteresis_level,
+        delta_steps);
+    midi_clock_estimator_apply_adaptive_tuning_locked();
+    if (primask == 0U)
+        __enable_irq();
+}
+
+void MidiClockEstimator_GetAdaptiveTuning(MidiClockEstimatorAdaptiveTuning_t *tuning)
+{
+    uint32_t primask;
+
+    if (!tuning)
+        return;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    tuning->acquire_aggression_level = midi_clock_adapt_acquire_aggression_level;
+    tuning->tracking_bandwidth_level = midi_clock_adapt_tracking_bandwidth_level;
+    tuning->hysteresis_level = midi_clock_adapt_hysteresis_level;
+    tuning->acquire_phase_gain_divisor = midi_clock_pll_acquire_phase_gain_divisor;
+    tuning->acquire_frequency_gain_divisor = midi_clock_pll_acquire_frequency_gain_divisor;
+    tuning->track_phase_gain_divisor = midi_clock_pll_track_phase_gain_divisor;
+    tuning->track_frequency_gain_divisor = midi_clock_pll_track_frequency_gain_divisor;
+    tuning->lock_enter_threshold_divisor = midi_clock_pll_lock_enter_threshold_divisor;
+    tuning->lock_exit_threshold_divisor = midi_clock_pll_lock_exit_threshold_divisor;
+    tuning->lock_stable_pulses = midi_clock_pll_lock_stable_pulses;
+    if (primask == 0U)
+        __enable_irq();
 }

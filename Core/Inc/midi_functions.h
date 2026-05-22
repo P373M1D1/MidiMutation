@@ -58,6 +58,26 @@ typedef enum
 
 typedef enum
 {
+    MIDI_CLOCK_TRANSPORT_CONFIDENCE_NONE = 0,
+    MIDI_CLOCK_TRANSPORT_CONFIDENCE_OPERATIONAL,
+    MIDI_CLOCK_TRANSPORT_CONFIDENCE_TRACKING,
+    MIDI_CLOCK_TRANSPORT_CONFIDENCE_STABLE,
+} MidiClockTransportConfidence_t;
+
+typedef enum
+{
+    MIDI_SYNC_STATE_IDLE = 0,
+    MIDI_SYNC_STATE_ACQUIRE,
+    MIDI_SYNC_STATE_TRACKING,
+    MIDI_SYNC_STATE_LOCKED,
+    MIDI_SYNC_STATE_HOLDOVER,
+    MIDI_SYNC_STATE_RELOCK,
+    MIDI_SYNC_STATE_LOST,
+    MIDI_SYNC_STATE_REARM,
+} MidiSyncState_t;
+
+typedef enum
+{
     MIDI_TRANSPORT_PHASE_SOURCE_NONE = 0,
     MIDI_TRANSPORT_PHASE_SOURCE_INTERNAL,
     MIDI_TRANSPORT_PHASE_SOURCE_EXTERNAL,
@@ -172,14 +192,46 @@ uint8_t MidiClockIsSyncLost(void);
 
 /**
  * @brief  Return 1 once the external clock estimator has enough timing data
- *         to operate meaningfully.
+ *         to be statistically meaningful for tracking use.
+ *         This now maps to transport confidence TRACKING or STABLE.
  */
 uint8_t MidiClockIsEstimatorValid(void);
 
 /**
- * @brief  Return the current external clock lock quality.
+ * @brief  Return the external transport historical confidence tier.
+ *         NONE        : no interval history available
+ *         OPERATIONAL : interval history exists but is not yet meaningful
+ *         TRACKING    : enough history for meaningful tracking
+ *         STABLE      : mature history with bounded phase error
+ */
+MidiClockTransportConfidence_t MidiClockGetTransportConfidence(void);
+
+/**
+ * @brief  Return the instantaneous external PLL lock state.
  */
 MidiClockLockQuality_t MidiClockGetLockQuality(void);
+
+/**
+ * @brief  Return the authoritative synchronization lifecycle state.
+ */
+MidiSyncState_t MidiClockGetSyncState(void);
+
+/**
+ * @brief  Return elapsed milliseconds since entering the current sync state.
+ */
+uint32_t MidiClockGetSyncStateAgeMs(void);
+
+/**
+ * @brief  Return elapsed milliseconds since entering holdover.
+ * @retval 0 when the current sync state is not HOLDOVER.
+ */
+uint32_t MidiClockGetHoldoverAgeMs(void);
+
+/**
+ * @brief  Return elapsed milliseconds since the most recent LOCKED state.
+ * @retval 0 when no lock has been reached in the current sync lifecycle.
+ */
+uint32_t MidiClockGetLastLockAgeMs(void);
 
 /**
  * @brief  Return 1 once the external clock tempo is considered safe for

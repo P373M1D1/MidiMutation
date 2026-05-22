@@ -24,20 +24,24 @@ typedef enum
 {
     DISPLAY_TRANSPORT_STATUS_NONE = 0,
     DISPLAY_TRANSPORT_STATUS_BARBEAT,
-    DISPLAY_TRANSPORT_STATUS_SYNCING,
     DISPLAY_TRANSPORT_STATUS_CLOCK_IN,
     DISPLAY_TRANSPORT_STATUS_SYNC_LOST,
 } DisplayTransportStatusMode_t;
 
 #define BPM_DISPLAY_DIAGNOSTICS_ENABLED    1U
 #define BPM_DISPLAY_DIAGNOSTIC_REPORT_MS 1000U
-#define TRANSPORT_SYNCING_COLOUR DEEP_SKY_BLUE
+#define BPM_SYNCING_TEXT                "SYNCING"
 
 static void Display_DrawTransportBarBeat(const char *text);
 static void Display_DrawTransportAlert(DisplayTransportStatusMode_t mode);
 static uint16_t Display_GetBpmDeltaX10(uint16_t lhs, uint16_t rhs);
 static uint16_t Display_GetExternalBpmHysteresisX10(uint16_t bpm_x10);
 static uint16_t Display_SlewExternalBpmX10(uint16_t current_bpm_x10, uint16_t target_bpm_x10);
+static uint8_t Display_ShouldShowSyncingHeader(void);
+static void Display_FormatRightAlignedStatusText(char *buffer,
+                                                 size_t buffer_size,
+                                                 const char *text,
+                                                 uint8_t padded_chars);
 
 static uint16_t Display_GetBpmDeltaX10(uint16_t lhs, uint16_t rhs)
 {
@@ -66,6 +70,21 @@ static uint16_t Display_SlewExternalBpmX10(uint16_t current_bpm_x10, uint16_t ta
     return (uint16_t)(current_bpm_x10 - BPM_EXT_SLEW_STEP_X10);
 }
 
+static uint8_t Display_ShouldShowSyncingHeader(void)
+{
+    return (uint8_t)(MidiTransportIsRunning()
+        && MidiClockIsExternalSignalPresent()
+        && !MidiClockIsPublicationReady());
+}
+
+static void Display_FormatRightAlignedStatusText(char *buffer,
+                                                 size_t buffer_size,
+                                                 const char *text,
+                                                 uint8_t padded_chars)
+{
+    snprintf(buffer, buffer_size, "%*s", (int)padded_chars, text);
+}
+
 static void Display_UpdateTransportBarBeat(void)
 {
     uint8_t bar;
@@ -73,7 +92,6 @@ static void Display_UpdateTransportBarBeat(void)
     uint8_t have_barbeat;
     uint8_t transport_running;
     uint8_t external_signal_present;
-    uint8_t publication_ready;
     uint8_t sync_lost;
     uint8_t stop_latched;
     DisplayTransportStatusMode_t mode = DISPLAY_TRANSPORT_STATUS_NONE;
@@ -82,7 +100,6 @@ static void Display_UpdateTransportBarBeat(void)
     sync_lost = MidiClockIsSyncLost();
     transport_running = MidiTransportIsRunning();
     external_signal_present = MidiClockIsExternalSignalPresent();
-    publication_ready = MidiClockIsPublicationReady();
     stop_latched = MidiTransportStopLatched();
     have_barbeat = MidiClockGetBarBeat(&bar, &beat);
 
@@ -91,10 +108,6 @@ static void Display_UpdateTransportBarBeat(void)
         mode = external_signal_present
             ? DISPLAY_TRANSPORT_STATUS_CLOCK_IN
             : DISPLAY_TRANSPORT_STATUS_SYNC_LOST;
-    }
-    else if (transport_running && external_signal_present && !publication_ready)
-    {
-        mode = DISPLAY_TRANSPORT_STATUS_SYNCING;
     }
     else if (have_barbeat && (transport_running || stop_latched))
     {
@@ -208,11 +221,6 @@ static void Display_DrawTransportAlert(DisplayTransportStatusMode_t mode)
 
     switch (mode)
     {
-    case DISPLAY_TRANSPORT_STATUS_SYNCING:
-        text = "SYNCING";
-        colour = TRANSPORT_SYNCING_COLOUR;
-        break;
-
     case DISPLAY_TRANSPORT_STATUS_CLOCK_IN:
         text = "CLOCK IN";
         colour = EXT_BPM_COLOUR;
@@ -271,7 +279,10 @@ static void Display_FormatBpmText(char *buffer,
                      (unsigned)(bpm_or_bpm_x10 % 10U));
         }
 
-        snprintf(buffer, buffer_size, "%*s", (int)BPM_EXT_TEXT_CHARS, text);
+        Display_FormatRightAlignedStatusText(buffer,
+                                             buffer_size,
+                                             text,
+                                             BPM_EXT_TEXT_CHARS);
         return;
     }
 
@@ -326,6 +337,7 @@ void Display_UpdateBPM(uint16_t bpm)
     uint16_t delta_x10;
     uint16_t hysteresis_x10;
     uint8_t use_external = 0U;
+    uint8_t show_syncing;
     uint8_t sync_lost;
     uint32_t now_ms;
     uint8_t full_redraw;
@@ -336,7 +348,8 @@ void Display_UpdateBPM(uint16_t bpm)
 
     display_bpm_x10 = (uint16_t)(bpm * 10U);
     sync_lost = MidiClockIsSyncLost();
-    if (!sync_lost && MidiClockGetMeasuredExternalBpmX10(&measured_bpm_x10))
+    show_syncing = Display_ShouldShowSyncingHeader();
+    if (!show_syncing && !sync_lost && MidiClockGetMeasuredExternalBpmX10(&measured_bpm_x10))
     {
         display_bpm_x10 = measured_bpm_x10;
         use_external = 1U;
@@ -345,10 +358,40 @@ void Display_UpdateBPM(uint16_t bpm)
 
     Display_UpdateTransportBarBeat();
 
+    if (show_syncing)
+    {
+        if (display_state.bpm_display_valid
+         && display_state.bpm_display_syncing)
+        {
+            display_state.bpm_display_sync_lost = sync_lost;
+            return;
+        }
+
+        Display_FormatRightAlignedStatusText(buf,
+                                             sizeof(buf),
+                                             BPM_SYNCING_TEXT,
+                                             BPM_EXT_TEXT_CHARS);
+        Display_DrawBpmAreaComposed(BPM_EXT_TEXT_X,
+                                    buf,
+                                    EXT_BPM_COLOUR,
+                                    BPM_DISPLAY_AREA_X,
+                                    NULL,
+                                    EXT_BPM_COLOUR);
+
+        display_state.bpm_display_valid = 1U;
+        display_state.bpm_display_external = 0U;
+        display_state.bpm_display_syncing = 1U;
+        display_state.bpm_display_sync_lost = sync_lost;
+        display_state.bpm_display_value_x10 = display_bpm_x10;
+        display_state.bpm_display_external_update_tick = 0U;
+        return;
+    }
+
     if (!use_external)
     {
         if (display_state.bpm_display_valid
          && !display_state.bpm_display_external
+         && !display_state.bpm_display_syncing
          && display_state.bpm_display_value_x10 == display_bpm_x10)
         {
             display_state.bpm_display_sync_lost = sync_lost;
@@ -369,13 +412,16 @@ void Display_UpdateBPM(uint16_t bpm)
 
         display_state.bpm_display_valid = 1U;
         display_state.bpm_display_external = 0U;
+        display_state.bpm_display_syncing = 0U;
         display_state.bpm_display_sync_lost = sync_lost;
         display_state.bpm_display_value_x10 = display_bpm_x10;
         display_state.bpm_display_external_update_tick = 0U;
         return;
     }
 
-    full_redraw = (uint8_t)(!display_state.bpm_display_valid || !display_state.bpm_display_external);
+    full_redraw = (uint8_t)(!display_state.bpm_display_valid
+        || !display_state.bpm_display_external
+        || display_state.bpm_display_syncing);
     if (!full_redraw)
     {
         if ((now_ms - display_state.bpm_display_external_update_tick) < BPM_EXT_UPDATE_MIN_INTERVAL_MS)
@@ -413,6 +459,7 @@ void Display_UpdateBPM(uint16_t bpm)
 
     display_state.bpm_display_valid = 1U;
     display_state.bpm_display_external = 1U;
+    display_state.bpm_display_syncing = 0U;
     display_state.bpm_display_sync_lost = sync_lost;
     display_state.bpm_display_value_x10 = display_bpm_x10;
     display_state.bpm_display_external_update_tick = now_ms;
@@ -432,7 +479,9 @@ void Display_BpmDiagnosticService(void)
     uint8_t estimator_window_pulses;
     uint8_t estimator_valid;
     uint8_t publication_ready;
-    char lock_quality = '-';
+    char sync_state = '-';
+    char transport_confidence = '-';
+    char live_lock = '-';
     uint8_t raw_valid;
     uint8_t source_valid;
     uint8_t display_valid = display_state.bpm_display_valid;
@@ -450,16 +499,61 @@ void Display_BpmDiagnosticService(void)
     estimator_window_pulses = MidiClockGetExternalBpmWindowPulses();
     estimator_valid = MidiClockIsEstimatorValid();
     publication_ready = MidiClockIsPublicationReady();
+    switch (MidiClockGetSyncState())
+    {
+    case MIDI_SYNC_STATE_LOCKED:
+        sync_state = 'L';
+        break;
+    case MIDI_SYNC_STATE_TRACKING:
+        sync_state = 'T';
+        break;
+    case MIDI_SYNC_STATE_ACQUIRE:
+        sync_state = 'A';
+        break;
+    case MIDI_SYNC_STATE_HOLDOVER:
+        sync_state = 'H';
+        break;
+    case MIDI_SYNC_STATE_RELOCK:
+        sync_state = 'R';
+        break;
+    case MIDI_SYNC_STATE_REARM:
+        sync_state = 'M';
+        break;
+    case MIDI_SYNC_STATE_LOST:
+        sync_state = 'X';
+        break;
+    case MIDI_SYNC_STATE_IDLE:
+        sync_state = 'I';
+        break;
+    default:
+        sync_state = '-';
+        break;
+    }
+    switch (MidiClockGetTransportConfidence())
+    {
+    case MIDI_CLOCK_TRANSPORT_CONFIDENCE_STABLE:
+        transport_confidence = 'S';
+        break;
+    case MIDI_CLOCK_TRANSPORT_CONFIDENCE_TRACKING:
+        transport_confidence = 'T';
+        break;
+    case MIDI_CLOCK_TRANSPORT_CONFIDENCE_OPERATIONAL:
+        transport_confidence = 'O';
+        break;
+    default:
+        transport_confidence = '-';
+        break;
+    }
     switch (MidiClockGetLockQuality())
     {
     case MIDI_CLOCK_LOCK_QUALITY_LOCKED:
-        lock_quality = 'L';
+        live_lock = 'L';
         break;
     case MIDI_CLOCK_LOCK_QUALITY_ACQUIRING:
-        lock_quality = 'A';
+        live_lock = 'A';
         break;
     default:
-        lock_quality = '-';
+        live_lock = '-';
         break;
     }
 
@@ -488,7 +582,7 @@ void Display_BpmDiagnosticService(void)
         }
     }
 
-          printf("BPMDIAG raw=%u.%u rv=%u src=%u.%u sv=%u ew=%u ev=%u pr=%u lq=%c disp=%u.%u ext=%u sync=%u age=%lums delta=%u.%u hyst=%u.%u hold=%u slew=%u\r\n",
+          printf("BPMDIAG raw_bpm=%u.%u raw_valid=%u source_bpm=%u.%u source_valid=%u est_window=%u history_confidence=%c est_valid=%u publication_ready=%u sync_state=%c live_lock=%c display_bpm=%u.%u display_external=%u sync_lost=%u display_age_ms=%lu delta=%u.%u hysteresis=%u.%u hold=%u slew_pending=%u\r\n",
            (unsigned)(raw_bpm_x10 / 10U),
            (unsigned)(raw_bpm_x10 % 10U),
            (unsigned)raw_valid,
@@ -496,9 +590,11 @@ void Display_BpmDiagnosticService(void)
            (unsigned)(source_bpm_x10 % 10U),
            (unsigned)source_valid,
               (unsigned)estimator_window_pulses,
+              transport_confidence,
               (unsigned)estimator_valid,
               (unsigned)publication_ready,
-              lock_quality,
+              sync_state,
+              live_lock,
            (unsigned)(displayed_bpm_x10 / 10U),
            (unsigned)(displayed_bpm_x10 % 10U),
            (unsigned)display_external,

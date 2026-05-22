@@ -44,6 +44,7 @@ typedef struct DisplayState {
 	uint8_t main_layout_dirty;
 	uint8_t bpm_display_valid;
 	uint8_t bpm_display_external;
+	uint8_t bpm_display_syncing;
 	uint8_t bpm_display_sync_lost;
 	uint8_t transport_status_valid;
 	uint8_t transport_status_mode;
