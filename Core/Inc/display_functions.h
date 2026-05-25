@@ -24,6 +24,7 @@ typedef enum {
 	DISPLAY_PRESET_EDIT_FIELD_NAME,
 	DISPLAY_PRESET_EDIT_FIELD_PROGRAM,
 	DISPLAY_PRESET_EDIT_FIELD_RELAY,
+	DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON,
 	DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL,
 	DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER,
 	DISPLAY_PRESET_EDIT_FIELD_CC_VALUE,
@@ -77,6 +78,7 @@ void Display_HideSavingPopup(const Preset_t *p);
 /* -- Menu mode ----------------------------------------------------------------- */
 
 void Display_MenuEnter(void);
+void Display_MenuEnterPresetFunctionButtonEditor(uint8_t preset_index);
 void Display_MenuExit(void);
 uint8_t Display_MenuIsActive(void);
 void Display_MenuRefresh(void);

@@ -1,5 +1,6 @@
 #include "presets.h"
 #include "app/app_state.h"
+#include "app/app_board_init.h"
 #include "led_functions.h"
 #include "midi_devices.h"
 #include "midi_functions.h"
@@ -21,7 +22,20 @@
 #define PRESET_PROGRAM_SLOT(program_number)   {program_number} /* helper for one per-device Program Change slot */
 #define PRESET_PROGRAM_LIST_8(p0, p1, p2, p3, p4, p5, p6, p7) { PRESET_PROGRAM_SLOT(p0), PRESET_PROGRAM_SLOT(p1), PRESET_PROGRAM_SLOT(p2), PRESET_PROGRAM_SLOT(p3), PRESET_PROGRAM_SLOT(p4), PRESET_PROGRAM_SLOT(p5), PRESET_PROGRAM_SLOT(p6), PRESET_PROGRAM_SLOT(p7) } /* eight-slot Program Change initializer matching preset/device slot order */
 #define PRESET_PROGRAM_LIST_EMPTY PRESET_PROGRAM_LIST_8(PRESET_PROGRAM_NONE, PRESET_PROGRAM_NONE, PRESET_PROGRAM_NONE, PRESET_PROGRAM_NONE, PRESET_PROGRAM_NONE, PRESET_PROGRAM_NONE, PRESET_PROGRAM_NONE, PRESET_PROGRAM_NONE) /* initializer for presets with no program changes */
-#define PRESET_ROW(name, programs, cc_slots, relay1, relay2) { name, programs, cc_slots, { relay1, relay2 } } /* compact row helper for the static preset table */
+#define PRESET_FUNCTION_BUTTON_PROGRAM_MESSAGE_EMPTY { PRESET_CC_CHANNEL_UNUSED, PRESET_PROGRAM_NONE }
+#define PRESET_FUNCTION_BUTTON_PROGRAM_MESSAGE_LIST_EMPTY { PRESET_FUNCTION_BUTTON_PROGRAM_MESSAGE_EMPTY, PRESET_FUNCTION_BUTTON_PROGRAM_MESSAGE_EMPTY, PRESET_FUNCTION_BUTTON_PROGRAM_MESSAGE_EMPTY, PRESET_FUNCTION_BUTTON_PROGRAM_MESSAGE_EMPTY }
+#define PRESET_FUNCTION_BUTTON_CC_MESSAGE_LIST_EMPTY { PRESET_CC_NONE, PRESET_CC_NONE, PRESET_CC_NONE, PRESET_CC_NONE }
+#define PRESET_FUNCTION_BUTTON_DEFAULT \
+    { \
+        .name = "SpcBtn", \
+        .active_label = "active", \
+        .inactive_label = "bypass", \
+        .active_programs = PRESET_FUNCTION_BUTTON_PROGRAM_MESSAGE_LIST_EMPTY, \
+        .active_cc = PRESET_FUNCTION_BUTTON_CC_MESSAGE_LIST_EMPTY, \
+        .inactive_programs = PRESET_FUNCTION_BUTTON_PROGRAM_MESSAGE_LIST_EMPTY, \
+        .inactive_cc = PRESET_FUNCTION_BUTTON_CC_MESSAGE_LIST_EMPTY, \
+    }
+#define PRESET_ROW(name, programs, cc_slots, relay1, relay2) { name, programs, cc_slots, { relay1, relay2 }, PRESET_FUNCTION_BUTTON_DEFAULT } /* compact row helper for the static preset table */
 #define PRESET_ROW_EMPTY(name) PRESET_ROW(name, PRESET_PROGRAM_LIST_EMPTY, PRESET_CC_LIST_EMPTY, PRESET_RELAY_OPEN, PRESET_RELAY_OPEN) /* blank preset row used for placeholder banks */
 #define PRESET_BANK_EMPTY { PRESET_ROW_EMPTY("Preset 1"), PRESET_ROW_EMPTY("Preset 2"), PRESET_ROW_EMPTY("Preset 3"), PRESET_ROW_EMPTY("Preset 4"), PRESET_ROW_EMPTY("Preset 5"), PRESET_ROW_EMPTY("Preset 6"), PRESET_ROW_EMPTY("Preset 7"), PRESET_ROW_EMPTY("Preset 8") } /* eight blank presets so future banks are immediately editable */
 #define PRESET_RANDOM_LCG_SEED                0x6D2B79F5UL /* initial state for the random-preset pseudo-random generator */
@@ -42,6 +56,13 @@ static const uint32_t preset_flash_slot_sectors[] = {
     FLASH_SECTOR_12,
     FLASH_SECTOR_13,
 };
+
+typedef struct {
+    char           name[PRESET_NAME_LENGTH + 1U];
+    PresetDevice_t prg[PRESET_DEVICE_SLOTS];
+    PresetCCSlot_t cc[PRESET_CC_SLOT_COUNT];
+    uint8_t        relay[PRESET_RELAY_COUNT];
+} PresetLegacy_t;
 
 /* ── Preset table ────────────────────────────────────────────────────────────
  *
@@ -915,6 +936,43 @@ static Preset_t preset_store[PRESET_COUNT];
 static uint8_t preset_store_initialized = 0U;
 static uint8_t preset_store_dirty = 0U;
 
+static size_t Presets_GetLegacyPayloadSize(void)
+{
+    return sizeof(PresetLegacy_t) * PRESET_COUNT;
+}
+
+static uint8_t Presets_PayloadSizeIsSupported(size_t payload_size)
+{
+    return (payload_size == sizeof(preset_store) || payload_size == Presets_GetLegacyPayloadSize()) ? 1U : 0U;
+}
+
+static void Presets_SetFunctionButtonDefaults(RuntimeConfigFunctionButton_t *function_button)
+{
+    static const RuntimeConfigFunctionButton_t default_function_button = PRESET_FUNCTION_BUTTON_DEFAULT;
+
+    if (!function_button)
+        return;
+
+    *function_button = default_function_button;
+}
+
+static void Presets_CopyLegacyStore(const PresetLegacy_t *legacy_store)
+{
+    if (!legacy_store)
+        return;
+
+    memcpy(preset_store, preset_table, sizeof(preset_store));
+
+    for (uint8_t index = 0U; index < PRESET_COUNT; ++index)
+    {
+        memcpy(preset_store[index].name, legacy_store[index].name, sizeof(legacy_store[index].name));
+        memcpy(preset_store[index].prg, legacy_store[index].prg, sizeof(legacy_store[index].prg));
+        memcpy(preset_store[index].cc, legacy_store[index].cc, sizeof(legacy_store[index].cc));
+        memcpy(preset_store[index].relay, legacy_store[index].relay, sizeof(legacy_store[index].relay));
+        Presets_SetFunctionButtonDefaults(&preset_store[index].function_button);
+    }
+}
+
 static uint32_t Presets_FlashChecksum(const uint8_t *data, size_t size)
 {
     uint32_t hash = 2166136261UL;
@@ -943,7 +1001,7 @@ static uint8_t Presets_FlashHeaderV1IsValid(const PersistentStoreHeaderV1_t *hea
          && header->bank_count == PRESET_BANK_COUNT
          && header->presets_per_bank == PRESETS_PER_BANK
          && header->preset_count == PRESET_COUNT
-         && header->payload_size == sizeof(preset_store)) ? 1U : 0U;
+         && Presets_PayloadSizeIsSupported(header->payload_size)) ? 1U : 0U;
 }
 
 static uint8_t Presets_FlashHeaderV2IsValid(const PersistentStoreHeaderV2_t *header)
@@ -951,12 +1009,12 @@ static uint8_t Presets_FlashHeaderV2IsValid(const PersistentStoreHeaderV2_t *hea
     if (!header)
         return 0U;
 
-    return (header->magic == PERSISTENT_STORE_MAGIC_V2
+     return (header->magic == PERSISTENT_STORE_MAGIC_V2
          && header->version == PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG
          && header->bank_count == PRESET_BANK_COUNT
          && header->presets_per_bank == PRESETS_PER_BANK
          && header->preset_count == PRESET_COUNT
-         && header->payload_size == sizeof(preset_store)
+            && Presets_PayloadSizeIsSupported(header->payload_size)
             && header->config_size > 0U
          && ((sizeof(PersistentStoreHeaderV2_t)
             + header->payload_size
@@ -979,7 +1037,7 @@ static uint8_t Presets_FlashHeaderV3IsValid(const PersistentStoreHeaderV3_t *hea
          && header->bank_count == PRESET_BANK_COUNT
          && header->presets_per_bank == PRESETS_PER_BANK
          && header->preset_count == PRESET_COUNT
-         && header->payload_size == sizeof(preset_store)
+            && Presets_PayloadSizeIsSupported(header->payload_size)
          && header->config_size > 0U
          && ((sizeof(PersistentStoreHeaderV3_t)
             + header->payload_size
@@ -1055,14 +1113,14 @@ static uint8_t Presets_FlashLegacyStoreIsValid(void)
     if (Presets_FlashHeaderV2IsValid(header_v2))
     {
         preset_payload = (const uint8_t *)(PERSISTENT_STORE_FLASH_ADDR + sizeof(PersistentStoreHeaderV2_t));
-        return (Presets_FlashChecksum(preset_payload, sizeof(preset_store)) == header_v2->checksum) ? 1U : 0U;
+        return (Presets_FlashChecksum(preset_payload, header_v2->payload_size) == header_v2->checksum) ? 1U : 0U;
     }
 
     if (!Presets_FlashHeaderV1IsValid(header_v1))
         return 0U;
 
     preset_payload = (const uint8_t *)(PERSISTENT_STORE_FLASH_ADDR + sizeof(PersistentStoreHeaderV1_t));
-    return (Presets_FlashChecksum(preset_payload, sizeof(preset_store)) == header_v1->checksum) ? 1U : 0U;
+    return (Presets_FlashChecksum(preset_payload, header_v1->payload_size) == header_v1->checksum) ? 1U : 0U;
 }
 
 static uint8_t Presets_FlashLoadRuntimeStore(void)
@@ -1074,18 +1132,26 @@ static uint8_t Presets_FlashLoadRuntimeStore(void)
 
     if (Presets_FlashFindLatestV3Store(&slot_address, NULL))
     {
+        const PersistentStoreHeaderV3_t *header = (const PersistentStoreHeaderV3_t *)slot_address;
+
         preset_payload = (const uint8_t *)(slot_address + sizeof(PersistentStoreHeaderV3_t));
-        memcpy(preset_store, preset_payload, sizeof(preset_store));
+        if (header->payload_size == sizeof(preset_store))
+            memcpy(preset_store, preset_payload, sizeof(preset_store));
+        else
+            Presets_CopyLegacyStore((const PresetLegacy_t *)preset_payload);
         return 1U;
     }
 
     if (Presets_FlashHeaderV2IsValid(header_v2))
     {
         preset_payload = (const uint8_t *)(PERSISTENT_STORE_FLASH_ADDR + sizeof(PersistentStoreHeaderV2_t));
-        if (Presets_FlashChecksum(preset_payload, sizeof(preset_store)) != header_v2->checksum)
+        if (Presets_FlashChecksum(preset_payload, header_v2->payload_size) != header_v2->checksum)
             return 0U;
 
-        memcpy(preset_store, preset_payload, sizeof(preset_store));
+        if (header_v2->payload_size == sizeof(preset_store))
+            memcpy(preset_store, preset_payload, sizeof(preset_store));
+        else
+            Presets_CopyLegacyStore((const PresetLegacy_t *)preset_payload);
 
         return 1U;
     }
@@ -1094,10 +1160,13 @@ static uint8_t Presets_FlashLoadRuntimeStore(void)
         return 0U;
 
     preset_payload = (const uint8_t *)(PERSISTENT_STORE_FLASH_ADDR + sizeof(PersistentStoreHeaderV1_t));
-    if (Presets_FlashChecksum(preset_payload, sizeof(preset_store)) != header_v1->checksum)
+    if (Presets_FlashChecksum(preset_payload, header_v1->payload_size) != header_v1->checksum)
         return 0U;
 
-    memcpy(preset_store, preset_payload, sizeof(preset_store));
+    if (header_v1->payload_size == sizeof(preset_store))
+        memcpy(preset_store, preset_payload, sizeof(preset_store));
+    else
+        Presets_CopyLegacyStore((const PresetLegacy_t *)preset_payload);
     return 1U;
 }
 
@@ -1249,6 +1318,8 @@ static void Presets_ApplyFactoryDefaults(Preset_t *preset, uint8_t index)
     for (uint8_t relay_index = 0U; relay_index < PRESET_RELAY_COUNT; ++relay_index)
         preset->relay[relay_index] = PRESET_RELAY_OPEN;
 
+    Presets_SetFunctionButtonDefaults(&preset->function_button);
+
     preset_index = (uint8_t)(index % PRESETS_PER_BANK);
     memset(preset->name, 0, sizeof(preset->name));
     name_length = strlen(preset_default_names[preset_index]);
@@ -1280,6 +1351,7 @@ static const Preset_t blank_preset = {
     .prg   = PRESET_PROGRAM_LIST_EMPTY,
     .cc    = PRESET_CC_LIST_EMPTY,
     .relay = { PRESET_RELAY_OPEN, PRESET_RELAY_OPEN },
+    .function_button = PRESET_FUNCTION_BUTTON_DEFAULT,
 };
 
 /* Runtime-built shell used by Presets_ActivateRandom().
@@ -1293,18 +1365,7 @@ static Preset_t random_preset = {
     .prg   = PRESET_PROGRAM_LIST_EMPTY,
     .cc    = PRESET_CC_LIST_EMPTY,
     .relay = { PRESET_RELAY_OPEN, PRESET_RELAY_OPEN },
-};
-
-/* Overlay preset used by Presets_ActivateMute().
- * Mute should not recall pedal patches or fire extra CCs, so every device slot
- * stays PRESET_PROGRAM_UNUSED and the CC list is empty. Both relays default to
- * open/bypass so engaging mute leaves the hardware path in the safest neutral state.
- */
-static const Preset_t mute_preset = {
-    .name  = "Mute / Bypass",
-    .prg   = PRESET_PROGRAM_LIST_EMPTY,
-    .cc    = PRESET_CC_LIST_EMPTY,
-    .relay = { PRESET_RELAY_OPEN, PRESET_RELAY_OPEN },
+    .function_button = PRESET_FUNCTION_BUTTON_DEFAULT,
 };
 
 static uint8_t Presets_CurrentBankUsesWetDry(void)
@@ -1314,17 +1375,51 @@ static uint8_t Presets_CurrentBankUsesWetDry(void)
     return (bank && bank->wet_dry_enabled) ? 1U : 0U;
 }
 
-static void Presets_SendWetDryMuteLevels(void)
+static void Presets_ApplyRelayOutputs(const Preset_t *preset)
 {
-    for (uint8_t device_index = 0U; device_index < PRESET_DEVICE_SLOTS; device_index++)
-    {
-        const RuntimeConfigDevice_t *device = RuntimeConfig_GetDevice(device_index);
+    if (!preset)
+        return;
 
-        if (!device || device->level.cc == PRESET_CC_NUMBER_UNUSED)
-            continue;
+    for (uint8_t relay_index = 0U; relay_index < PRESET_RELAY_COUNT; ++relay_index)
+        AppBoard_SetRelayState(relay_index, preset->relay[relay_index] ? 1U : 0U);
+}
 
-        MIDI_SendCC(device->channel, device->level.cc, 0U);
-    }
+const Preset_t *Presets_GetGlobalBypassPreset(void)
+{
+    return RuntimeConfig_GetGlobalBypassPreset();
+}
+
+Preset_t *Presets_GetMutableGlobalBypassPreset(void)
+{
+    return RuntimeConfig_GetMutableGlobalBypassPreset();
+}
+
+const Preset_t *Presets_GetGlobalMutePreset(void)
+{
+    return RuntimeConfig_GetGlobalMutePreset();
+}
+
+Preset_t *Presets_GetMutableGlobalMutePreset(void)
+{
+    return RuntimeConfig_GetMutableGlobalMutePreset();
+}
+
+uint8_t Presets_IsGlobalBypassPreset(const Preset_t *preset)
+{
+    return (preset && preset == RuntimeConfig_GetGlobalBypassPreset()) ? 1U : 0U;
+}
+
+uint8_t Presets_IsGlobalMutePreset(const Preset_t *preset)
+{
+    return (preset && preset == RuntimeConfig_GetGlobalMutePreset()) ? 1U : 0U;
+}
+
+static const Preset_t *Presets_GetButton11PresetForCurrentBank(void)
+{
+    if (Presets_CurrentBankUsesWetDry())
+        return Presets_GetGlobalMutePreset();
+
+    return Presets_GetGlobalBypassPreset();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1348,6 +1443,7 @@ static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index,
     }
 
     Midi_LoadPreset(preset);
+    Presets_ApplyRelayOutputs(preset);
 
     if (update_index) {
         AppState_ScheduleRuntimeStateSaveAt(HAL_GetTick() + BPM_SAVE_DELAY_MS);
@@ -1404,6 +1500,12 @@ bool Presets_DeviceProgramIsShared(uint8_t slot, uint8_t program)
 
 const Preset_t *Presets_Get(uint8_t index)
 {
+    if (index == PRESET_GLOBAL_BYPASS_INDEX)
+        return Presets_GetGlobalBypassPreset();
+
+    if (index == PRESET_GLOBAL_MUTE_INDEX)
+        return Presets_GetGlobalMutePreset();
+
     if (index >= PRESET_COUNT)
         return &blank_preset;
     return Presets_GetFlat(index);
@@ -1413,10 +1515,37 @@ Preset_t *Presets_GetMutable(uint8_t index)
 {
     Presets_EnsureRuntimeStore();
 
+    if (index == PRESET_GLOBAL_BYPASS_INDEX)
+        return Presets_GetMutableGlobalBypassPreset();
+
+    if (index == PRESET_GLOBAL_MUTE_INDEX)
+        return Presets_GetMutableGlobalMutePreset();
+
     if (index >= PRESET_COUNT)
         return NULL;
 
     return &preset_store[index];
+}
+
+const RuntimeConfigFunctionButton_t *Presets_GetFunctionButton(uint8_t index)
+{
+    const Preset_t *preset = Presets_Get(index);
+
+    return preset ? &preset->function_button : NULL;
+}
+
+RuntimeConfigFunctionButton_t *Presets_GetMutableFunctionButton(uint8_t index)
+{
+    Preset_t *preset = Presets_GetMutable(index);
+
+    return preset ? &preset->function_button : NULL;
+}
+
+const RuntimeConfigFunctionButton_t *Presets_GetActiveFunctionButton(void)
+{
+    const Preset_t *preset = AppState_GetActivePreset();
+
+    return preset ? &preset->function_button : NULL;
 }
 
 void Presets_ResetPresetToDefaults(uint8_t index)
@@ -1425,6 +1554,18 @@ void Presets_ResetPresetToDefaults(uint8_t index)
     uint8_t preset_index;
 
     Presets_EnsureRuntimeStore();
+
+    if (index == PRESET_GLOBAL_BYPASS_INDEX)
+    {
+        RuntimeConfig_ResetGlobalBypassPresetToDefaults();
+        return;
+    }
+
+    if (index == PRESET_GLOBAL_MUTE_INDEX)
+    {
+        RuntimeConfig_ResetGlobalMutePresetToDefaults();
+        return;
+    }
 
     if (index >= PRESET_COUNT)
         return;
@@ -1504,15 +1645,9 @@ void Presets_ActivateRandom(void)
 
 void Presets_ActivateMute(void)
 {
-    if (Presets_CurrentBankUsesWetDry())
-    {
-        AppState_SetActiveOverlayPreset(&mute_preset);
-        Presets_SendWetDryMuteLevels();
-    }
-    else
-    {
-        App_ActivatePresetData(&mute_preset, 0U, 0U);
-    }
+    const Preset_t *overlay_preset = Presets_GetButton11PresetForCurrentBank();
+
+    App_ActivatePresetData(overlay_preset, 0U, 0U);
 
     LED_SetActiveButtonIndicator(10U);
 }

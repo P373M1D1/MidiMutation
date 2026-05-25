@@ -14,7 +14,7 @@
 
 void Display_FormatFunctionButtonValue(uint8_t item_index, char *buffer, size_t buffer_size)
 {
-    const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(display_state.menu_active_bank_index);
+    const RuntimeConfigFunctionButton_t *function_button = Presets_GetFunctionButton(display_state.menu_active_preset_index);
 
     if (!buffer || buffer_size == 0U || !function_button)
         return;
@@ -43,7 +43,7 @@ void Display_DrawMenuFunctionButtonTextItemAtRow(uint8_t item_index, uint8_t row
         "Active Label",
         "Inactive Label",
     };
-    const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(display_state.menu_active_bank_index);
+    const RuntimeConfigFunctionButton_t *function_button = Presets_GetFunctionButton(display_state.menu_active_preset_index);
     char value_text[20];
 
     if (item_index >= MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT || row_index >= MENU_VISIBLE_ROW_COUNT)

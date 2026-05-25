@@ -1,3 +1,19 @@
+/* This file contains the MIDI clock estimation logic for recovering tempo and phase from an external MIDI clock stream. 
+It implements a PLL-like approach with adaptive tuning and confidence tracking to provide a stable recovered clock for downstream musical consumers.
+How it works: The estimator anchors to incoming MIDI clock pulses and measures the intervals between them to build an observation window. 
+Once enough pulses are observed, it calculates a recovered tempo and phase, and tracks the confidence of that recovery based on the stability of the observed intervals. 
+The estimator also adapts its internal PLL parameters based on the observed stability of the external clock, increasing hysteresis or acquire aggression 
+when the clock is unstable, and decaying those adjustments when the clock is stable. The public API provides access to the recovered tempo, 
+phase, and confidence metrics for use by other parts of the system. 
+
+Flow of data: Incoming MIDI clock pulses trigger the AnchorPulse function, which updates the observation window and calculates intervals.
+Once the estimator has enough data, it updates the recovered tempo and phase, and tracks confidence. 
+The public getters allow other modules to query the current recovered tempo and confidence state. These recovered values 
+can be used to drive the internal MIDI clock output or inform the user interface. 
+This file also includes diagnostic code for reporting the internal state of the estimator, which can be enabled with MIDI_CLOCK_ESTIMATOR_DIAGNOSTIC_ENABLE.
+
+*/
+
 #include "midi/midi_clock_estimator.h"
 
 #include "midi/midi_transport_internal.h"

@@ -200,6 +200,87 @@ uint8_t MidiMonitor_CopyEntries(MidiMonitorEntry_t *dest, uint8_t capacity)
     return count;
 }
 
+uint8_t MidiMonitor_TryGetLatestControlValue(uint8_t source_uart,
+                                             uint8_t channel,
+                                             uint8_t cc_number,
+                                             uint8_t *value_out)
+{
+    uint32_t primask = __get_PRIMASK();
+    uint8_t count;
+    uint8_t head;
+
+    if (!value_out)
+        return 0U;
+
+    __disable_irq();
+    count = midi_monitor_count;
+    head = midi_monitor_head;
+
+    for (uint8_t offset = 0U; offset < count; ++offset)
+    {
+        uint8_t index = (uint8_t)((MIDI_MONITOR_ENTRY_CAPACITY + head - 1U - offset) % MIDI_MONITOR_ENTRY_CAPACITY);
+        const MidiMonitorEntry_t *entry = &midi_monitor_entries[index];
+
+        if (entry->type != MIDI_MONITOR_MESSAGE_CONTROL_CHANGE)
+            continue;
+        if (entry->source_uart != source_uart)
+            continue;
+        if (entry->channel != channel)
+            continue;
+        if (entry->value1 != cc_number)
+            continue;
+
+        *value_out = entry->value2;
+        if (primask == 0U)
+            __enable_irq();
+        return 1U;
+    }
+
+    if (primask == 0U)
+        __enable_irq();
+
+    return 0U;
+}
+
+uint8_t MidiMonitor_TryGetLatestControlValueAnySource(uint8_t channel,
+                                                      uint8_t cc_number,
+                                                      uint8_t *value_out)
+{
+    uint32_t primask = __get_PRIMASK();
+    uint8_t count;
+    uint8_t head;
+
+    if (!value_out)
+        return 0U;
+
+    __disable_irq();
+    count = midi_monitor_count;
+    head = midi_monitor_head;
+
+    for (uint8_t offset = 0U; offset < count; ++offset)
+    {
+        uint8_t index = (uint8_t)((MIDI_MONITOR_ENTRY_CAPACITY + head - 1U - offset) % MIDI_MONITOR_ENTRY_CAPACITY);
+        const MidiMonitorEntry_t *entry = &midi_monitor_entries[index];
+
+        if (entry->type != MIDI_MONITOR_MESSAGE_CONTROL_CHANGE)
+            continue;
+        if (entry->channel != channel)
+            continue;
+        if (entry->value1 != cc_number)
+            continue;
+
+        *value_out = entry->value2;
+        if (primask == 0U)
+            __enable_irq();
+        return 1U;
+    }
+
+    if (primask == 0U)
+        __enable_irq();
+
+    return 0U;
+}
+
 static void MidiMonitor_ResetParser(MidiMonitorParserState_t *parser)
 {
     if (!parser)

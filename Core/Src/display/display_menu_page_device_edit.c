@@ -21,6 +21,11 @@
 #define MENU_DEVICE_INIT_TEXT "INIT DEVICE"
 #define MENU_ITEM_X 24U
 
+static uint8_t Display_DeviceEditItemHasCcValue(uint8_t item_index)
+{
+    return (item_index >= 3U && item_index <= 5U) ? 1U : 0U;
+}
+
 static void Display_FormatMenuNumericFieldLocal(char *buffer,
                                                 size_t buffer_size,
                                                 uint8_t value,
@@ -43,12 +48,14 @@ static uint16_t Display_GetMenuRightAlignedValueXLocal(const char *value)
 }
 
 static void Display_DrawMenuDeviceCcEditRowByIndex(uint8_t row_index,
+                                                   uint8_t item_index,
                                                    const char *label,
                                                    const MidiCC_t *cc)
 {
     char cc_number_text[4];
     char value_text[4];
     uint16_t value_x;
+    uint8_t has_value_field = Display_DeviceEditItemHasCcValue(item_index);
 
     if (row_index >= MENU_VISIBLE_ROW_COUNT || !cc)
         return;
@@ -69,22 +76,30 @@ static void Display_DrawMenuDeviceCcEditRowByIndex(uint8_t row_index,
                                     PRESET_CC_NUMBER_UNUSED,
                                     3U,
                                     0U);
-    Display_FormatMenuNumericFieldLocal(value_text,
-                                        sizeof(value_text),
-                                        cc->value,
-                                        3U);
+    if (has_value_field)
+    {
+        Display_FormatMenuNumericFieldLocal(value_text,
+                                            sizeof(value_text),
+                                            cc->value,
+                                            3U);
+    }
 
     /* Build the dense CC edit row from a fixed template so all sub-fields stay
      * column-aligned while only the active segment receives highlight colours. */
-    value_x = Display_GetMenuRightAlignedValueXLocal("CC:--- VAL:---");
+    value_x = Display_GetMenuRightAlignedValueXLocal(has_value_field ? "CC:--- VAL:---" : "CC:---");
     value_x = Display_MenuRowComposeValueSegment32(value_x, "CC:", 0U);
     value_x = Display_MenuRowComposeValueSegment32(value_x,
                                                    cc_number_text,
                                                    (display_state.menu_device_cc_field_index == 0U) ? 1U : 0U);
-    value_x = Display_MenuRowComposeValueSegment32(value_x, " VAL:", 0U);
-    (void)Display_MenuRowComposeValueSegment32(value_x,
-                                               value_text,
-                                               (display_state.menu_device_cc_field_index == 1U) ? 1U : 0U);
+
+    if (has_value_field)
+    {
+        value_x = Display_MenuRowComposeValueSegment32(value_x, " VAL:", 0U);
+        (void)Display_MenuRowComposeValueSegment32(value_x,
+                                                   value_text,
+                                                   (display_state.menu_device_cc_field_index == 1U) ? 1U : 0U);
+    }
+
     Display_MenuRowComposeBlit(Display_GetMenuRowYByIndex(row_index));
 }
 
@@ -98,8 +113,13 @@ const char *Display_GetMenuDeviceEditLabel(uint8_t item_index,
         "Channel",
         "Active CC",
         "Bypass CC",
-        "Level CC",
-        "Tap-SW CC",
+        "Tap CC",
+        "Volume1 CC",
+        "Volume2 CC",
+        "Mix1 CC",
+        "Mix2 CC",
+        "Decay1 CC",
+        "Decay2 CC",
         MENU_DEVICE_INIT_TEXT,
     };
 
@@ -130,9 +150,19 @@ MidiCC_t *Display_GetDeviceCcForMenuItem(RuntimeConfigDevice_t *device, uint8_t 
     case 4U:
         return &device->bypass;
     case 5U:
-        return &device->level;
-    case 6U:
         return &device->tap_tempo;
+    case 6U:
+        return &device->volume1;
+    case 7U:
+        return &device->volume2;
+    case 8U:
+        return &device->mix1;
+    case 9U:
+        return &device->mix2;
+    case 10U:
+        return &device->decay1;
+    case 11U:
+        return &device->decay2;
     default:
         return NULL;
     }
@@ -142,7 +172,7 @@ uint8_t Display_MenuDeviceCcRowIsSelected(void)
 {
     return ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_DEVICE_EDIT
          && display_state.menu_device_edit_selection_index >= 3U
-         && display_state.menu_device_edit_selection_index <= 6U) ? 1U : 0U;
+            && display_state.menu_device_edit_selection_index <= 11U) ? 1U : 0U;
 }
 
 MidiCC_t *Display_GetSelectedDeviceCc(RuntimeConfigDevice_t *device)
@@ -165,6 +195,22 @@ static void Display_FormatDeviceCcValue(const MidiCC_t *cc, char *buffer, size_t
     (void)snprintf(buffer, buffer_size, "CC:%3u VAL:%3u", cc->cc, cc->value);
 }
 
+static void Display_FormatDeviceCcNumberOnlyValue(const MidiCC_t *cc,
+                                                  char *buffer,
+                                                  size_t buffer_size)
+{
+    if (!buffer || buffer_size == 0U)
+        return;
+
+    if (!cc || cc->cc == PRESET_CC_NUMBER_UNUSED)
+    {
+        (void)snprintf(buffer, buffer_size, "CC:---");
+        return;
+    }
+
+    (void)snprintf(buffer, buffer_size, "CC:%3u", cc->cc);
+}
+
 static void Display_FormatDeviceCcEditValue(const MidiCC_t *cc, char *buffer, size_t buffer_size)
 {
     char cc_number_text[4];
@@ -180,6 +226,23 @@ static void Display_FormatDeviceCcEditValue(const MidiCC_t *cc, char *buffer, si
 
     (void)snprintf(value_text, sizeof(value_text), "%3u", cc->value);
     (void)snprintf(buffer, buffer_size, "CC:%s VAL:%s", cc_number_text, value_text);
+}
+
+static void Display_FormatDeviceCcEditNumberOnlyValue(const MidiCC_t *cc,
+                                                      char *buffer,
+                                                      size_t buffer_size)
+{
+    char cc_number_text[4];
+
+    if (!buffer || buffer_size == 0U || !cc)
+        return;
+
+    if (cc->cc == PRESET_CC_NUMBER_UNUSED)
+        (void)snprintf(cc_number_text, sizeof(cc_number_text), "---");
+    else
+        (void)snprintf(cc_number_text, sizeof(cc_number_text), "%3u", cc->cc);
+
+    (void)snprintf(buffer, buffer_size, "CC:%s", cc_number_text);
 }
 
 void Display_FormatDeviceEditValue(uint8_t item_index, char *buffer, size_t buffer_size)
@@ -217,17 +280,47 @@ void Display_FormatDeviceEditValue(uint8_t item_index, char *buffer, size_t buff
         break;
     case 5U:
         if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 5U)
-            Display_FormatDeviceCcEditValue(&device->level, buffer, buffer_size);
-        else
-            Display_FormatDeviceCcValue(&device->level, buffer, buffer_size);
-        break;
-    case 6U:
-        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 6U)
             Display_FormatDeviceCcEditValue(&device->tap_tempo, buffer, buffer_size);
         else
             Display_FormatDeviceCcValue(&device->tap_tempo, buffer, buffer_size);
         break;
+    case 6U:
+        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 6U)
+            Display_FormatDeviceCcEditNumberOnlyValue(&device->volume1, buffer, buffer_size);
+        else
+            Display_FormatDeviceCcNumberOnlyValue(&device->volume1, buffer, buffer_size);
+        break;
     case 7U:
+        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 7U)
+            Display_FormatDeviceCcEditNumberOnlyValue(&device->volume2, buffer, buffer_size);
+        else
+            Display_FormatDeviceCcNumberOnlyValue(&device->volume2, buffer, buffer_size);
+        break;
+    case 8U:
+        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 8U)
+            Display_FormatDeviceCcEditNumberOnlyValue(&device->mix1, buffer, buffer_size);
+        else
+            Display_FormatDeviceCcNumberOnlyValue(&device->mix1, buffer, buffer_size);
+        break;
+    case 9U:
+        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 9U)
+            Display_FormatDeviceCcEditNumberOnlyValue(&device->mix2, buffer, buffer_size);
+        else
+            Display_FormatDeviceCcNumberOnlyValue(&device->mix2, buffer, buffer_size);
+        break;
+    case 10U:
+        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 10U)
+            Display_FormatDeviceCcEditNumberOnlyValue(&device->decay1, buffer, buffer_size);
+        else
+            Display_FormatDeviceCcNumberOnlyValue(&device->decay1, buffer, buffer_size);
+        break;
+    case 11U:
+        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 11U)
+            Display_FormatDeviceCcEditNumberOnlyValue(&device->decay2, buffer, buffer_size);
+        else
+            Display_FormatDeviceCcNumberOnlyValue(&device->decay2, buffer, buffer_size);
+        break;
+    case 12U:
         buffer[0] = '\0';
         break;
     default:
@@ -275,7 +368,7 @@ void Display_DrawMenuDeviceEditItem(uint8_t item_index)
     {
         row_selected = 0U;
     }
-    if (row_selected && item_index >= 3U && item_index <= 6U)
+    if (row_selected && item_index >= 3U && item_index <= 11U)
         /* CC edit rows draw their own per-field highlights, so suppress the
          * normal whole-row selection background in the generic row renderer. */
         row_selected = 0U;
@@ -291,16 +384,17 @@ void Display_DrawMenuDeviceEditItem(uint8_t item_index)
     }
 
     if (item_index >= 3U
-        && item_index <= 6U
+        && item_index <= 11U
         && item_index == display_state.menu_device_edit_selection_index)
     {
         Display_DrawMenuDeviceCcEditRowByIndex(row_index,
+                                               item_index,
                                                Display_GetMenuDeviceEditLabel(item_index, label_text, sizeof(label_text)),
                                                Display_GetSelectedDeviceCc((RuntimeConfigDevice_t *)device));
         return;
     }
 
-    if (item_index == 7U)
+    if (item_index == 12U)
     {
         Display_DrawMenuCenteredBadgeRowByIndex(row_index,
                                                 Display_GetMenuDeviceEditLabel(item_index, label_text, sizeof(label_text)),

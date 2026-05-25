@@ -47,7 +47,12 @@ uint8_t AppUi_MenuBackOutOneLevel(void)
         AppUi_MenuSaveIfDirty();
 
     if (!Display_MenuIsActive())
-        App_QueueRedrawMainScreenEvent();
+    {
+        if (Display_PresetEditIsActive())
+            AppUi_RequestPresetEditModeRefresh();
+        else
+            App_QueueRedrawMainScreenEvent();
+    }
 
     return 1U;
 }

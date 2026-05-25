@@ -23,16 +23,16 @@ extern "C" {
 /* Menu layout constants shared across display modules. */
 #define MENU_ROOT_ITEM_COUNT            5U
 #define MENU_VISIBLE_ROW_COUNT          4U
-#define MENU_GLOBAL_ITEM_COUNT          6U
+#define MENU_GLOBAL_ITEM_COUNT          9U
 #define MENU_METRONOME_ITEM_COUNT       4U
 #define MENU_USER_THEME_ITEM_COUNT      RUNTIME_CONFIG_USER_THEME_FIELD_COUNT
-#define MENU_BANK_EDIT_ITEM_COUNT       5U
+#define MENU_BANK_EDIT_ITEM_COUNT       4U
 #define MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT 3U
 #define MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT
 #define MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT (RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT + RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT)
 #define MENU_FUNCTION_BUTTON_CC_FIRST_INDEX (MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX + RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
 #define MENU_FUNCTION_BUTTON_ITEM_COUNT (MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT + MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT)
-#define MENU_DEVICE_EDIT_ITEM_COUNT     8U
+#define MENU_DEVICE_EDIT_ITEM_COUNT     13U
 
 /* Shared mutable display state.
  *
@@ -64,6 +64,8 @@ typedef struct DisplayState {
 	uint8_t menu_root_selection_index;
 	uint8_t menu_bank_selection_index;
 	uint8_t menu_active_bank_index;
+	uint8_t menu_active_preset_index;
+	uint8_t menu_return_to_preset_edit;
 	uint8_t menu_bank_edit_selection_index;
 	uint8_t menu_function_button_selection_index;
 	uint8_t menu_device_selection_index;

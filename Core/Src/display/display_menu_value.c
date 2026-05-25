@@ -147,7 +147,7 @@ static uint8_t Display_MenuFunctionButtonMessagePageIsActive(void)
 
 static uint8_t Display_AdjustFunctionButtonMessageValue(int8_t delta)
 {
-    RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetMutableFunctionButton(display_state.menu_active_bank_index);
+    RuntimeConfigFunctionButton_t *function_button = Presets_GetMutableFunctionButton(display_state.menu_active_preset_index);
     uint8_t message_selection_index;
 
     if (!function_button || delta == 0 || !Display_MenuFunctionButtonMessagePageIsActive())
@@ -324,7 +324,16 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
         if (!changed)
             return 0U;
 
-        RuntimeConfig_MarkDirty();
+        if ((DisplayMenuTextField_t)display_state.menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_FUNCTION_BUTTON_NAME
+         || (DisplayMenuTextField_t)display_state.menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_FUNCTION_BUTTON_ACTIVE_LABEL
+         || (DisplayMenuTextField_t)display_state.menu_text_edit_field == DISPLAY_MENU_TEXT_FIELD_FUNCTION_BUTTON_INACTIVE_LABEL)
+        {
+            Presets_MarkDirty();
+        }
+        else
+        {
+            RuntimeConfig_MarkDirty();
+        }
         Display_MenuRedrawCurrentValue();
         return 1U;
     }
@@ -337,7 +346,7 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
         if (!changed)
             return 0U;
 
-        RuntimeConfig_MarkDirty();
+        Presets_MarkDirty();
         Display_MenuRedrawCurrentItem();
         return 1U;
     }
@@ -467,6 +476,24 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
             }
             break;
         }
+
+        case 5U:
+            changed = Display_AdjustWrappedU8(&global->feedback_taper_enabled, 0U, 1U, delta);
+            break;
+
+        case 6U:
+            changed = Display_AdjustClampedU8(&global->feedback_taper_threshold,
+                                              0U,
+                                              RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_MAX,
+                                              delta);
+            break;
+
+        case 7U:
+            changed = Display_AdjustClampedU8(&global->feedback_taper_reduce,
+                                              0U,
+                                              RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_MAX,
+                                              delta);
+            break;
 
         default:
             break;

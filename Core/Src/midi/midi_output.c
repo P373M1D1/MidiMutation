@@ -201,6 +201,16 @@ uint8_t MidiOutput_QueueRealtimeByte(uint8_t byte)
     return 1U;
 }
 
+void MidiOutput_ResetRealtimePacingGuard(void)
+{
+    uint32_t primask = MidiOutput_EnterCritical();
+
+    midi_output_last_clock_us = 0U;
+    midi_output_clock_interval_us = 0U;
+
+    MidiOutput_ExitCritical(primask);
+}
+
 __attribute__((section(".RamFunc")))
 static uint8_t MidiOutput_IsFlashBusy(void)
 {

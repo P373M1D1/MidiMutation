@@ -11,9 +11,9 @@
 
 /* BANK_EDIT page renderer.
  *
- * This page mixes plain text rows, a nested function-button editor entry, and
- * a bank reset action. Keeping that formatting here avoids leaking bank-specific
- * labels and wording into the generic menu shell. */
+ * This page mixes plain text rows and a bank reset action. Keeping that
+ * formatting here avoids leaking bank-specific labels and wording into the
+ * generic menu shell. */
 
 #define MENU_BANK_INIT_TEXT "INIT BANK"
 
@@ -33,14 +33,9 @@ void Display_FormatBankEditValue(uint8_t item_index, char *buffer, size_t buffer
         (void)snprintf(buffer, buffer_size, "%s", bank->wet_dry_enabled ? "Yes" : "No");
         break;
     case 2U:
-        /* The nested function-button editor is entered from this row, so the
-         * value text is just a cue rather than a persistent setting value. */
-        (void)snprintf(buffer, buffer_size, "Edit");
-        break;
-    case 3U:
         (void)snprintf(buffer, buffer_size, "%2u bars", bank->midi_clock_bar_count);
         break;
-    case 4U:
+    case 3U:
         buffer[0] = '\0';
         break;
     default:
@@ -73,7 +68,6 @@ void Display_DrawMenuBankEditItem(uint8_t item_index)
     static const char * const menu_bank_edit_labels[MENU_BANK_EDIT_ITEM_COUNT] = {
         "Bank Name",
         "Wet / Dry",
-        "Function Button",
         "Counter",
         MENU_BANK_INIT_TEXT,
     };
@@ -100,7 +94,7 @@ void Display_DrawMenuBankEditItem(uint8_t item_index)
         return;
     }
 
-    if (item_index == 4U)
+    if (item_index == 3U)
     {
         /* INIT BANK is drawn as a centered alert badge to visually separate it
          * from ordinary editable rows and reduce accidental activation. */

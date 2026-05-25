@@ -92,7 +92,10 @@ static void Display_SetFunctionButtonFocusIndex(uint16_t focus_index)
 
 static uint8_t Display_GetDeviceEditFocusFieldCount(uint8_t selection_index)
 {
-    return (selection_index >= 3U && selection_index <= 6U) ? 2U : 1U;
+    if (selection_index >= 3U && selection_index <= 5U)
+        return 2U;
+
+    return 1U;
 }
 
 static uint16_t Display_GetDeviceEditFocusCount(void)
@@ -114,7 +117,7 @@ static uint16_t Display_GetDeviceEditFocusIndex(void)
 
     if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_DEVICE_EDIT
      && display_state.menu_device_edit_selection_index >= 3U
-     && display_state.menu_device_edit_selection_index <= 6U)
+        && display_state.menu_device_edit_selection_index <= 11U)
     {
         uint8_t field_count = Display_GetDeviceEditFocusFieldCount(display_state.menu_device_edit_selection_index);
 
@@ -136,7 +139,7 @@ static void Display_SetDeviceEditFocusIndex(uint16_t focus_index)
         if (focus_index < field_count)
         {
             display_state.menu_device_edit_selection_index = selection_index;
-            display_state.menu_device_cc_field_index = (selection_index >= 3U && selection_index <= 6U)
+            display_state.menu_device_cc_field_index = (selection_index >= 3U && selection_index <= 11U)
                 ? (uint8_t)focus_index
                 : 0U;
             return;
@@ -147,13 +150,6 @@ static void Display_SetDeviceEditFocusIndex(uint16_t focus_index)
 
     display_state.menu_device_edit_selection_index = (uint8_t)(MENU_DEVICE_EDIT_ITEM_COUNT - 1U);
     display_state.menu_device_cc_field_index = 0U;
-}
-
-static void Display_ResetFunctionButtonMessageEditor(void)
-{
-    display_state.menu_function_button_message_selection_index = 0U;
-    display_state.menu_function_button_message_field_index = 0U;
-    display_state.menu_function_button_message_field_edit_active = 0U;
 }
 
 /* ── Existing transient-editor reset ──────────────────────────────────────── */
@@ -212,10 +208,20 @@ static void Display_ResetActiveDeviceToUnusedDefaults(RuntimeConfigDevice_t *dev
     device->active.value = 0U;
     device->bypass.cc = PRESET_CC_NUMBER_UNUSED;
     device->bypass.value = 0U;
-    device->level.cc = PRESET_CC_NUMBER_UNUSED;
-    device->level.value = 0U;
     device->tap_tempo.cc = PRESET_CC_NUMBER_UNUSED;
     device->tap_tempo.value = 0U;
+    device->volume1.cc = PRESET_CC_NUMBER_UNUSED;
+    device->volume1.value = 0U;
+    device->volume2.cc = PRESET_CC_NUMBER_UNUSED;
+    device->volume2.value = 0U;
+    device->mix1.cc = PRESET_CC_NUMBER_UNUSED;
+    device->mix1.value = 0U;
+    device->mix2.cc = PRESET_CC_NUMBER_UNUSED;
+    device->mix2.value = 0U;
+    device->decay1.cc = PRESET_CC_NUMBER_UNUSED;
+    device->decay1.value = 0U;
+    device->decay2.cc = PRESET_CC_NUMBER_UNUSED;
+    device->decay2.value = 0U;
     device->max_preset = 127U;
 }
 
@@ -230,6 +236,8 @@ void Display_MenuEnter(void)
     display_state.menu_root_selection_index = 0U;
     display_state.menu_bank_selection_index = current_bank;
     display_state.menu_active_bank_index = current_bank;
+    display_state.menu_active_preset_index = 0U;
+    display_state.menu_return_to_preset_edit = 0U;
     display_state.menu_bank_edit_selection_index = 0U;
     display_state.menu_function_button_selection_index = 0U;
     display_state.menu_device_selection_index = 0U;
@@ -245,6 +253,25 @@ void Display_MenuEnter(void)
     Display_MenuRefresh();
 }
 
+void Display_MenuEnterPresetFunctionButtonEditor(uint8_t preset_index)
+{
+    display_state.menu_mode_active = 1U;
+    display_state.menu_preview_active = 0U;
+    display_state.menu_draw_state_valid = 0U;
+    display_state.menu_last_drawn_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT;
+    display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_FUNCTION_BUTTON;
+    Display_ResetMenuTransientEditors();
+    display_state.menu_bank_selection_index = current_bank;
+    display_state.menu_active_bank_index = current_bank;
+    display_state.menu_active_preset_index = preset_index;
+    display_state.menu_return_to_preset_edit = 1U;
+    display_state.menu_function_button_selection_index = 0U;
+    display_state.main_layout_dirty = 1U;
+    display_state.bpm_display_valid = 0U;
+    display_state.transport_status_valid = 0U;
+    Display_MenuRefresh();
+}
+
 void Display_MenuExit(void)
 {
     Display_ResetMenuTransientEditors();
@@ -253,6 +280,8 @@ void Display_MenuExit(void)
     display_state.menu_last_drawn_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT;
     display_state.menu_mode_active = 0U;
     display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT;
+    display_state.menu_active_preset_index = 0U;
+    display_state.menu_return_to_preset_edit = 0U;
     display_state.main_layout_dirty = 1U;
     display_state.bpm_display_valid = 0U;
     display_state.transport_status_valid = 0U;
@@ -274,6 +303,15 @@ void Display_MenuHome(void)
 {
     if (!display_state.menu_mode_active)
         return;
+
+    if (display_state.menu_return_to_preset_edit
+     && ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON
+      || (DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES
+      || (DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES))
+    {
+        Display_MenuExit();
+        return;
+    }
 
     if (display_state.menu_page == (uint8_t)DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM)
     {
@@ -305,7 +343,7 @@ void Display_MenuHome(void)
     {
         Display_ResetMenuTransientEditors();
         Display_RestoreFactorySettings();
-        display_state.menu_global_selection_index = 5U;
+        display_state.menu_global_selection_index = 8U;
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return;
@@ -410,8 +448,13 @@ uint8_t Display_MenuBack(void)
         Display_MenuRefresh();
         return 1U;
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON:
-        display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_BANK_EDIT;
-        Display_MenuRefresh();
+        if (display_state.menu_return_to_preset_edit)
+            Display_MenuExit();
+        else
+        {
+            display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_BANK_EDIT;
+            Display_MenuRefresh();
+        }
         return 1U;
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_ACTIVE_MESSAGES:
     case DISPLAY_MENU_PAGE_FUNCTION_BUTTON_INACTIVE_MESSAGES:
@@ -429,7 +472,7 @@ uint8_t Display_MenuBack(void)
         Display_MenuRefresh();
         return 1U;
     case DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM:
-        display_state.menu_global_selection_index = 5U;
+        display_state.menu_global_selection_index = 8U;
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return 1U;
@@ -600,7 +643,7 @@ uint8_t Display_MenuActivate(void)
         }
         break;
     case DISPLAY_MENU_PAGE_GLOBAL:
-        if (display_state.menu_global_selection_index == 5U)
+        if (display_state.menu_global_selection_index == 8U)
         {
             display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM;
             Display_MenuRefresh();
@@ -640,13 +683,7 @@ uint8_t Display_MenuActivate(void)
             return 1U;
         }
 
-        if (display_state.menu_bank_edit_selection_index == 2U)
-        {
-            Display_ResetFunctionButtonMessageEditor();
-            display_state.menu_function_button_selection_index = 0U;
-            display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_FUNCTION_BUTTON;
-        }
-        else if (display_state.menu_bank_edit_selection_index == 4U)
+        if (display_state.menu_bank_edit_selection_index == 3U)
         {
             display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM;
             Display_MenuRefresh();
@@ -672,7 +709,7 @@ uint8_t Display_MenuActivate(void)
             return 1U;
         }
 
-        if (display_state.menu_device_edit_selection_index == 7U)
+        if (display_state.menu_device_edit_selection_index == 12U)
         {
             display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM;
             Display_MenuRefresh();

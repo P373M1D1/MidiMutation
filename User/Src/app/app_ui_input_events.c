@@ -129,7 +129,7 @@ void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
 
             if (AppUi_PresetEditApplyDelta(delta))
             {
-                Presets_MarkDirty();
+                AppUi_PresetEditMarkDirty();
                 AppUi_RequestPresetEditFieldRefresh();
             }
             return;
@@ -187,7 +187,7 @@ void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
         return;
     }
 
-    if ((press_mask & 0x04U) && Display_MenuIsActive())
+    if ((press_mask & 0x01U) && Display_MenuIsActive())
     {
         if (Display_MenuTextEditIsActive())
         {
@@ -199,7 +199,7 @@ void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
         return;
     }
 
-    if ((press_mask & 0x01U) && Display_MenuIsActive())
+    if ((press_mask & 0x04U) && Display_MenuIsActive())
     {
         Display_MenuActivate();
         return;
@@ -260,6 +260,10 @@ void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
                 Display_PresetNameEditEnter();
                 if (active_preset)
                     AppUi_RequestPresetEditFieldRefresh();
+            }
+            else if (field.type == DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON)
+            {
+                AppUi_PresetEditEnterFunctionButtonEditor();
             }
             else if (field.type == DISPLAY_PRESET_EDIT_FIELD_INIT)
             {

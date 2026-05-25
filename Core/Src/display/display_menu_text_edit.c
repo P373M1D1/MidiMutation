@@ -75,7 +75,7 @@ size_t Display_GetMenuTextFieldCapacity(DisplayMenuTextField_t field)
 char *Display_GetMenuTextFieldPointer(DisplayMenuTextField_t field)
 {
     RuntimeConfigBank_t *bank = RuntimeConfig_GetMutableBank(display_state.menu_active_bank_index);
-    RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetMutableFunctionButton(display_state.menu_active_bank_index);
+    RuntimeConfigFunctionButton_t *function_button = Presets_GetMutableFunctionButton(display_state.menu_active_preset_index);
     RuntimeConfigDevice_t *device = RuntimeConfig_GetMutableDevice(display_state.menu_active_device_index);
 
     switch (field)

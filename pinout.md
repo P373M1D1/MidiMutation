@@ -83,8 +83,8 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PE6         | Button 7  — INPUT_PULLUP, EXTI6  (EXTI9_5_IRQn)       | Pushbutton 7                  | Preset 7
 | PE7         | Button 8  — INPUT_PULLUP, EXTI7  (EXTI9_5_IRQn)       | Pushbutton 8                  | Preset 8
 | PE8         | Button 9  — INPUT_PULLUP, EXTI8  (EXTI9_5_IRQn)       | Pushbutton 9                  | Random Preset
-| PE9         | Button 10 — INPUT_PULLUP, EXTI9  (EXTI9_5_IRQn)       | Pushbutton 10                 | Special Function
-| PE10        | Button 11 — INPUT_PULLUP, EXTI10 (EXTI15_10_IRQn) *   | Pushbutton 11                 | Mute / Bypass
+s| PE9         | Button 10 — INPUT_PULLUP, EXTI9  (EXTI9_5_IRQn)       | Pushbutton 10                 | Special Function
+| PE10        | Button 11 — INPUT_PULLUP, EXTI10 (EXTI15_10_IRQn) *   | Pushbutton 11                 | Mute / Bypas
 
 > **Alternate functions sacrificed on PE0–PE10 (not needed for this project):**
 > PE0/PE1 → UART8 RX/TX  |  PE7/PE8 → UART7 RX/TX  |  PE3 → UART10 RX

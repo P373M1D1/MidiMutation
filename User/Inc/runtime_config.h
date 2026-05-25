@@ -10,10 +10,6 @@ extern "C" {
 #endif
 
 #define RUNTIME_CONFIG_BANK_NAME_LENGTH               PRESET_BANK_NAME_MAXLEN
-#define RUNTIME_CONFIG_FUNCTION_BUTTON_NAME_LENGTH    6U
-#define RUNTIME_CONFIG_FUNCTION_BUTTON_LABEL_LENGTH   6U
-#define RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT  4U
-#define RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT       4U
 #define RUNTIME_CONFIG_DEVICE_NAME_LENGTH             4U
 #define RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_DEFAULT   4U
 #define RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MIN       1U
@@ -25,6 +21,8 @@ extern "C" {
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_UI_MAX       100U
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN      1606U /* legacy 100/255 mapped into 12-bit DAC space */
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX      4095U
+#define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_MAX 127U
+#define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_MAX    127U
 #define RUNTIME_CONFIG_USER_THEME_COUNT               3U
 #define RUNTIME_CONFIG_METRONOME_VOLUME_MAX           100U
 #define RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_MIN    3U
@@ -68,21 +66,6 @@ typedef enum {
 } RuntimeConfigDisplayMode_t;
 
 typedef struct {
-    uint8_t channel;
-    uint8_t program;
-} RuntimeConfigProgramMessage_t;
-
-typedef struct {
-    char name[RUNTIME_CONFIG_FUNCTION_BUTTON_NAME_LENGTH + 1U];
-    char active_label[RUNTIME_CONFIG_FUNCTION_BUTTON_LABEL_LENGTH + 1U];
-    char inactive_label[RUNTIME_CONFIG_FUNCTION_BUTTON_LABEL_LENGTH + 1U];
-    RuntimeConfigProgramMessage_t active_programs[RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT];
-    PresetCCSlot_t active_cc[RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT];
-    RuntimeConfigProgramMessage_t inactive_programs[RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT];
-    PresetCCSlot_t inactive_cc[RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT];
-} RuntimeConfigFunctionButton_t;
-
-typedef struct {
     char name[RUNTIME_CONFIG_BANK_NAME_LENGTH + 1U];
     uint8_t wet_dry_enabled;
     RuntimeConfigFunctionButton_t function_button;
@@ -94,8 +77,13 @@ typedef struct {
     uint8_t channel;
     MidiCC_t active;
     MidiCC_t bypass;
-    MidiCC_t level;
     MidiCC_t tap_tempo;
+    MidiCC_t volume1;
+    MidiCC_t volume2;
+    MidiCC_t mix1;
+    MidiCC_t mix2;
+    MidiCC_t decay1;
+    MidiCC_t decay2;
     uint8_t max_preset;
 } RuntimeConfigDevice_t;
 
@@ -163,6 +151,9 @@ typedef struct {
     RuntimeConfigSyncStyle_t sync_style;
     RuntimeConfigDisplayMode_t display_mode;
     uint16_t backlight_brightness;
+    uint8_t feedback_taper_enabled;
+    uint8_t feedback_taper_threshold;
+    uint8_t feedback_taper_reduce;
 } RuntimeConfigGlobal_t;
 
 typedef struct {
@@ -171,6 +162,8 @@ typedef struct {
     RuntimeConfigGlobal_t global;
     RuntimeConfigMetronome_t metronome;
     RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
+    Preset_t global_bypass_preset;
+    Preset_t global_mute_preset;
 } RuntimeConfig_t;
 
 void RuntimeConfig_Init(void);
@@ -189,6 +182,12 @@ RuntimeConfigFunctionButton_t *RuntimeConfig_GetMutableFunctionButton(uint8_t ba
 
 const RuntimeConfigDevice_t *RuntimeConfig_GetDevice(uint8_t device_index);
 RuntimeConfigDevice_t *RuntimeConfig_GetMutableDevice(uint8_t device_index);
+const Preset_t *RuntimeConfig_GetGlobalBypassPreset(void);
+Preset_t *RuntimeConfig_GetMutableGlobalBypassPreset(void);
+const Preset_t *RuntimeConfig_GetGlobalMutePreset(void);
+Preset_t *RuntimeConfig_GetMutableGlobalMutePreset(void);
+void RuntimeConfig_ResetGlobalBypassPresetToDefaults(void);
+void RuntimeConfig_ResetGlobalMutePresetToDefaults(void);
 
 const RuntimeConfigGlobal_t *RuntimeConfig_GetGlobal(void);
 RuntimeConfigGlobal_t *RuntimeConfig_GetMutableGlobal(void);

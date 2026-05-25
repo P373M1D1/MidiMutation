@@ -39,6 +39,13 @@ void MidiMonitor_ReceiveByte(uint8_t source_uart, uint8_t byte);
 void MidiMonitor_Clear(void);
 uint32_t MidiMonitor_GetRevision(void);
 uint8_t MidiMonitor_CopyEntries(MidiMonitorEntry_t *dest, uint8_t capacity);
+uint8_t MidiMonitor_TryGetLatestControlValue(uint8_t source_uart,
+                                             uint8_t channel,
+                                             uint8_t cc_number,
+                                             uint8_t *value_out);
+uint8_t MidiMonitor_TryGetLatestControlValueAnySource(uint8_t channel,
+                                                      uint8_t cc_number,
+                                                      uint8_t *value_out);
 
 #ifdef __cplusplus
 }

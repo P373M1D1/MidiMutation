@@ -81,7 +81,7 @@ uint8_t Display_RedrawMenuFunctionButtonCurrentValueItem(void)
     if (!Display_GetFunctionButtonSelectionRow(item_index, &row_index))
         return 0U;
 
-    function_button = RuntimeConfig_GetFunctionButton(display_state.menu_active_bank_index);
+    function_button = Presets_GetFunctionButton(display_state.menu_active_preset_index);
 
     switch (item_index)
     {

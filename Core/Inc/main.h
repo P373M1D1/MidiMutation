@@ -165,6 +165,9 @@ void Error_Handler(void);
 #define ENC3_DT_Pin GPIO_PIN_13 /* encoder 3 quadrature B/DT input (tempo encoder) */
 #define ENC3_DT_GPIO_Port GPIOD /* GPIO port for encoder 3 quadrature B/DT input */
 
+#define RELAY1_Pin GPIO_PIN_10 /* Relay_1 transistor drive output: HIGH closes relay */
+#define RELAY1_GPIO_Port GPIOG /* GPIO port for Relay_1 drive output */
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

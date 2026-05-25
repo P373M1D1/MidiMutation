@@ -5,7 +5,9 @@
 
 #define LED_PULSE_MS  50U  /* pulse width for all LED blinks */
 #define LED_PULSE_US ((uint32_t)LED_PULSE_MS * 1000UL)
-#define LED_TIMING_COMPARE_GUARD_US 20UL
+#define LED_TIMING_COMPARE_GUARD_US 20UL //
+#define LED_PRESET_EDIT_DIM_PERIOD_MS 10U /* dim PWM-like cycle length in edit mode; increase for slower flicker, decrease for smoother/faster gating */
+#define LED_PRESET_EDIT_DIM_ON_MS 1U /* dim brightness control in edit mode; lower = dimmer, higher = brighter (duty = ON / PERIOD, here 2/10 = 20%) */
 #define BUTTON_MONITOR_LED_PINS_MASK (PRESET_LED1_Pin | PRESET_LED2_Pin | PRESET_LED3_Pin | PRESET_LED4_Pin \
                                     | PRESET_LED5_Pin | PRESET_LED6_Pin | PRESET_LED7_Pin | PRESET_LED8_Pin \
                                     | PRESET_LED9_Pin | PRESET_LED10_Pin | PRESET_LED11_Pin)
@@ -22,6 +24,9 @@ static uint16_t active_button_led_pin = 0U; /* one active selection LED across p
 static uint8_t special_function_led_active = 0U; /* sticky state for button 10 mode */
 
 static uint8_t LED_BeatPulseIsAllowed(void);
+static uint8_t LED_InEditMode(void);
+static uint8_t LED_UsePresetEditDimming(void);
+static uint8_t LED_PresetEditDimPulseIsOn(uint32_t now_ms);
 static uint8_t LED_PulseDeadlineIsActive(uint32_t off_tick, uint32_t now);
 __attribute__((section(".RamFunc")))
 static uint32_t LED_TimingNowUs(void);
@@ -109,31 +114,66 @@ void LED_ClearButtonMonitorIndicators(void)
     HAL_GPIO_WritePin(GPIOF, BUTTON_MONITOR_LED_PINS_MASK, GPIO_PIN_RESET);
 }
 
-static uint8_t LED_IsPresetIndicator(uint16_t pin)
+static uint8_t LED_InEditMode(void)
 {
-    /* Check if the pin is one of the 8 preset indicator LEDs */
-    for (int i = 0; i < 8; i++)
-    {
-        if (pin == preset_led_pins[i])
-            return 1U;
-    }
-    return 0U;
+    return (Display_PresetEditIsActive() || Display_MenuIsActive()) ? 1U : 0U;
+}
+
+static uint8_t LED_UsePresetEditDimming(void)
+{
+    return LED_InEditMode();
+}
+
+static uint8_t LED_PresetEditDimPulseIsOn(uint32_t now_ms)
+{
+    /* Dim-level tuning lives in LED_PRESET_EDIT_DIM_PERIOD_MS and
+     * LED_PRESET_EDIT_DIM_ON_MS above. Keep ON <= PERIOD. */
+    return ((now_ms % LED_PRESET_EDIT_DIM_PERIOD_MS) < LED_PRESET_EDIT_DIM_ON_MS) ? 1U : 0U;
 }
 
 static void LED_ApplyButtonIndicatorState(void)
 {
     uint16_t pin_mask = 0U;
-    uint8_t in_live_mode = LED_BeatPulseIsAllowed();
+    uint8_t in_live_mode = LED_InEditMode() ? 0U : 1U;
+    uint8_t in_edit_mode = LED_UsePresetEditDimming();
+    uint8_t dim_pulse_on = 1U;
+
+    if (in_edit_mode)
+    {
+        /* To retune edit-mode dim level later, change the two
+         * LED_PRESET_EDIT_DIM_* constants near the top of this file. */
+        dim_pulse_on = LED_PresetEditDimPulseIsOn(HAL_GetTick());
+    }
 
     HAL_GPIO_WritePin(GPIOF, BUTTON_MONITOR_LED_PINS_MASK, GPIO_PIN_RESET);
 
-    /* Preset indicator LEDs stay on in LIVE and PRESET EDIT modes (not in MENU) */
-    if (active_button_led_pin != 0U && (in_live_mode || (LED_IsPresetIndicator(active_button_led_pin) && !Display_MenuIsActive())))
-        pin_mask = active_button_led_pin;
+    /* Keep the active button indicator available in all modes; in edit modes,
+     * gate it with the dim pulse for reduced perceived brightness. */
+    if (active_button_led_pin != 0U)
+    {
+        if (in_edit_mode)
+        {
+            if (dim_pulse_on)
+                pin_mask = active_button_led_pin;
+        }
+        else
+        {
+            pin_mask = active_button_led_pin;
+        }
+    }
 
-    /* Special function LED (random/mute indicator) only in LIVE mode */
-    if (special_function_led_active && in_live_mode)
-        pin_mask |= PRESET_LED9_Pin;
+    /* Special function indicator stays visible while editing, but dimmed. */
+    if (special_function_led_active)
+    {
+        if (in_live_mode)
+        {
+            pin_mask |= PRESET_LED9_Pin;
+        }
+        else if (in_edit_mode && dim_pulse_on)
+        {
+            pin_mask |= PRESET_LED9_Pin;
+        }
+    }
 
     if (pin_mask != 0U)
         HAL_GPIO_WritePin(GPIOF, pin_mask, GPIO_PIN_SET);
@@ -213,7 +253,7 @@ static void LED_DisarmBeatPulseCompare(void)
 
 static uint8_t LED_BeatPulseIsAllowed(void)
 {
-    return (Display_MenuIsActive() || Display_PresetEditIsActive()) ? 0U : 1U;
+    return 1U;
 }
 
 void LED_HandleTimingCounterIrq(void)
@@ -389,6 +429,9 @@ void LED_TickUpdate(uint32_t now)
 void LED_Update(void)
 {
     uint32_t now = HAL_GetTick();
+    uint8_t in_edit_mode = LED_UsePresetEditDimming();
+    uint8_t dim_pulse_on = in_edit_mode ? LED_PresetEditDimPulseIsOn(now) : 1U;
+    uint8_t beat_pulse_active = (uint8_t)(beat_pulse_compare_active || (beat_pulse_compare_on_us != 0U));
 
     if (!LED_BeatPulseIsAllowed())
     {
@@ -406,8 +449,29 @@ void LED_Update(void)
         HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_RESET);
     }
 
+    LED_UpdateExpiredOutputs(now);
+
     /* Re-apply button indicator state in case mode changed */
     LED_ApplyButtonIndicatorState();
 
-    LED_UpdateExpiredOutputs(now);
+    /* In edit mode, pulse-driven LEDs are duty-cycled so all visible feedback
+     * appears dimmer, including tap and transport activity LEDs. */
+    if (in_edit_mode)
+    {
+        if (beat_pulse_active)
+            HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, dim_pulse_on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+        if (flash_off_tick != 0U)
+            HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, dim_pulse_on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+        if (tap_press_off_tick != 0U)
+            HAL_GPIO_WritePin(TAP_FEEDBACK_LED_GPIO_Port,
+                              TAP_FEEDBACK_LED_Pin,
+                              dim_pulse_on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+        if (midi_in_off_tick != 0U)
+            HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port,
+                              MIDI_IN_LED_Pin,
+                              dim_pulse_on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    }
 }

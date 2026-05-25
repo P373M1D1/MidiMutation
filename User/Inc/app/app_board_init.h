@@ -12,6 +12,7 @@ void AppBoard_HandleTimingCounterIrq(void);
 uint8_t AppBoard_MetronomePwmIsAvailable(void);
 uint8_t AppBoard_MetronomePwmStart(uint16_t frequency_hz, uint8_t volume, uint32_t duration_us);
 void AppBoard_MetronomePwmStop(void);
+void AppBoard_SetRelayState(uint8_t relay_index, uint8_t closed);
 
 #ifdef __cplusplus
 }

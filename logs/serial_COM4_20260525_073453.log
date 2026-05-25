@@ -1,0 +1,9 @@
+---- Opened serial port COM4 at 115200 baud ----
+---- Session log: C:\Users\Pete\Documents\Chattest\ChatTest\.\logs\serial_COM4_20260525_073453.log ----
+---- Press Ctrl+C to stop capture ----
+METDIAG en=1 src=0 beat=3 qint=545520us cliMETDIAG en=1 src=0 beat=4 qint=545520us click=30/30us cs=2
+METDIAG en=1 src=0 beat=2 qint=545520us click=30/31us cs=2
+METDIAG en=1 src=0 beat=4 qint=545520us click=31/31us cs=2
+METDIAG en=1 src=0 beat=2 qint=545520us click=31/31us cs=2
+METDIAG en=1 src=0 beat=4 qint=545520us click=31/31us cs=2
+---- Closed serial port COM4 ----

@@ -14,6 +14,7 @@
 #include "display/display_theme.h"
 #include "display/display_value_helpers.h"
 #include "app/app_special_functions.h"
+#include "midi/midi_monitor.h"
 #include "midi_devices.h"
 #include "runtime_config.h"
 #include "st7796.h"
@@ -53,12 +54,12 @@
 #define MAIN_FOOTBAR_EDIT_LEFT_TEXT    "SELECT / ENTER"                    // label for the left footer region while preset edit mode is active
 #define MAIN_FOOTBAR_EDIT_CENTER_TEXT  "SEND"                      // label for the middle footer region while preset edit mode is active
 #define MAIN_FOOTBAR_EDIT_RIGHT_TEXT   "VALUE / EXIT"              // label for the right footer region while preset edit mode is active
-#define MAIN_FOOTBAR_MENU_LEFT_TEXT    "NAV / ENTER"              // label for the left footer region while menu mode is active
+#define MAIN_FOOTBAR_MENU_LEFT_TEXT    "NAV / BACK"               // label for the left footer region while menu mode is active
 #define MAIN_FOOTBAR_MENU_CENTER_TEXT  "HOME"                     // label for the middle footer region while menu mode is active
-#define MAIN_FOOTBAR_MENU_RIGHT_TEXT   "VALUE / BACK"             // label for the right footer region while menu mode is active
-#define MAIN_FOOTBAR_CONFIRM_LEFT_TEXT  ""                         // left footer label while a confirm page is active
-#define MAIN_FOOTBAR_CONFIRM_CENTER_TEXT "YES"                    // center footer label while a confirm page is active
-#define MAIN_FOOTBAR_CONFIRM_RIGHT_TEXT "NO"                      // right footer label while a confirm page is active
+#define MAIN_FOOTBAR_MENU_RIGHT_TEXT   "VALUE / ENTER"            // label for the right footer region while menu mode is active
+#define MAIN_FOOTBAR_CONFIRM_LEFT_TEXT  "NO"                      // left footer label while a confirm page is active
+#define MAIN_FOOTBAR_CONFIRM_CENTER_TEXT "HOME"                   // center footer label while a confirm page is active
+#define MAIN_FOOTBAR_CONFIRM_RIGHT_TEXT "YES"                     // right footer label while a confirm page is active
 #define MAIN_INFO_LEFT_X               30U                  // x origin of the left info column (MIDI programs)
 #define MAIN_INFO_RIGHT_X              235U                 // x origin of the right info column (relay / special state), shifted right by one glyph cell
 #define MAIN_INFO_FONT                 (*Display_GetThemeInfoFont())   // font used for bank text, BPM text, and info rows
@@ -76,9 +77,10 @@
 #define MAIN_INFO_PRESET_INIT_ROW_INDEX (PRESET_DEVICE_SLOTS + PRESET_CC_SLOT_COUNT) // left-column row index of the preset reset action beneath the CC rows
 #define MAIN_INFO_PRESET_INIT_TEXT     "INIT PRESET"      // action label shown after the CC rows in preset edit mode
 #define MAIN_INFO_PRESET_INIT_CONFIRM_TEXT "INIT PRESET?" // confirmation prompt shown after selecting the preset reset action
-#define MAIN_INFO_EDIT_FIELD_COUNT     (1U + PRESET_DEVICE_SLOTS + PRESET_RELAY_COUNT + (PRESET_CC_SLOT_COUNT * 3U) + 1U) // number of editable fields in preset edit mode, including the preset name and preset reset action
+#define MAIN_INFO_EDIT_FIELD_COUNT     (1U + PRESET_DEVICE_SLOTS + PRESET_RELAY_COUNT + 1U + (PRESET_CC_SLOT_COUNT * 3U) + 1U) // number of editable fields in preset edit mode, including the preset name, function button row, and preset reset action
 #define MAIN_INFO_SHARED_PAD_CHARS     2U                   // extra chars cleared when special-function text shrinks
 #define MAIN_UNUSED_PROGRAM            0xFFU                // sentinel meaning no MIDI program is assigned to that slot
+#define MAIN_PROGRAM_WET_VALUE         127U                 // incoming Mix1/Mix2 CC value that represents 100% wet
 #define MAIN_EMPTY_RIGHT_INFO_TEXT     "                "   // blank filler used to clear an unused right-side row
 #define MAIN_SAVING_POPUP_TEXT         " SAVING "          // temporary overlay shown while preset edits are being committed to flash
 #define MAIN_SAVING_POPUP_ROW_INDEX    1U                   // center the saving overlay on the middle info row
@@ -108,13 +110,13 @@
 
 #define MENU_ROOT_ITEM_COUNT            5U                   // number of top-level entries currently shown in the menu shell
 #define MENU_VISIBLE_ROW_COUNT          4U                   // number of menu rows visible at one time in the current shell layout
-#define MENU_BANK_EDIT_ITEM_COUNT       5U                   // number of items on the bank edit page
+#define MENU_BANK_EDIT_ITEM_COUNT       4U                   // number of items on the bank edit page
 #define MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT 3U              // number of editable text rows before the compare table starts
 #define MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT // first logical row index of the compare table
 #define MENU_FUNCTION_BUTTON_CC_FIRST_INDEX (MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX + RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT) // first logical row index of the CC compare section
 #define MENU_FUNCTION_BUTTON_ITEM_COUNT (MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT + MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT) // total rows in the combined function-button editor page
 #define MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT (RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT + RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT) // total rows shown on the dense function-button message pages
-#define MENU_DEVICE_EDIT_ITEM_COUNT     8U                   // number of items on the device edit page
+#define MENU_DEVICE_EDIT_ITEM_COUNT     13U                  // number of items on the device edit page
 #define MENU_ITEM_X                     24U                  // left edge of the menu row content area
 #define MENU_ITEM_W                     (ST7796_WIDTH - (MENU_ITEM_X * 2U)) // width of the menu row content area
 #define MENU_PLACEHOLDER_TEXT           "COMING SOON"       // placeholder body text for menu branches not implemented yet
@@ -223,7 +225,7 @@ void Display_ClearMainLayoutDirty(void)
 
 static void Display_FormatSpecialFunctionPrefix(char *buffer, size_t buffer_size)
 {
-    const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(current_bank);
+    const RuntimeConfigFunctionButton_t *function_button = Presets_GetActiveFunctionButton();
     const char *name = MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_NAME;
 
     if (function_button && function_button->name[0] != '\0')
@@ -237,7 +239,7 @@ static void Display_FormatSpecialFunctionPrefix(char *buffer, size_t buffer_size
 
 static const char *Display_GetSpecialFunctionStateLabel(uint8_t state_active)
 {
-    const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(current_bank);
+    const RuntimeConfigFunctionButton_t *function_button = Presets_GetActiveFunctionButton();
 
     if (!function_button)
         return state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_ACTIVE_TEXT
@@ -280,6 +282,13 @@ static DisplayPresetEditField_t Display_GetPresetEditFieldForCursor(uint8_t curs
     }
 
     cursor_index = (uint8_t)(cursor_index - PRESET_RELAY_COUNT);
+    if (cursor_index == 0U)
+    {
+        field.type = DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON;
+        return field;
+    }
+
+    cursor_index = (uint8_t)(cursor_index - 1U);
     if (cursor_index >= (PRESET_CC_SLOT_COUNT * 3U))
     {
         field.type = DISPLAY_PRESET_EDIT_FIELD_INIT;
@@ -326,8 +335,15 @@ static uint8_t Display_GetPresetEditScrollFirstSlot(uint8_t cursor_index)
             : 0U;
     }
 
+    if (field.type == DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON)
+    {
+        return (PRESET_DEVICE_SLOTS > MAIN_INFO_ROW_COUNT)
+            ? (uint8_t)(PRESET_DEVICE_SLOTS - MAIN_INFO_ROW_COUNT)
+            : 0U;
+    }
+
     if (field.type == DISPLAY_PRESET_EDIT_FIELD_INIT)
-        return (uint8_t)((PRESET_DEVICE_SLOTS + PRESET_CC_SLOT_COUNT + 1U) - MAIN_INFO_ROW_COUNT);
+        return (uint8_t)((PRESET_DEVICE_SLOTS + PRESET_CC_SLOT_COUNT + 2U) - MAIN_INFO_ROW_COUNT);
 
     return (uint8_t)((PRESET_DEVICE_SLOTS - (MAIN_INFO_ROW_COUNT - 1U)) + field.itemIndex);
 }
@@ -347,7 +363,7 @@ static uint8_t Display_GetMainInfoProgramScrollMax(void)
 
 static uint8_t Display_GetMainInfoScrollMax(void)
 {
-    uint8_t total_rows = (uint8_t)(PRESET_DEVICE_SLOTS + PRESET_CC_SLOT_COUNT + 1U);
+    uint8_t total_rows = (uint8_t)(PRESET_DEVICE_SLOTS + PRESET_CC_SLOT_COUNT + 2U);
 
     return (total_rows > MAIN_INFO_ROW_COUNT)
         ? (uint8_t)(total_rows - MAIN_INFO_ROW_COUNT)
@@ -484,8 +500,47 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
         DisplayPresetEditField_t edit_field = Display_PresetEditGetField();
         uint8_t highlight_program = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_PROGRAM && edit_field.itemIndex == slot_index) ? 1U : 0U;
         char program_text[MAIN_INFO_PROGRAM_DIGITS + 1U];
+        char wet_marker_text[3] = "  ";
         uint8_t program = preset->prg[slot_index].program;
         uint8_t program_is_shared = (program != MAIN_UNUSED_PROGRAM && Presets_DeviceProgramIsShared(slot_index, program)) ? 1U : 0U;
+        uint16_t program_foreground = MAIN_INFO_TEXT_COLOUR;
+        uint16_t program_background = MAIN_INFO_TEXT_BG_COLOUR;
+
+        if (!preset_edit_mode_active && !menu_mode_active)
+        {
+            const RuntimeConfigDevice_t *device_config = RuntimeConfig_GetDevice(slot_index);
+            uint8_t mix1_value = 0U;
+            uint8_t mix2_value = 0U;
+            uint8_t mix1_is_wet = 0U;
+            uint8_t mix2_is_wet = 0U;
+
+            if (device_config
+             && channel != MAIN_UNUSED_PROGRAM)
+            {
+                if (device_config->mix1.cc != PRESET_CC_NUMBER_UNUSED
+                 && MidiMonitor_TryGetLatestControlValueAnySource(channel,
+                                                                  device_config->mix1.cc,
+                                                                  &mix1_value)
+                 && mix1_value == MAIN_PROGRAM_WET_VALUE)
+                {
+                    mix1_is_wet = 1U;
+                }
+
+                if (device_config->mix2.cc != PRESET_CC_NUMBER_UNUSED
+                 && MidiMonitor_TryGetLatestControlValueAnySource(channel,
+                                                                  device_config->mix2.cc,
+                                                                  &mix2_value)
+                 && mix2_value == MAIN_PROGRAM_WET_VALUE)
+                {
+                    mix2_is_wet = 1U;
+                }
+            }
+
+            if (mix1_is_wet || mix2_is_wet)
+            {
+                (void)snprintf(wet_marker_text, sizeof(wet_marker_text), " W");
+            }
+        }
 
         if (program == MAIN_UNUSED_PROGRAM)
             strcpy(program_text, "---");
@@ -494,24 +549,21 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
 
         if (highlight_program)
         {
-            Display_MenuRowComposeTextSegment32(value_x,
-                                                program_text,
-                                                MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR,
-                                                program_is_shared ? MAIN_INFO_EDIT_CURSOR_SHARED_BG_COLOUR : MAIN_INFO_EDIT_CURSOR_BG_COLOUR);
-            return;
+            program_foreground = MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR;
+            program_background = program_is_shared ? MAIN_INFO_EDIT_CURSOR_SHARED_BG_COLOUR : MAIN_INFO_EDIT_CURSOR_BG_COLOUR;
         }
-
-        if (program_is_shared)
+        else if (program_is_shared)
         {
-            Display_MenuRowComposeTextSegment32(value_x,
-                                                program_text,
-                                                MAIN_INFO_SHARED_TEXT_COLOUR,
-                                                MAIN_INFO_SHARED_BG_COLOUR);
-            return;
+            program_foreground = MAIN_INFO_SHARED_TEXT_COLOUR;
+            program_background = MAIN_INFO_SHARED_BG_COLOUR;
         }
 
         Display_MenuRowComposeTextSegment32(value_x,
                                             program_text,
+                                            program_foreground,
+                                            program_background);
+        Display_MenuRowComposeTextSegment32((uint16_t)(value_x + (MAIN_INFO_PROGRAM_DIGITS * MAIN_INFO_FONT.width)),
+                                            wet_marker_text,
                                             MAIN_INFO_TEXT_COLOUR,
                                             MAIN_INFO_TEXT_BG_COLOUR);
     }
@@ -705,7 +757,7 @@ static void Display_DrawMainInfoCcRow(const Preset_t *preset,
     }
 }
 
-static void Display_DrawMainInfoSpecialState(uint16_t row_y)
+static void Display_DrawMainInfoSpecialState(uint16_t row_y, uint8_t highlight_state)
 {
     char prefix[RUNTIME_CONFIG_FUNCTION_BUTTON_NAME_LENGTH + 3U];
     uint8_t state_active = AppSpecialFunctions_IsActive();
@@ -721,14 +773,14 @@ static void Display_DrawMainInfoSpecialState(uint16_t row_y)
 
     Display_MenuRowComposeTextSegment32(MAIN_INFO_RIGHT_X,
                                         prefix,
-                                        MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_COLOUR,
-                                        MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_BG);
+                                        highlight_state ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR : MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_COLOUR,
+                                        highlight_state ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR : MAIN_SPECIAL_FUNCTION_BUTTON_PREFIX_BG);
     Display_MenuRowComposeTextSegment32(state_x,
                                         state,
-                                        state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_COLOUR : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_COLOUR,
-                                        state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_BG : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_BG);
+                                        highlight_state ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR : (state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_COLOUR : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_COLOUR),
+                                        highlight_state ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR : (state_active ? MAIN_SPECIAL_FUNCTION_BUTTON_ACTIVE_BG : MAIN_SPECIAL_FUNCTION_BUTTON_INACTIVE_BG));
 
-    if (!state_active)
+    if (!state_active || highlight_state)
         return;
 
     Display_ComposeFillRect(ST7796_WIDTH,
@@ -770,7 +822,12 @@ static void Display_DrawMainInfoRightRow(const Preset_t *preset,
     }
 
     if (right_item_index == PRESET_RELAY_COUNT)
-        Display_DrawMainInfoSpecialState(row_y);
+    {
+        DisplayPresetEditField_t edit_field = Display_PresetEditGetField();
+        uint8_t highlight_state = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON) ? 1U : 0U;
+
+        Display_DrawMainInfoSpecialState(row_y, highlight_state);
+    }
 }
 
 static void Display_DrawMainInfoLeftRow(const Preset_t *preset,
@@ -1201,6 +1258,21 @@ uint8_t Display_PresetEditMoveCursorAndRefresh(const Preset_t *preset, int8_t de
         break;
     }
 
+    case DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON:
+    {
+        uint8_t right_first_item = Display_GetMainInfoRightFirstItem();
+
+        if (PRESET_RELAY_COUNT < right_first_item
+            || PRESET_RELAY_COUNT >= (uint8_t)(right_first_item + MAIN_INFO_ROW_COUNT))
+        {
+            break;
+        }
+
+        Display_DrawMainInfoComposedRow(preset,
+                                        (uint8_t)(PRESET_RELAY_COUNT - right_first_item));
+        break;
+    }
+
     case DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL:
     case DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER:
     case DISPLAY_PRESET_EDIT_FIELD_CC_VALUE:
@@ -1275,6 +1347,21 @@ void Display_PresetEditRefreshCurrentField(const Preset_t *preset)
             return;
 
         row_index = (uint8_t)(field.itemIndex - right_first_item);
+        if (row_index >= MAIN_INFO_ROW_COUNT)
+            return;
+
+        Display_DrawMainInfoComposedRow(preset, row_index);
+        return;
+    }
+
+    case DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON:
+    {
+        uint8_t right_first_item = Display_GetMainInfoRightFirstItem();
+
+        if (PRESET_RELAY_COUNT < right_first_item)
+            return;
+
+        row_index = (uint8_t)(PRESET_RELAY_COUNT - right_first_item);
         if (row_index >= MAIN_INFO_ROW_COUNT)
             return;
 

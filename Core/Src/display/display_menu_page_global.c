@@ -22,6 +22,9 @@ static const char * const menu_global_labels[MENU_GLOBAL_ITEM_COUNT] = {
     "Sync Style",
     "Theme",
     "Brightness",
+    "Feedback Taper",
+    "Threshold",
+    "Reduce",
     "Factory Reset",
 };
 
@@ -61,6 +64,18 @@ void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buff
                        Display_GetGlobalBrightnessUiValue(global->backlight_brightness));
         break;
     case 5U:
+        (void)snprintf(buffer,
+                       buffer_size,
+                       "%s",
+                       global->feedback_taper_enabled ? "Enabled" : "Disabled");
+        break;
+    case 6U:
+        (void)snprintf(buffer, buffer_size, "%u", global->feedback_taper_threshold);
+        break;
+    case 7U:
+        (void)snprintf(buffer, buffer_size, "%u", global->feedback_taper_reduce);
+        break;
+    case 8U:
         buffer[0] = '\0';
         break;
     default:
@@ -97,7 +112,7 @@ void Display_DrawMenuGlobalItem(uint8_t item_index)
 
     row_index = (uint8_t)(item_index - first_visible_index);
 
-    if (item_index == 5U)
+    if (item_index == 8U)
     {
         /* Factory reset is intentionally rendered as a badge instead of a value
          * row so it stands apart from ordinary editable global settings. */

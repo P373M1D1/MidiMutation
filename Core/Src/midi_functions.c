@@ -1,5 +1,6 @@
 #include "midi_functions.h"
 #include "midi/midi_output.h"
+#include "runtime_config.h"
 
 /* Public MIDI facade for device-level send helpers.
  *
@@ -25,6 +26,11 @@
 
 static uint8_t midi_channel_is_valid(uint8_t channel);
 static void midi_output_send_bytes(const uint8_t *bytes, uint16_t length);
+static void Midi_MaybeSendFeedbackTaperCc(uint8_t channel,
+                                          uint8_t cc_number,
+                                          uint8_t threshold,
+                                          uint8_t reduce);
+static void Midi_ApplyFeedbackTaperForBypassedDevice(uint8_t device_index, uint8_t program);
 
 void MidiSetOutputUart(UART_HandleTypeDef *uart_handle)
 {
@@ -44,6 +50,60 @@ void MidiOutputSchedulerService(void)
 static void midi_output_send_bytes(const uint8_t *bytes, uint16_t length)
 {
     (void)MidiOutput_QueueMessageBytes(bytes, length);
+}
+
+static void Midi_MaybeSendFeedbackTaperCc(uint8_t channel,
+                                          uint8_t cc_number,
+                                          uint8_t threshold,
+                                          uint8_t reduce)
+{
+    uint8_t current_value = 0U;
+    uint8_t tapered_value;
+
+    if (cc_number == PRESET_CC_NUMBER_UNUSED || reduce == 0U)
+        return;
+
+    if (!MidiMonitor_TryGetLatestControlValueAnySource(channel,
+                                                       cc_number,
+                                                       &current_value))
+    {
+        return;
+    }
+
+    if (current_value <= threshold)
+        return;
+
+    tapered_value = (current_value > reduce) ? (uint8_t)(current_value - reduce) : 0U;
+    if (tapered_value == current_value)
+        return;
+
+    MIDI_SendCC(channel, cc_number, tapered_value);
+}
+
+static void Midi_ApplyFeedbackTaperForBypassedDevice(uint8_t device_index, uint8_t program)
+{
+    const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
+    const RuntimeConfigDevice_t *device;
+
+    if (program != PRESET_PROGRAM_NONE || !global || !global->feedback_taper_enabled)
+        return;
+
+    device = RuntimeConfig_GetDevice(device_index);
+    if (!device)
+        return;
+
+    Midi_MaybeSendFeedbackTaperCc(device->channel,
+                                  device->decay1.cc,
+                                  global->feedback_taper_threshold,
+                                  global->feedback_taper_reduce);
+
+    if (device->decay2.cc != device->decay1.cc)
+    {
+        Midi_MaybeSendFeedbackTaperCc(device->channel,
+                                      device->decay2.cc,
+                                      global->feedback_taper_threshold,
+                                      global->feedback_taper_reduce);
+    }
 }
 
 /* ── MIDI_SendProgramChange ──────────────────────────────────────────────────
@@ -128,7 +188,10 @@ void Midi_LoadPreset(const Preset_t *preset)
      * follow-up CCs try to tweak parameters on the newly selected preset. */
     for (uint8_t i = 0U; i < PRESET_DEVICE_SLOTS; i++)
     {
-        Midi_SendDeviceProgramSlot(i, preset->prg[i].program);
+        uint8_t program = preset->prg[i].program;
+
+        Midi_SendDeviceProgramSlot(i, program);
+        Midi_ApplyFeedbackTaperForBypassedDevice(i, program);
     }
 
     Midi_SendPresetCCs(preset);

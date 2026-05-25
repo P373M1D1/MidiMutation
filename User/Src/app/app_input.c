@@ -14,6 +14,10 @@
 #include <stdio.h>
 
 #define ENCODER_CHECK_SERIAL_ENABLED      1U
+#define APP_INPUT_TAP_DEBOUNCE_MS         20U
+
+static uint8_t app_input_tap_press_latched = 0U;
+static uint32_t app_input_tap_last_event_tick = 0U;
 
 static void AppInput_EncoderCheckLogTurn(uint8_t encoder_index, int8_t delta);
 static void AppInput_EncoderProcessPendingMotion(AppEncoderSamplerId_t encoder_id,
@@ -31,6 +35,14 @@ void AppInput_Init(void)
 
 void AppInput_ProcessPending(void)
 {
+    AppFootswitchInput_ProcessPending();
+
+    if (app_input_tap_press_latched
+        && (HAL_GPIO_ReadPin(TAP_GPIO_Port, TAP_Pin) != GPIO_PIN_RESET))
+    {
+        app_input_tap_press_latched = 0U;
+    }
+
     AppInput_EncoderProcessPendingMotion(APP_ENCODER_SAMPLER_ENCODER1,
                                          1U,
                                          APP_EVENT_SOURCE_ENC1);
@@ -45,6 +57,8 @@ void AppInput_ProcessPending(void)
 
 void AppInput_HandleGpioExti(uint16_t gpio_pin)
 {
+    uint32_t now;
+
     if (AppInputEncoderSwitches_HandleExti(gpio_pin) != 0U)
         return;
 
@@ -59,12 +73,25 @@ void AppInput_HandleGpioExti(uint16_t gpio_pin)
     if (AppButtonMonitor_HandleTapPress())
         return;
 
+    now = HAL_GetTick();
+    if ((now - app_input_tap_last_event_tick) < APP_INPUT_TAP_DEBOUNCE_MS)
+        return;
+
+    if (app_input_tap_press_latched)
+        return;
+
+    if (HAL_GPIO_ReadPin(TAP_GPIO_Port, TAP_Pin) != GPIO_PIN_RESET)
+        return;
+
+    app_input_tap_press_latched = 1U;
+    app_input_tap_last_event_tick = now;
+
     {
         AppEvent_t tap_event = {
             APP_EVENT_TYPE_TAP_PRESS,
             APP_EVENT_SOURCE_TAP,
             0,
-            HAL_GetTick()
+            now
         };
 
         (void)AppEvent_Push(&tap_event);

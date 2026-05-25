@@ -25,6 +25,7 @@ static const uint16_t app_footswitch_input_pins[APP_FOOTSWITCH_INPUT_COUNT] = {
 };
 
 static uint32_t app_footswitch_input_event_tick[APP_FOOTSWITCH_INPUT_COUNT] = {0U};
+static uint8_t app_footswitch_input_press_latched[APP_FOOTSWITCH_INPUT_COUNT] = {0U};
 
 static int8_t AppFootswitchInput_TryResolveIndex(uint16_t gpio_pin);
 
@@ -45,7 +46,16 @@ void AppFootswitchInput_HandleGpioExti(uint16_t gpio_pin)
     if ((uint8_t)index == APP_FOOTSWITCH_INPUT_MUTE_INDEX)
         is_pressed = AppFootswitchInput_ReadPressed((uint8_t)index);
     else
+    {
+        if (app_footswitch_input_press_latched[(uint8_t)index])
+            return;
+
+        if (AppFootswitchInput_ReadPressed((uint8_t)index) == 0U)
+            return;
+
         is_pressed = 1U;
+        app_footswitch_input_press_latched[(uint8_t)index] = 1U;
+    }
 
     app_footswitch_input_event_tick[(uint8_t)index] = now;
 
@@ -54,6 +64,21 @@ void AppFootswitchInput_HandleGpioExti(uint16_t gpio_pin)
     event.value = (int16_t)is_pressed;
     event.tick = now;
     (void)AppEvent_Push(&event);
+}
+
+void AppFootswitchInput_ProcessPending(void)
+{
+    for (uint8_t index = 0U; index < APP_FOOTSWITCH_INPUT_COUNT; ++index)
+    {
+        if ((index == APP_FOOTSWITCH_INPUT_MUTE_INDEX)
+         || !app_footswitch_input_press_latched[index])
+        {
+            continue;
+        }
+
+        if (AppFootswitchInput_ReadPressed(index) == 0U)
+            app_footswitch_input_press_latched[index] = 0U;
+    }
 }
 
 uint8_t AppFootswitchInput_ReadPressed(uint8_t index)

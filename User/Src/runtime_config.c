@@ -12,6 +12,9 @@
 #define RUNTIME_CONFIG_GLOBAL_SCREENSAVER_MIN_DEFAULT   10U
 #define RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT       RUNTIME_CONFIG_DISPLAY_MODE_DARK
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_DEFAULT        RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX
+#define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT   0U
+#define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT 96U
+#define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT    32U
 #define RUNTIME_CONFIG_METRONOME_VOLUME_DEFAULT         50U
 #define RUNTIME_CONFIG_METRONOME_PITCH_DEFAULT          RUNTIME_CONFIG_METRONOME_PITCH_MID
 #define RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_DEFAULT  4U
@@ -28,6 +31,14 @@
 
 #define RUNTIME_CONFIG_CC_MESSAGE_LIST_EMPTY \
     { RUNTIME_CONFIG_CC_MESSAGE_UNUSED, RUNTIME_CONFIG_CC_MESSAGE_UNUSED, RUNTIME_CONFIG_CC_MESSAGE_UNUSED, RUNTIME_CONFIG_CC_MESSAGE_UNUSED }
+
+#define RUNTIME_CONFIG_PRESET_CC_LIST_EMPTY \
+        { RUNTIME_CONFIG_CC_MESSAGE_UNUSED, RUNTIME_CONFIG_CC_MESSAGE_UNUSED, RUNTIME_CONFIG_CC_MESSAGE_UNUSED, RUNTIME_CONFIG_CC_MESSAGE_UNUSED, \
+            RUNTIME_CONFIG_CC_MESSAGE_UNUSED, RUNTIME_CONFIG_CC_MESSAGE_UNUSED, RUNTIME_CONFIG_CC_MESSAGE_UNUSED, RUNTIME_CONFIG_CC_MESSAGE_UNUSED }
+
+#define RUNTIME_CONFIG_PRESET_PROGRAM_LIST_EMPTY \
+        { { PRESET_PROGRAM_NONE }, { PRESET_PROGRAM_NONE }, { PRESET_PROGRAM_NONE }, { PRESET_PROGRAM_NONE }, \
+            { PRESET_PROGRAM_NONE }, { PRESET_PROGRAM_NONE }, { PRESET_PROGRAM_NONE }, { PRESET_PROGRAM_NONE } }
 
 #define RUNTIME_CONFIG_DEVICE_CC_UNUSED \
     { .cc = PRESET_CC_NUMBER_UNUSED, .value = 0U }
@@ -46,8 +57,8 @@ typedef struct {
     uint8_t channel;
     MidiCC_t active;
     MidiCC_t bypass;
-    MidiCC_t level;
     MidiCC_t tap_tempo;
+    MidiCC_t level;
     uint8_t max_preset;
 } RuntimeConfigDeviceLegacyV2_t;
 
@@ -56,10 +67,53 @@ typedef struct {
     uint8_t channel;
     MidiCC_t active;
     MidiCC_t bypass;
-    MidiCC_t level;
     MidiCC_t tap_tempo;
+    MidiCC_t level;
     uint8_t max_preset;
 } RuntimeConfigDeviceLegacyV4_t;
+
+typedef struct {
+    char name[RUNTIME_CONFIG_DEVICE_NAME_LENGTH + 1U];
+    uint8_t channel;
+    MidiCC_t active;
+    MidiCC_t bypass;
+    MidiCC_t tap_tempo;
+    MidiCC_t level;
+    uint8_t max_preset;
+} RuntimeConfigDeviceLegacyV6_t;
+
+typedef struct {
+    char name[RUNTIME_CONFIG_DEVICE_NAME_LENGTH + 1U];
+    uint8_t channel;
+    MidiCC_t active;
+    MidiCC_t bypass;
+    MidiCC_t tap_tempo;
+    MidiCC_t level;
+    MidiCC_t mix;
+    uint8_t max_preset;
+} RuntimeConfigDeviceLegacyV7_t;
+
+typedef struct {
+    char name[RUNTIME_CONFIG_DEVICE_NAME_LENGTH + 1U];
+    uint8_t channel;
+    MidiCC_t active;
+    MidiCC_t bypass;
+    MidiCC_t tap_tempo;
+    MidiCC_t level;
+    MidiCC_t mix1;
+    MidiCC_t mix2;
+    MidiCC_t decay1;
+    MidiCC_t decay2;
+    uint8_t max_preset;
+} RuntimeConfigDeviceLegacyV8_t;
+
+typedef struct {
+    uint8_t startup_delay_seconds;
+    uint8_t screensaver_timeout_minutes;
+    RuntimeConfigSyncStyle_t sync_style;
+    RuntimeConfigDisplayMode_t display_mode;
+    uint16_t backlight_brightness;
+} RuntimeConfigGlobalLegacyV9_t;
 
 typedef struct {
     uint8_t startup_delay_seconds;
@@ -88,16 +142,56 @@ typedef struct {
 
 typedef struct {
     RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
-    RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
-    RuntimeConfigGlobal_t global;
+    RuntimeConfigDeviceLegacyV6_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigGlobalLegacyV9_t global;
 } RuntimeConfigLegacyNoUserThemes_t;
+
+typedef struct {
+    RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
+    RuntimeConfigDeviceLegacyV6_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigGlobalLegacyV9_t global;
+    RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
+} RuntimeConfigLegacyV5_t;
+
+typedef struct {
+    RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
+    RuntimeConfigDeviceLegacyV6_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigGlobalLegacyV9_t global;
+    RuntimeConfigMetronome_t metronome;
+    RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
+} RuntimeConfigLegacyV6_t;
+
+typedef struct {
+    RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
+    RuntimeConfigDeviceLegacyV7_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigGlobalLegacyV9_t global;
+    RuntimeConfigMetronome_t metronome;
+    RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
+} RuntimeConfigLegacyV7_t;
+
+typedef struct {
+    RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
+    RuntimeConfigDeviceLegacyV8_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigGlobalLegacyV9_t global;
+    RuntimeConfigMetronome_t metronome;
+    RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
+} RuntimeConfigLegacyV8_t;
+
+typedef struct {
+    RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
+    RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigGlobalLegacyV9_t global;
+    RuntimeConfigMetronome_t metronome;
+    RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
+} RuntimeConfigLegacyV9_t;
 
 typedef struct {
     RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
     RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
     RuntimeConfigGlobal_t global;
+    RuntimeConfigMetronome_t metronome;
     RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
-} RuntimeConfigLegacyV5_t;
+} RuntimeConfigLegacyV10_t;
 
 #define RUNTIME_CONFIG_FUNCTION_BUTTON_DEFAULT \
     { \
@@ -124,8 +218,13 @@ typedef struct {
         .channel = channel_value, \
         .active = { .cc = active_cc_value, .value = active_data_value }, \
         .bypass = { .cc = bypass_cc_value, .value = bypass_data_value }, \
-        .level = RUNTIME_CONFIG_DEVICE_CC_UNUSED, \
         .tap_tempo = { .cc = tap_cc_value, .value = tap_data_value }, \
+        .volume1 = RUNTIME_CONFIG_DEVICE_CC_UNUSED, \
+        .volume2 = RUNTIME_CONFIG_DEVICE_CC_UNUSED, \
+        .mix1 = RUNTIME_CONFIG_DEVICE_CC_UNUSED, \
+        .mix2 = RUNTIME_CONFIG_DEVICE_CC_UNUSED, \
+        .decay1 = RUNTIME_CONFIG_DEVICE_CC_UNUSED, \
+        .decay2 = RUNTIME_CONFIG_DEVICE_CC_UNUSED, \
         .max_preset = max_preset_value, \
     }
 
@@ -175,9 +274,30 @@ static const RuntimeConfigDevice_t runtime_config_blank_device = {
     .channel = 0U,
     .active = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
     .bypass = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
-    .level = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
     .tap_tempo = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
+    .volume1 = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
+    .volume2 = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
+    .mix1 = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
+    .mix2 = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
+    .decay1 = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
+    .decay2 = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
     .max_preset = 0U,
+};
+
+static const Preset_t runtime_config_global_bypass_preset_default = {
+    .name = "Bypass",
+    .prg = RUNTIME_CONFIG_PRESET_PROGRAM_LIST_EMPTY,
+    .cc = RUNTIME_CONFIG_PRESET_CC_LIST_EMPTY,
+    .relay = { PRESET_RELAY_OPEN, PRESET_RELAY_OPEN },
+    .function_button = RUNTIME_CONFIG_FUNCTION_BUTTON_DEFAULT,
+};
+
+static const Preset_t runtime_config_global_mute_preset_default = {
+    .name = "Mute",
+    .prg = RUNTIME_CONFIG_PRESET_PROGRAM_LIST_EMPTY,
+    .cc = RUNTIME_CONFIG_PRESET_CC_LIST_EMPTY,
+    .relay = { PRESET_RELAY_OPEN, PRESET_RELAY_OPEN },
+    .function_button = RUNTIME_CONFIG_FUNCTION_BUTTON_DEFAULT,
 };
 
 static const RuntimeConfig_t runtime_config_defaults = {
@@ -207,12 +327,29 @@ static const RuntimeConfig_t runtime_config_defaults = {
         .sync_style = RUNTIME_CONFIG_SYNC_STYLE_MIDI_CLOCK,
         .display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT,
         .backlight_brightness = RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_DEFAULT,
+        .feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT,
+        .feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT,
+        .feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT,
     },
     .metronome = RUNTIME_CONFIG_METRONOME_DEFAULT,
     .user_themes = {
         RUNTIME_CONFIG_USER_THEME_ENTRY(BLACK, BLUE_SAPPHIRE, BABY_POWDER, AQUAMARINE, BLACK, CANTALOUPE_MELON, BRINK_PINK, BABY_POWDER, BLUE_SAPPHIRE, CANTALOUPE_MELON, BABY_POWDER, BLACK, CANTALOUPE_MELON, BABY_POWDER, PALE_AQUA, CANTALOUPE_MELON, BABY_POWDER, PALE_AQUA, BLUE_SAPPHIRE, BLACK, AQUA, CANTALOUPE_MELON),
         RUNTIME_CONFIG_USER_THEME_ENTRY(BLACK, DARK_GOLDENROD, LIGHT_GOLDENROD_YELLOW, AMBER, BLACK, GOLDENROD, ORANGE, LIGHT_GOLDENROD_YELLOW, DARK_BROWN, GOLDEN_BROWN, LIGHT_GOLDENROD_YELLOW, BLACK, AMBER, LIGHT_GOLDENROD_YELLOW, GOLDENROD, AMBER, LIGHT_GOLDENROD_YELLOW, GOLD_FUSION, BROWN, BLACK, AMBER, GOLDENROD),
         RUNTIME_CONFIG_USER_THEME_ENTRY(BLACK, TYRIAN_PURPLE, BABY_POWDER, CAPRI, BLACK, CAPRI, HOT_PINK, BABY_POWDER, TYRIAN_PURPLE, CAPRI, BABY_POWDER, BLACK, CAPRI, BABY_POWDER, CAPRI, CAPRI, BABY_POWDER, VIOLET_CRAYOLA, TYRIAN_PURPLE, BLACK, CAPRI, HOT_PINK),
+    },
+    .global_bypass_preset = {
+        .name = "Bypass",
+        .prg = RUNTIME_CONFIG_PRESET_PROGRAM_LIST_EMPTY,
+        .cc = RUNTIME_CONFIG_PRESET_CC_LIST_EMPTY,
+        .relay = { PRESET_RELAY_OPEN, PRESET_RELAY_OPEN },
+        .function_button = RUNTIME_CONFIG_FUNCTION_BUTTON_DEFAULT,
+    },
+    .global_mute_preset = {
+        .name = "Mute",
+        .prg = RUNTIME_CONFIG_PRESET_PROGRAM_LIST_EMPTY,
+        .cc = RUNTIME_CONFIG_PRESET_CC_LIST_EMPTY,
+        .relay = { PRESET_RELAY_OPEN, PRESET_RELAY_OPEN },
+        .function_button = RUNTIME_CONFIG_FUNCTION_BUTTON_DEFAULT,
     },
 };
 
@@ -230,6 +367,52 @@ static RuntimeConfigMetronome_t runtime_config_persisted_metronome = RUNTIME_CON
 static RuntimeConfigPersistentStoreDiagnosticMode_t runtime_config_persistent_store_diag_mode = RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_DEFAULT;
 static uint8_t runtime_config_persistent_store_diag_slot = 0U;
 static uint32_t runtime_config_persistent_store_diag_generation = 0U;
+
+static void RuntimeConfig_SeedGlobalMutePresetFromLegacyBehavior(Preset_t *preset)
+{
+    uint8_t cc_slot = 0U;
+
+    if (!preset)
+        return;
+
+    for (uint8_t cc_index = 0U; cc_index < PRESET_CC_SLOT_COUNT; ++cc_index)
+    {
+        preset->cc[cc_index].channel = PRESET_CC_CHANNEL_UNUSED;
+        preset->cc[cc_index].cc_number = PRESET_CC_NUMBER_UNUSED;
+        preset->cc[cc_index].value = PRESET_CC_VALUE_UNUSED;
+    }
+
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT && cc_slot < PRESET_CC_SLOT_COUNT; ++device_index)
+    {
+        const RuntimeConfigDevice_t *device = &runtime_config_store.devices[device_index];
+
+        if (device->channel < 1U || device->channel > 16U)
+            continue;
+
+        if (device->volume1.cc != PRESET_CC_NUMBER_UNUSED && cc_slot < PRESET_CC_SLOT_COUNT)
+        {
+            preset->cc[cc_slot].channel = device->channel;
+            preset->cc[cc_slot].cc_number = device->volume1.cc;
+            preset->cc[cc_slot].value = 0U;
+            ++cc_slot;
+        }
+
+        if (device->volume2.cc != PRESET_CC_NUMBER_UNUSED && cc_slot < PRESET_CC_SLOT_COUNT)
+        {
+            preset->cc[cc_slot].channel = device->channel;
+            preset->cc[cc_slot].cc_number = device->volume2.cc;
+            preset->cc[cc_slot].value = 0U;
+            ++cc_slot;
+        }
+    }
+}
+
+static void RuntimeConfig_InitGlobalPresetsForLegacySnapshot(void)
+{
+    runtime_config_store.global_bypass_preset = runtime_config_global_bypass_preset_default;
+    runtime_config_store.global_mute_preset = runtime_config_global_mute_preset_default;
+    RuntimeConfig_SeedGlobalMutePresetFromLegacyBehavior(&runtime_config_store.global_mute_preset);
+}
 
 static uint8_t RuntimeConfig_ShouldDeferMetronomePersistence(void)
 {
@@ -267,8 +450,18 @@ static void RuntimeConfig_CopyLegacyDevice(RuntimeConfigDevice_t *destination,
     destination->channel = source->channel;
     destination->active = source->active;
     destination->bypass = source->bypass;
-    destination->level = source->level;
     destination->tap_tempo = source->tap_tempo;
+    destination->volume1 = source->level;
+    destination->volume2.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->volume2.value = 0U;
+    destination->mix1.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->mix1.value = 0U;
+    destination->mix2.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->mix2.value = 0U;
+    destination->decay1.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->decay1.value = 0U;
+    destination->decay2.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->decay2.value = 0U;
     destination->max_preset = source->max_preset;
 }
 
@@ -303,14 +496,99 @@ static void RuntimeConfig_CopyLegacyDeviceV4(RuntimeConfigDevice_t *destination,
     destination->channel = source->channel;
     destination->active = source->active;
     destination->bypass = source->bypass;
-    destination->level = source->level;
     destination->tap_tempo = source->tap_tempo;
+    destination->volume1 = source->level;
+    destination->volume2.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->volume2.value = 0U;
+    destination->mix1.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->mix1.value = 0U;
+    destination->mix2.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->mix2.value = 0U;
+    destination->decay1.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->decay1.value = 0U;
+    destination->decay2.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->decay2.value = 0U;
+    destination->max_preset = source->max_preset;
+}
+
+static void RuntimeConfig_CopyLegacyDeviceV6(RuntimeConfigDevice_t *destination,
+                                             const RuntimeConfigDeviceLegacyV6_t *source)
+{
+    if (!destination || !source)
+        return;
+
+    memcpy(destination->name, source->name, sizeof(destination->name));
+    destination->channel = source->channel;
+    destination->active = source->active;
+    destination->bypass = source->bypass;
+    destination->tap_tempo = source->tap_tempo;
+    destination->volume1 = source->level;
+    destination->volume2.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->volume2.value = 0U;
+    destination->mix1.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->mix1.value = 0U;
+    destination->mix2.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->mix2.value = 0U;
+    destination->decay1.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->decay1.value = 0U;
+    destination->decay2.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->decay2.value = 0U;
+    destination->max_preset = source->max_preset;
+}
+
+static void RuntimeConfig_CopyLegacyDeviceV7(RuntimeConfigDevice_t *destination,
+                                             const RuntimeConfigDeviceLegacyV7_t *source)
+{
+    if (!destination || !source)
+        return;
+
+    memcpy(destination->name, source->name, sizeof(destination->name));
+    destination->channel = source->channel;
+    destination->active = source->active;
+    destination->bypass = source->bypass;
+    destination->tap_tempo = source->tap_tempo;
+    destination->volume1 = source->level;
+    destination->volume2.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->volume2.value = 0U;
+    destination->mix1 = source->mix;
+    destination->mix2.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->mix2.value = 0U;
+    destination->decay1.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->decay1.value = 0U;
+    destination->decay2.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->decay2.value = 0U;
+    destination->max_preset = source->max_preset;
+}
+
+static void RuntimeConfig_CopyLegacyDeviceV8(RuntimeConfigDevice_t *destination,
+                                             const RuntimeConfigDeviceLegacyV8_t *source)
+{
+    if (!destination || !source)
+        return;
+
+    memcpy(destination->name, source->name, sizeof(destination->name));
+    destination->channel = source->channel;
+    destination->active = source->active;
+    destination->bypass = source->bypass;
+    destination->tap_tempo = source->tap_tempo;
+    destination->volume1 = source->level;
+    destination->volume2.cc = PRESET_CC_NUMBER_UNUSED;
+    destination->volume2.value = 0U;
+    destination->mix1 = source->mix1;
+    destination->mix2 = source->mix2;
+    destination->decay1 = source->decay1;
+    destination->decay2 = source->decay2;
     destination->max_preset = source->max_preset;
 }
 
 static uint8_t RuntimeConfig_FlashHeaderV2HasSupportedConfigSize(uint32_t config_size)
 {
     return (config_size == sizeof(RuntimeConfig_t)
+            || config_size == sizeof(RuntimeConfigLegacyV10_t)
+            || config_size == sizeof(RuntimeConfigLegacyV9_t)
+            || config_size == sizeof(RuntimeConfigLegacyV8_t)
+            || config_size == sizeof(RuntimeConfigLegacyV7_t)
+         || config_size == sizeof(RuntimeConfigLegacyV6_t)
          || config_size == sizeof(RuntimeConfigLegacyV5_t)
          || config_size == sizeof(RuntimeConfigLegacyNoUserThemes_t)
          || config_size == sizeof(RuntimeConfigLegacyV4_t)
@@ -396,6 +674,41 @@ static uint8_t RuntimeConfig_NormalizeMetronomeVolume(uint8_t volume)
     return (volume <= RUNTIME_CONFIG_METRONOME_VOLUME_MAX)
         ? volume
         : RUNTIME_CONFIG_METRONOME_VOLUME_MAX;
+}
+
+static uint8_t RuntimeConfig_NormalizeFeedbackTaperEnabled(uint8_t enabled)
+{
+    return enabled ? 1U : 0U;
+}
+
+static uint8_t RuntimeConfig_NormalizeFeedbackTaperThreshold(uint8_t threshold)
+{
+    return (threshold <= RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_MAX)
+        ? threshold
+        : RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_MAX;
+}
+
+static uint8_t RuntimeConfig_NormalizeFeedbackTaperReduce(uint8_t reduce)
+{
+    return (reduce <= RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_MAX)
+        ? reduce
+        : RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_MAX;
+}
+
+static void RuntimeConfig_ApplyLegacyGlobalV9(RuntimeConfigGlobal_t *destination,
+                                              const RuntimeConfigGlobalLegacyV9_t *source)
+{
+    if (!destination || !source)
+        return;
+
+    destination->startup_delay_seconds = source->startup_delay_seconds;
+    destination->screensaver_timeout_minutes = source->screensaver_timeout_minutes;
+    destination->sync_style = source->sync_style;
+    destination->display_mode = source->display_mode;
+    destination->backlight_brightness = source->backlight_brightness;
+    destination->feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT;
+    destination->feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT;
+    destination->feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT;
 }
 
 static RuntimeConfigMetronomePitch_t RuntimeConfig_NormalizeMetronomePitch(uint8_t pitch)
@@ -545,6 +858,12 @@ static void RuntimeConfig_NormalizeLoadedStore(void)
 
     runtime_config_store.global.backlight_brightness = RuntimeConfig_NormalizeBacklightBrightness(
         runtime_config_store.global.backlight_brightness);
+    runtime_config_store.global.feedback_taper_enabled = RuntimeConfig_NormalizeFeedbackTaperEnabled(
+        runtime_config_store.global.feedback_taper_enabled);
+    runtime_config_store.global.feedback_taper_threshold = RuntimeConfig_NormalizeFeedbackTaperThreshold(
+        runtime_config_store.global.feedback_taper_threshold);
+    runtime_config_store.global.feedback_taper_reduce = RuntimeConfig_NormalizeFeedbackTaperReduce(
+        runtime_config_store.global.feedback_taper_reduce);
     runtime_config_store.global.display_mode = RuntimeConfig_NormalizeDisplayMode(
         (uint8_t)runtime_config_store.global.display_mode);
     runtime_config_store.metronome.volume = RuntimeConfig_NormalizeMetronomeVolume(
@@ -583,6 +902,9 @@ static void RuntimeConfig_ApplyLegacyV2Snapshot(const RuntimeConfigLegacyV2_t *l
     runtime_config_store.global.sync_style = legacy_store->global.sync_style;
     runtime_config_store.global.display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT;
     runtime_config_store.global.backlight_brightness = legacy_store->global.backlight_brightness;
+    runtime_config_store.global.feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT;
+    runtime_config_store.global.feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT;
+    runtime_config_store.global.feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT;
     runtime_config_store.metronome = runtime_config_defaults.metronome;
 }
 
@@ -606,6 +928,9 @@ static void RuntimeConfig_ApplyLegacyV3Snapshot(const RuntimeConfigLegacyV3_t *l
     runtime_config_store.global.sync_style = legacy_store->global.sync_style;
     runtime_config_store.global.display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT;
     runtime_config_store.global.backlight_brightness = legacy_store->global.backlight_brightness;
+    runtime_config_store.global.feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT;
+    runtime_config_store.global.feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT;
+    runtime_config_store.global.feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT;
     runtime_config_store.metronome = runtime_config_defaults.metronome;
 }
 
@@ -629,6 +954,9 @@ static void RuntimeConfig_ApplyLegacyV4Snapshot(const RuntimeConfigLegacyV4_t *l
     runtime_config_store.global.sync_style = legacy_store->global.sync_style;
     runtime_config_store.global.display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT;
     runtime_config_store.global.backlight_brightness = legacy_store->global.backlight_brightness;
+    runtime_config_store.global.feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT;
+    runtime_config_store.global.feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT;
+    runtime_config_store.global.feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT;
     runtime_config_store.metronome = runtime_config_defaults.metronome;
 }
 
@@ -640,10 +968,10 @@ static void RuntimeConfig_ApplyLegacyV5Snapshot(const RuntimeConfigLegacyV5_t *l
     memcpy(runtime_config_store.banks,
            legacy_store->banks,
            sizeof(runtime_config_store.banks));
-    memcpy(runtime_config_store.devices,
-           legacy_store->devices,
-           sizeof(runtime_config_store.devices));
-    runtime_config_store.global = legacy_store->global;
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDeviceV6(&runtime_config_store.devices[device_index],
+                                         &legacy_store->devices[device_index]);
+    RuntimeConfig_ApplyLegacyGlobalV9(&runtime_config_store.global, &legacy_store->global);
     memcpy(runtime_config_store.user_themes,
            legacy_store->user_themes,
            sizeof(runtime_config_store.user_themes));
@@ -658,12 +986,105 @@ static void RuntimeConfig_ApplyLegacyNoUserThemesSnapshot(const RuntimeConfigLeg
     memcpy(runtime_config_store.banks,
            legacy_store->banks,
            sizeof(runtime_config_store.banks));
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDeviceV6(&runtime_config_store.devices[device_index],
+                                         &legacy_store->devices[device_index]);
+    RuntimeConfig_ApplyLegacyGlobalV9(&runtime_config_store.global, &legacy_store->global);
+    runtime_config_store.metronome = runtime_config_defaults.metronome;
+    RuntimeConfig_ResetUserThemesToDefaults();
+}
+
+static void RuntimeConfig_ApplyLegacyV6Snapshot(const RuntimeConfigLegacyV6_t *legacy_store)
+{
+    if (!legacy_store)
+        return;
+
+    memcpy(runtime_config_store.banks,
+           legacy_store->banks,
+           sizeof(runtime_config_store.banks));
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDeviceV6(&runtime_config_store.devices[device_index],
+                                         &legacy_store->devices[device_index]);
+    RuntimeConfig_ApplyLegacyGlobalV9(&runtime_config_store.global, &legacy_store->global);
+    runtime_config_store.metronome = legacy_store->metronome;
+    memcpy(runtime_config_store.user_themes,
+           legacy_store->user_themes,
+           sizeof(runtime_config_store.user_themes));
+}
+
+static void RuntimeConfig_ApplyLegacyV7Snapshot(const RuntimeConfigLegacyV7_t *legacy_store)
+{
+    if (!legacy_store)
+        return;
+
+    memcpy(runtime_config_store.banks,
+           legacy_store->banks,
+           sizeof(runtime_config_store.banks));
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDeviceV7(&runtime_config_store.devices[device_index],
+                                         &legacy_store->devices[device_index]);
+    RuntimeConfig_ApplyLegacyGlobalV9(&runtime_config_store.global, &legacy_store->global);
+    runtime_config_store.metronome = legacy_store->metronome;
+    memcpy(runtime_config_store.user_themes,
+           legacy_store->user_themes,
+           sizeof(runtime_config_store.user_themes));
+}
+
+static void RuntimeConfig_ApplyLegacyV8Snapshot(const RuntimeConfigLegacyV8_t *legacy_store)
+{
+    if (!legacy_store)
+        return;
+
+    memcpy(runtime_config_store.banks,
+           legacy_store->banks,
+           sizeof(runtime_config_store.banks));
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDeviceV8(&runtime_config_store.devices[device_index],
+                                         &legacy_store->devices[device_index]);
+    RuntimeConfig_ApplyLegacyGlobalV9(&runtime_config_store.global, &legacy_store->global);
+    runtime_config_store.metronome = legacy_store->metronome;
+    memcpy(runtime_config_store.user_themes,
+           legacy_store->user_themes,
+           sizeof(runtime_config_store.user_themes));
+    RuntimeConfig_InitGlobalPresetsForLegacySnapshot();
+}
+
+static void RuntimeConfig_ApplyLegacyV9Snapshot(const RuntimeConfigLegacyV9_t *legacy_store)
+{
+    if (!legacy_store)
+        return;
+
+    memcpy(runtime_config_store.banks,
+           legacy_store->banks,
+           sizeof(runtime_config_store.banks));
     memcpy(runtime_config_store.devices,
            legacy_store->devices,
            sizeof(runtime_config_store.devices));
-    runtime_config_store.global = legacy_store->global;
-    runtime_config_store.metronome = runtime_config_defaults.metronome;
-    RuntimeConfig_ResetUserThemesToDefaults();
+    RuntimeConfig_ApplyLegacyGlobalV9(&runtime_config_store.global, &legacy_store->global);
+    runtime_config_store.metronome = legacy_store->metronome;
+    memcpy(runtime_config_store.user_themes,
+           legacy_store->user_themes,
+           sizeof(runtime_config_store.user_themes));
+        RuntimeConfig_InitGlobalPresetsForLegacySnapshot();
+    }
+
+    static void RuntimeConfig_ApplyLegacyV10Snapshot(const RuntimeConfigLegacyV10_t *legacy_store)
+    {
+        if (!legacy_store)
+         return;
+
+        memcpy(runtime_config_store.banks,
+            legacy_store->banks,
+            sizeof(runtime_config_store.banks));
+        memcpy(runtime_config_store.devices,
+            legacy_store->devices,
+            sizeof(runtime_config_store.devices));
+        runtime_config_store.global = legacy_store->global;
+        runtime_config_store.metronome = legacy_store->metronome;
+        memcpy(runtime_config_store.user_themes,
+            legacy_store->user_themes,
+            sizeof(runtime_config_store.user_themes));
+        RuntimeConfig_InitGlobalPresetsForLegacySnapshot();
 }
 
 static uint32_t RuntimeConfig_FlashChecksum(const uint8_t *data, size_t size)
@@ -805,6 +1226,41 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
                 (uint8_t)runtime_config_store.global.display_mode,
                 header_v3->version);
         }
+        else if (header_v3->config_size == sizeof(RuntimeConfigLegacyV10_t))
+        {
+            RuntimeConfigLegacyV10_t legacy_store;
+
+            memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+            RuntimeConfig_ApplyLegacyV10Snapshot(&legacy_store);
+        }
+        else if (header_v3->config_size == sizeof(RuntimeConfigLegacyV9_t))
+        {
+            RuntimeConfigLegacyV9_t legacy_store;
+
+            memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+            RuntimeConfig_ApplyLegacyV9Snapshot(&legacy_store);
+        }
+        else if (header_v3->config_size == sizeof(RuntimeConfigLegacyV8_t))
+        {
+            RuntimeConfigLegacyV8_t legacy_store;
+
+            memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+            RuntimeConfig_ApplyLegacyV8Snapshot(&legacy_store);
+        }
+        else if (header_v3->config_size == sizeof(RuntimeConfigLegacyV7_t))
+        {
+            RuntimeConfigLegacyV7_t legacy_store;
+
+            memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+            RuntimeConfig_ApplyLegacyV7Snapshot(&legacy_store);
+        }
+        else if (header_v3->config_size == sizeof(RuntimeConfigLegacyV6_t))
+        {
+            RuntimeConfigLegacyV6_t legacy_store;
+
+            memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+            RuntimeConfig_ApplyLegacyV6Snapshot(&legacy_store);
+        }
         else if (header_v3->config_size == sizeof(RuntimeConfigLegacyV5_t))
         {
             RuntimeConfigLegacyV5_t legacy_store;
@@ -863,6 +1319,41 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
         runtime_config_store.global.display_mode = RuntimeConfig_DecodePersistedDisplayMode(
             (uint8_t)runtime_config_store.global.display_mode,
             header->version);
+    }
+    else if (header->config_size == sizeof(RuntimeConfigLegacyV10_t))
+    {
+        RuntimeConfigLegacyV10_t legacy_store;
+
+        memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+        RuntimeConfig_ApplyLegacyV10Snapshot(&legacy_store);
+    }
+    else if (header->config_size == sizeof(RuntimeConfigLegacyV9_t))
+    {
+        RuntimeConfigLegacyV9_t legacy_store;
+
+        memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+        RuntimeConfig_ApplyLegacyV9Snapshot(&legacy_store);
+    }
+    else if (header->config_size == sizeof(RuntimeConfigLegacyV8_t))
+    {
+        RuntimeConfigLegacyV8_t legacy_store;
+
+        memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+        RuntimeConfig_ApplyLegacyV8Snapshot(&legacy_store);
+    }
+    else if (header->config_size == sizeof(RuntimeConfigLegacyV7_t))
+    {
+        RuntimeConfigLegacyV7_t legacy_store;
+
+        memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+        RuntimeConfig_ApplyLegacyV7Snapshot(&legacy_store);
+    }
+    else if (header->config_size == sizeof(RuntimeConfigLegacyV6_t))
+    {
+        RuntimeConfigLegacyV6_t legacy_store;
+
+        memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+        RuntimeConfig_ApplyLegacyV6Snapshot(&legacy_store);
     }
     else if (header->config_size == sizeof(RuntimeConfigLegacyV5_t))
     {
@@ -1013,6 +1504,42 @@ RuntimeConfigDevice_t *RuntimeConfig_GetMutableDevice(uint8_t device_index)
         return NULL;
 
     return &runtime_config_store.devices[device_index];
+}
+
+const Preset_t *RuntimeConfig_GetGlobalBypassPreset(void)
+{
+    RuntimeConfig_EnsureInitialized();
+    return &runtime_config_store.global_bypass_preset;
+}
+
+Preset_t *RuntimeConfig_GetMutableGlobalBypassPreset(void)
+{
+    RuntimeConfig_EnsureInitialized();
+    return &runtime_config_store.global_bypass_preset;
+}
+
+const Preset_t *RuntimeConfig_GetGlobalMutePreset(void)
+{
+    RuntimeConfig_EnsureInitialized();
+    return &runtime_config_store.global_mute_preset;
+}
+
+Preset_t *RuntimeConfig_GetMutableGlobalMutePreset(void)
+{
+    RuntimeConfig_EnsureInitialized();
+    return &runtime_config_store.global_mute_preset;
+}
+
+void RuntimeConfig_ResetGlobalBypassPresetToDefaults(void)
+{
+    RuntimeConfig_EnsureInitialized();
+    runtime_config_store.global_bypass_preset = runtime_config_global_bypass_preset_default;
+}
+
+void RuntimeConfig_ResetGlobalMutePresetToDefaults(void)
+{
+    RuntimeConfig_EnsureInitialized();
+    runtime_config_store.global_mute_preset = runtime_config_global_mute_preset_default;
 }
 
 const RuntimeConfigGlobal_t *RuntimeConfig_GetGlobal(void)

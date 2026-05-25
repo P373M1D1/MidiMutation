@@ -25,6 +25,9 @@
 #define MIDI_SYNC_ADAPTIVE_JITTER_RISE_US     120U
 #define MIDI_SYNC_ADAPTIVE_LOCK_LOSS_HIGH_PER_WINDOW 2U
 #define MIDI_SYNC_ADAPTIVE_LEVEL_MAX           4U
+#define MIDI_SYNC_ADAPTIVE_PROBATION_WINDOWS   2U
+#define MIDI_SYNC_ADAPTIVE_PROBATION_JITTER_MARGIN_US 120U
+#define MIDI_SYNC_ADAPTIVE_PROBATION_RELOCK_MARGIN_MS 80U
 
 typedef enum
 {
@@ -91,6 +94,8 @@ static uint32_t midi_transport_transition_dwell_ms(MidiSyncState_t from,
 static void midi_transport_enqueue_sync_event(const MidiSyncTransitionEvent_t *event);
 static uint8_t midi_transport_dequeue_sync_event(MidiSyncTransitionEvent_t *event);
 static const char *midi_transport_adaptive_action_name(MidiSyncAdaptiveAction_t action);
+static MidiSyncAdaptiveAction_t midi_transport_adaptive_inverse_action(MidiSyncAdaptiveAction_t action);
+static uint8_t midi_transport_adaptive_apply_action_step(MidiSyncAdaptiveAction_t action);
 static void midi_transport_adaptive_window_reset(uint32_t now_ms);
 static void midi_transport_adaptive_control_service(const MidiSyncLifecycleInputs_t *inputs,
                                                     uint32_t now_ms);
@@ -199,10 +204,21 @@ static uint32_t midi_sync_adapt_last_window_relock_avg_ms = 0U;
 static uint32_t midi_sync_adapt_last_window_jitter_avg_us = 0U;
 static uint32_t midi_sync_adapt_last_window_lock_lost = 0U;
 static uint32_t midi_sync_adapt_last_window_holdover_entries = 0U;
+static uint8_t midi_sync_adapt_holdover_latch_valid = 0U;
+static uint32_t midi_sync_adapt_holdover_latch_lock_lost = 0U;
+static uint32_t midi_sync_adapt_holdover_latch_entries = 0U;
 static uint8_t midi_sync_adapt_cooldown_windows = 0U;
 static uint8_t midi_sync_adapt_stable_windows = 0U;
 static MidiSyncAdaptiveAction_t midi_sync_adapt_last_action = MIDI_SYNC_ADAPT_ACTION_NONE;
 static uint32_t midi_sync_adapt_last_action_tick_ms = 0U;
+static uint8_t midi_sync_adapt_last_action_rollback = 0U;
+static uint8_t midi_sync_adapt_probation_active = 0U;
+static MidiSyncAdaptiveAction_t midi_sync_adapt_probation_action = MIDI_SYNC_ADAPT_ACTION_NONE;
+static uint8_t midi_sync_adapt_probation_windows_remaining = 0U;
+static uint32_t midi_sync_adapt_probation_baseline_relock_avg_ms = 0U;
+static uint32_t midi_sync_adapt_probation_baseline_jitter_avg_us = 0U;
+static uint32_t midi_sync_adapt_probation_baseline_lock_lost = 0U;
+static uint32_t midi_sync_adapt_probation_baseline_holdover_entries = 0U;
 
 static MidiSyncState_t midi_transport_compute_sync_state(const MidiSyncLifecycleInputs_t *inputs,
                                                          uint8_t has_lock_history)
@@ -311,6 +327,54 @@ static const char *midi_transport_adaptive_action_name(MidiSyncAdaptiveAction_t 
     }
 }
 
+static MidiSyncAdaptiveAction_t midi_transport_adaptive_inverse_action(MidiSyncAdaptiveAction_t action)
+{
+    switch (action)
+    {
+    case MIDI_SYNC_ADAPT_ACTION_ACQUIRE_AGGRESSIVE:
+        return MIDI_SYNC_ADAPT_ACTION_ACQUIRE_DECAY;
+    case MIDI_SYNC_ADAPT_ACTION_TRACK_NARROW:
+        return MIDI_SYNC_ADAPT_ACTION_TRACK_DECAY;
+    case MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_INCREASE:
+        return MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_DECAY;
+    case MIDI_SYNC_ADAPT_ACTION_ACQUIRE_DECAY:
+        return MIDI_SYNC_ADAPT_ACTION_ACQUIRE_AGGRESSIVE;
+    case MIDI_SYNC_ADAPT_ACTION_TRACK_DECAY:
+        return MIDI_SYNC_ADAPT_ACTION_TRACK_NARROW;
+    case MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_DECAY:
+        return MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_INCREASE;
+    default:
+        return MIDI_SYNC_ADAPT_ACTION_NONE;
+    }
+}
+
+static uint8_t midi_transport_adaptive_apply_action_step(MidiSyncAdaptiveAction_t action)
+{
+    switch (action)
+    {
+    case MIDI_SYNC_ADAPT_ACTION_ACQUIRE_AGGRESSIVE:
+        MidiClockEstimator_AdjustAcquireAggressiveness(+1);
+        return 1U;
+    case MIDI_SYNC_ADAPT_ACTION_TRACK_NARROW:
+        MidiClockEstimator_AdjustTrackingBandwidth(+1);
+        return 1U;
+    case MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_INCREASE:
+        MidiClockEstimator_AdjustLockHysteresis(+1);
+        return 1U;
+    case MIDI_SYNC_ADAPT_ACTION_ACQUIRE_DECAY:
+        MidiClockEstimator_AdjustAcquireAggressiveness(-1);
+        return 1U;
+    case MIDI_SYNC_ADAPT_ACTION_TRACK_DECAY:
+        MidiClockEstimator_AdjustTrackingBandwidth(-1);
+        return 1U;
+    case MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_DECAY:
+        MidiClockEstimator_AdjustLockHysteresis(-1);
+        return 1U;
+    default:
+        return 0U;
+    }
+}
+
 static void midi_transport_adaptive_window_reset(uint32_t now_ms)
 {
     uint32_t recovered_pulse_us = 0U;
@@ -355,6 +419,8 @@ static void midi_transport_adaptive_control_service(const MidiSyncLifecycleInput
     uint8_t should_narrow_tracking = 0U;
     uint8_t should_increase_hysteresis = 0U;
     uint8_t have_recovered_pulse = 0U;
+    uint8_t policy_allowed = 1U;
+    uint8_t action_is_rollback = 0U;
 
     if (!inputs)
         return;
@@ -434,99 +500,163 @@ static void midi_transport_adaptive_control_service(const MidiSyncLifecycleInput
     midi_sync_adapt_last_window_lock_lost = lock_lost_delta;
     midi_sync_adapt_last_window_holdover_entries = holdover_entry_delta;
 
-    if (relock_success_delta > 0U)
+    if (midi_sync_adapt_probation_active)
     {
-        if (relock_avg_ms >= MIDI_SYNC_ADAPTIVE_RELOCK_HIGH_MS)
-            should_increase_acquire = 1U;
-        else if (midi_sync_adapt_prev_window_relock_avg_ms > 0U
-              && relock_avg_ms >= (midi_sync_adapt_prev_window_relock_avg_ms
-                  + MIDI_SYNC_ADAPTIVE_RELOCK_RISE_MS))
-        {
-            should_increase_acquire = 1U;
-        }
-    }
+        uint8_t probation_degraded = 0U;
+        MidiSyncAdaptiveAction_t rollback_action = MIDI_SYNC_ADAPT_ACTION_NONE;
 
-    if (jitter_avg_us > 0U)
-    {
-        if (jitter_avg_us >= MIDI_SYNC_ADAPTIVE_JITTER_HIGH_US)
-            should_narrow_tracking = 1U;
-        else if (midi_sync_adapt_prev_window_jitter_avg_us > 0U
-              && jitter_avg_us >= (midi_sync_adapt_prev_window_jitter_avg_us
-                  + MIDI_SYNC_ADAPTIVE_JITTER_RISE_US))
+        if (lock_lost_delta > midi_sync_adapt_probation_baseline_lock_lost
+         || holdover_entry_delta > midi_sync_adapt_probation_baseline_holdover_entries)
         {
-            should_narrow_tracking = 1U;
+            probation_degraded = 1U;
         }
-    }
 
-    if (lock_lost_delta >= MIDI_SYNC_ADAPTIVE_LOCK_LOSS_HIGH_PER_WINDOW
-     || (midi_sync_adapt_prev_window_lock_lost > 0U
-      && lock_lost_delta > midi_sync_adapt_prev_window_lock_lost)
-     || (lock_lost_delta > 0U && holdover_entry_delta > 0U))
-    {
-        should_increase_hysteresis = 1U;
-    }
-
-    if (midi_sync_adapt_cooldown_windows > 0U)
-    {
-        midi_sync_adapt_cooldown_windows--;
-    }
-    else
-    {
-        MidiClockEstimator_GetAdaptiveTuning(&tuning);
-
-        if (should_increase_hysteresis
-         && tuning.hysteresis_level < MIDI_SYNC_ADAPTIVE_LEVEL_MAX)
+        if (!probation_degraded
+         && jitter_avg_us > 0U
+         && midi_sync_adapt_probation_baseline_jitter_avg_us > 0U
+         && jitter_avg_us >= (midi_sync_adapt_probation_baseline_jitter_avg_us
+             + MIDI_SYNC_ADAPTIVE_PROBATION_JITTER_MARGIN_US))
         {
-            MidiClockEstimator_AdjustLockHysteresis(+1);
-            action = MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_INCREASE;
+            probation_degraded = 1U;
         }
-        else if (should_increase_acquire
-              && tuning.acquire_aggression_level < MIDI_SYNC_ADAPTIVE_LEVEL_MAX)
+
+        if (!probation_degraded
+         && relock_success_delta > 0U
+         && midi_sync_adapt_probation_baseline_relock_avg_ms > 0U
+         && relock_avg_ms >= (midi_sync_adapt_probation_baseline_relock_avg_ms
+             + MIDI_SYNC_ADAPTIVE_PROBATION_RELOCK_MARGIN_MS))
         {
-            MidiClockEstimator_AdjustAcquireAggressiveness(+1);
-            action = MIDI_SYNC_ADAPT_ACTION_ACQUIRE_AGGRESSIVE;
+            probation_degraded = 1U;
         }
-        else if (should_narrow_tracking
-              && tuning.tracking_bandwidth_level < MIDI_SYNC_ADAPTIVE_LEVEL_MAX)
+
+        if (probation_degraded)
         {
-            MidiClockEstimator_AdjustTrackingBandwidth(+1);
-            action = MIDI_SYNC_ADAPT_ACTION_TRACK_NARROW;
+            rollback_action = midi_transport_adaptive_inverse_action(midi_sync_adapt_probation_action);
+            midi_sync_adapt_probation_active = 0U;
+            midi_sync_adapt_probation_action = MIDI_SYNC_ADAPT_ACTION_NONE;
+            midi_sync_adapt_probation_windows_remaining = 0U;
+            if (midi_transport_adaptive_apply_action_step(rollback_action))
+            {
+                action = rollback_action;
+                action_is_rollback = 1U;
+                policy_allowed = 0U;
+            }
         }
         else
         {
-            uint8_t healthy_window = (uint8_t)(lock_lost_delta == 0U
-                && holdover_entry_delta == 0U
-                && !should_increase_acquire
-                && !should_narrow_tracking
-                && !should_increase_hysteresis);
+            if (midi_sync_adapt_probation_windows_remaining > 0U)
+                midi_sync_adapt_probation_windows_remaining--;
 
-            if (healthy_window)
+            if (midi_sync_adapt_probation_windows_remaining == 0U)
             {
-                if (midi_sync_adapt_stable_windows < UINT8_MAX)
-                    midi_sync_adapt_stable_windows++;
+                midi_sync_adapt_probation_active = 0U;
+                midi_sync_adapt_probation_action = MIDI_SYNC_ADAPT_ACTION_NONE;
+            }
 
-                if (midi_sync_adapt_stable_windows >= MIDI_SYNC_ADAPTIVE_DECAY_WINDOWS)
-                {
-                    if (tuning.acquire_aggression_level > 0U)
-                    {
-                        MidiClockEstimator_AdjustAcquireAggressiveness(-1);
-                        action = MIDI_SYNC_ADAPT_ACTION_ACQUIRE_DECAY;
-                    }
-                    else if (tuning.tracking_bandwidth_level > 0U)
-                    {
-                        MidiClockEstimator_AdjustTrackingBandwidth(-1);
-                        action = MIDI_SYNC_ADAPT_ACTION_TRACK_DECAY;
-                    }
-                    else if (tuning.hysteresis_level > 0U)
-                    {
-                        MidiClockEstimator_AdjustLockHysteresis(-1);
-                        action = MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_DECAY;
-                    }
-                }
+            midi_sync_adapt_prev_window_relock_avg_ms = relock_avg_ms;
+            midi_sync_adapt_prev_window_jitter_avg_us = jitter_avg_us;
+            midi_sync_adapt_prev_window_lock_lost = lock_lost_delta;
+            midi_transport_adaptive_window_reset(now_ms);
+            return;
+        }
+    }
+
+    if (policy_allowed)
+    {
+        if (relock_success_delta > 0U)
+        {
+            if (relock_avg_ms >= MIDI_SYNC_ADAPTIVE_RELOCK_HIGH_MS)
+                should_increase_acquire = 1U;
+            else if (midi_sync_adapt_prev_window_relock_avg_ms > 0U
+                  && relock_avg_ms >= (midi_sync_adapt_prev_window_relock_avg_ms
+                      + MIDI_SYNC_ADAPTIVE_RELOCK_RISE_MS))
+            {
+                should_increase_acquire = 1U;
+            }
+        }
+
+        if (jitter_avg_us > 0U)
+        {
+            if (jitter_avg_us >= MIDI_SYNC_ADAPTIVE_JITTER_HIGH_US)
+                should_narrow_tracking = 1U;
+            else if (midi_sync_adapt_prev_window_jitter_avg_us > 0U
+                  && jitter_avg_us >= (midi_sync_adapt_prev_window_jitter_avg_us
+                      + MIDI_SYNC_ADAPTIVE_JITTER_RISE_US))
+            {
+                should_narrow_tracking = 1U;
+            }
+        }
+
+        if (lock_lost_delta >= MIDI_SYNC_ADAPTIVE_LOCK_LOSS_HIGH_PER_WINDOW
+         || (midi_sync_adapt_prev_window_lock_lost > 0U
+          && lock_lost_delta > midi_sync_adapt_prev_window_lock_lost)
+         || (lock_lost_delta > 0U && holdover_entry_delta > 0U))
+        {
+            should_increase_hysteresis = 1U;
+        }
+
+        if (midi_sync_adapt_cooldown_windows > 0U)
+        {
+            midi_sync_adapt_cooldown_windows--;
+        }
+        else
+        {
+            MidiClockEstimator_GetAdaptiveTuning(&tuning);
+
+            if (should_increase_hysteresis
+             && tuning.hysteresis_level < MIDI_SYNC_ADAPTIVE_LEVEL_MAX)
+            {
+                action = MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_INCREASE;
+                (void)midi_transport_adaptive_apply_action_step(action);
+            }
+            else if (should_increase_acquire
+                  && tuning.acquire_aggression_level < MIDI_SYNC_ADAPTIVE_LEVEL_MAX)
+            {
+                action = MIDI_SYNC_ADAPT_ACTION_ACQUIRE_AGGRESSIVE;
+                (void)midi_transport_adaptive_apply_action_step(action);
+            }
+            else if (should_narrow_tracking
+                  && tuning.tracking_bandwidth_level < MIDI_SYNC_ADAPTIVE_LEVEL_MAX)
+            {
+                action = MIDI_SYNC_ADAPT_ACTION_TRACK_NARROW;
+                (void)midi_transport_adaptive_apply_action_step(action);
             }
             else
             {
-                midi_sync_adapt_stable_windows = 0U;
+                uint8_t healthy_window = (uint8_t)(lock_lost_delta == 0U
+                    && holdover_entry_delta == 0U
+                    && !should_increase_acquire
+                    && !should_narrow_tracking
+                    && !should_increase_hysteresis);
+
+                if (healthy_window)
+                {
+                    if (midi_sync_adapt_stable_windows < UINT8_MAX)
+                        midi_sync_adapt_stable_windows++;
+
+                    if (midi_sync_adapt_stable_windows >= MIDI_SYNC_ADAPTIVE_DECAY_WINDOWS)
+                    {
+                        if (tuning.acquire_aggression_level > 0U)
+                        {
+                            action = MIDI_SYNC_ADAPT_ACTION_ACQUIRE_DECAY;
+                            (void)midi_transport_adaptive_apply_action_step(action);
+                        }
+                        else if (tuning.tracking_bandwidth_level > 0U)
+                        {
+                            action = MIDI_SYNC_ADAPT_ACTION_TRACK_DECAY;
+                            (void)midi_transport_adaptive_apply_action_step(action);
+                        }
+                        else if (tuning.hysteresis_level > 0U)
+                        {
+                            action = MIDI_SYNC_ADAPT_ACTION_HYSTERESIS_DECAY;
+                            (void)midi_transport_adaptive_apply_action_step(action);
+                        }
+                    }
+                }
+                else
+                {
+                    midi_sync_adapt_stable_windows = 0U;
+                }
             }
         }
     }
@@ -535,12 +665,27 @@ static void midi_transport_adaptive_control_service(const MidiSyncLifecycleInput
     {
         midi_sync_adapt_last_action = action;
         midi_sync_adapt_last_action_tick_ms = now_ms;
+        midi_sync_adapt_last_action_rollback = action_is_rollback;
         midi_sync_adapt_stable_windows = 0U;
         midi_sync_adapt_cooldown_windows = MIDI_SYNC_ADAPTIVE_COOLDOWN_WINDOWS;
 
+        if (!action_is_rollback)
+        {
+            midi_sync_adapt_probation_active = 1U;
+            midi_sync_adapt_probation_action = action;
+            midi_sync_adapt_probation_windows_remaining = MIDI_SYNC_ADAPTIVE_PROBATION_WINDOWS;
+            midi_sync_adapt_probation_baseline_relock_avg_ms = relock_avg_ms;
+            midi_sync_adapt_probation_baseline_jitter_avg_us = jitter_avg_us;
+            midi_sync_adapt_probation_baseline_lock_lost = lock_lost_delta;
+            midi_sync_adapt_probation_baseline_holdover_entries = holdover_entry_delta;
+        }
+
         MidiClockEstimator_GetAdaptiveTuning(&tuning);
-        printf("SYNCADAPT action=%s relock_avg_ms=%lu jitter_avg_us=%lu lock_lost=%lu holdover_entries=%lu levels=acq%u,track%u,hyst%u gains=ap%u,af%u,tp%u,tf%u lock_div=enter%u,exit%u lock_stable=%u\\r\\n",
+        printf("SYNCADAPT action=%s rollback=%u probation_action=%s probation_windows=%u relock_avg_ms=%lu jitter_avg_us=%lu lock_lost=%lu holdover_entries=%lu levels=acq%u,track%u,hyst%u gains=ap%u,af%u,tp%u,tf%u lock_div=enter%u,exit%u lock_stable=%u\\r\\n",
                midi_transport_adaptive_action_name(action),
+               (unsigned)action_is_rollback,
+               midi_transport_adaptive_action_name(midi_sync_adapt_probation_action),
+               (unsigned)midi_sync_adapt_probation_windows_remaining,
                (unsigned long)relock_avg_ms,
                (unsigned long)jitter_avg_us,
                (unsigned long)lock_lost_delta,
@@ -776,6 +921,16 @@ static void midi_transport_update_sync_lifecycle(void)
      && midi_sync_metric_holdover_entry_count < UINT32_MAX)
     {
         midi_sync_metric_holdover_entry_count++;
+
+        midi_sync_adapt_holdover_latch_lock_lost =
+            (midi_sync_metric_lock_lost_count >= midi_sync_adapt_snapshot_lock_lost_count)
+            ? (midi_sync_metric_lock_lost_count - midi_sync_adapt_snapshot_lock_lost_count)
+            : midi_sync_metric_lock_lost_count;
+        midi_sync_adapt_holdover_latch_entries =
+            (midi_sync_metric_holdover_entry_count >= midi_sync_adapt_snapshot_holdover_entry_count)
+            ? (midi_sync_metric_holdover_entry_count - midi_sync_adapt_snapshot_holdover_entry_count)
+            : midi_sync_metric_holdover_entry_count;
+        midi_sync_adapt_holdover_latch_valid = 1U;
     }
 
     transition_event.from_state = midi_sync_last_transition_from;
@@ -807,8 +962,19 @@ static void midi_transport_update_sync_lifecycle(void)
         midi_sync_adapt_last_window_jitter_avg_us = 0U;
         midi_sync_adapt_last_window_lock_lost = 0U;
         midi_sync_adapt_last_window_holdover_entries = 0U;
+        midi_sync_adapt_holdover_latch_valid = 0U;
+        midi_sync_adapt_holdover_latch_lock_lost = 0U;
+        midi_sync_adapt_holdover_latch_entries = 0U;
+        midi_sync_adapt_probation_active = 0U;
+        midi_sync_adapt_probation_action = MIDI_SYNC_ADAPT_ACTION_NONE;
+        midi_sync_adapt_probation_windows_remaining = 0U;
+        midi_sync_adapt_probation_baseline_relock_avg_ms = 0U;
+        midi_sync_adapt_probation_baseline_jitter_avg_us = 0U;
+        midi_sync_adapt_probation_baseline_lock_lost = 0U;
+        midi_sync_adapt_probation_baseline_holdover_entries = 0U;
         midi_sync_adapt_cooldown_windows = 0U;
         midi_sync_adapt_stable_windows = 0U;
+        midi_sync_adapt_last_action_rollback = 0U;
 
         MidiClockEstimator_GetAdaptiveTuning(&adaptive_tuning);
         if (adaptive_tuning.acquire_aggression_level == 0U
@@ -1248,6 +1414,10 @@ void MidiClockDiagnosticService(void)
     MidiClockEstimatorAdaptiveTuning_t adaptive_tuning;
     const char *adaptive_last_action_text = "NONE";
     uint32_t adaptive_last_action_age_ms = 0U;
+    uint8_t adaptive_last_action_rollback = 0U;
+    uint8_t adaptive_probation_active = 0U;
+    const char *adaptive_probation_action_text = "NONE";
+    uint8_t adaptive_probation_windows = 0U;
     uint32_t adaptive_window_relock_sum_ms = 0U;
     uint32_t adaptive_window_relock_success = 0U;
     uint32_t adaptive_window_relock_avg_ms = 0U;
@@ -1383,8 +1553,20 @@ void MidiClockDiagnosticService(void)
         (midi_sync_metric_holdover_entry_count >= midi_sync_adapt_snapshot_holdover_entry_count)
         ? (midi_sync_metric_holdover_entry_count - midi_sync_adapt_snapshot_holdover_entry_count)
         : midi_sync_metric_holdover_entry_count;
+    if ((sync_state == MIDI_SYNC_STATE_HOLDOVER || sync_state == MIDI_SYNC_STATE_REARM)
+     && midi_sync_adapt_holdover_latch_valid)
+    {
+        if (adaptive_window_lock_lost < midi_sync_adapt_holdover_latch_lock_lost)
+            adaptive_window_lock_lost = midi_sync_adapt_holdover_latch_lock_lost;
+        if (adaptive_window_holdover_entries < midi_sync_adapt_holdover_latch_entries)
+            adaptive_window_holdover_entries = midi_sync_adapt_holdover_latch_entries;
+    }
     adaptive_cooldown_windows = midi_sync_adapt_cooldown_windows;
     adaptive_stable_windows = midi_sync_adapt_stable_windows;
+    adaptive_last_action_rollback = midi_sync_adapt_last_action_rollback;
+    adaptive_probation_active = midi_sync_adapt_probation_active;
+    adaptive_probation_action_text = midi_transport_adaptive_action_name(midi_sync_adapt_probation_action);
+    adaptive_probation_windows = midi_sync_adapt_probation_windows_remaining;
     publication_ready = (uint8_t)(sync_state == MIDI_SYNC_STATE_LOCKED);
     if (MidiTransportGetContinuousPhase(&phase_snapshot))
     {
@@ -1431,7 +1613,7 @@ void MidiClockDiagnosticService(void)
     }
 
     (void)MidiClockGetRawExternalBpmX10(&bpm_x10);
-        printf("CLKDIAG ext_active=%u transport_run=%u rearm_pending=%u sync_lost=%u barbeat_valid=%u interval_samples=%u interval_avg_us=%lu interval_min_us=%lu interval_max_us=%lu interval_pkpk_us=%lu raw_bpm=%u.%u est_window=%u est_observed=%u history_confidence=%c est_valid=%u publication_ready=%u sync_state=%s sync_state_age_ms=%lu holdover_ms=%lu last_lock_age_ms=%lu last_transition=%s->%s transition_reason=%s transition_age_ms=%lu transition_phase_err_us=%ld transition_window=%u transition_observed=%u acq_ms_last=%lu acq_ms_avg=%lu acq_ms_max=%lu relock_ms_last=%lu relock_ms_avg=%lu relock_ms_max=%lu lock_acquired=%lu acquire_success=%lu relock_success=%lu lock_lost=%lu holdover_entries=%lu adapt_action=%s adapt_action_age_ms=%lu adapt_win_age_ms=%lu adapt_win_relock_ms=%lu adapt_win_jitter_us=%lu adapt_win_jitter_samples=%lu adapt_win_lock_lost=%lu adapt_win_holdover=%lu adapt_cd_windows=%u adapt_stable_windows=%u adapt_levels=%u/%u/%u adapt_gains=%u/%u/%u/%u adapt_lock_div=%u/%u adapt_lock_stable=%u phase_tick=%lu.%03u phase_src=%c live_lock=%c pll_err_us=%ld pll_phase_corr_us=%ld pll_freq_corr_us=%ld rx_q_now=%u rx_q_peak=%u rx_q_lifetime_peak=%u rx_drop_interval=%lu rx_drop_total=%lu rx_latency_avg_us=%lu rx_latency_max_us=%lu rx_latency_samples=%u beat_service_avg_us=%lu beat_service_max_us=%lu beat_service_samples=%u\r\n",
+        printf("CLKDIAG ext_active=%u transport_run=%u rearm_pending=%u sync_lost=%u barbeat_valid=%u interval_samples=%u interval_avg_us=%lu interval_min_us=%lu interval_max_us=%lu interval_pkpk_us=%lu raw_bpm=%u.%u est_window=%u est_observed=%u history_confidence=%c est_valid=%u publication_ready=%u sync_state=%s sync_state_age_ms=%lu holdover_ms=%lu last_lock_age_ms=%lu last_transition=%s->%s transition_reason=%s transition_age_ms=%lu transition_phase_err_us=%ld transition_window=%u transition_observed=%u acq_ms_last=%lu acq_ms_avg=%lu acq_ms_max=%lu relock_ms_last=%lu relock_ms_avg=%lu relock_ms_max=%lu lock_acquired=%lu acquire_success=%lu relock_success=%lu lock_lost=%lu holdover_entries=%lu adapt_action=%s adapt_action_age_ms=%lu adapt_last_rollback=%u adapt_prob_active=%u adapt_prob_action=%s adapt_prob_windows=%u adapt_win_age_ms=%lu adapt_win_relock_ms=%lu adapt_win_jitter_us=%lu adapt_win_jitter_samples=%lu adapt_win_lock_lost=%lu adapt_win_holdover=%lu adapt_cd_windows=%u adapt_stable_windows=%u adapt_levels=%u/%u/%u adapt_gains=%u/%u/%u/%u adapt_lock_div=%u/%u adapt_lock_stable=%u phase_tick=%lu.%03u phase_src=%c live_lock=%c pll_err_us=%ld pll_phase_corr_us=%ld pll_freq_corr_us=%ld rx_q_now=%u rx_q_peak=%u rx_q_lifetime_peak=%u rx_drop_interval=%lu rx_drop_total=%lu rx_latency_avg_us=%lu rx_latency_max_us=%lu rx_latency_samples=%u beat_service_avg_us=%lu beat_service_max_us=%lu beat_service_samples=%u\r\n",
            (unsigned)active,
             (unsigned)running,
             (unsigned)rearm_required,
@@ -1473,6 +1655,10 @@ void MidiClockDiagnosticService(void)
            (unsigned long)holdover_entry_count,
            adaptive_last_action_text,
            (unsigned long)adaptive_last_action_age_ms,
+           (unsigned)adaptive_last_action_rollback,
+           (unsigned)adaptive_probation_active,
+           adaptive_probation_action_text,
+           (unsigned)adaptive_probation_windows,
            (unsigned long)adaptive_window_age_ms,
            (unsigned long)adaptive_window_relock_avg_ms,
            (unsigned long)adaptive_window_jitter_avg_us,

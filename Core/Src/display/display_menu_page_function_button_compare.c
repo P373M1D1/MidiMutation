@@ -168,7 +168,7 @@ void Display_DrawMenuFunctionButtonProgramCompareEditRowCore(uint16_t row_y,
                                                              uint8_t clear_row,
                                                              uint8_t redraw_number)
 {
-    const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(display_state.menu_active_bank_index);
+    const RuntimeConfigFunctionButton_t *function_button = Presets_GetFunctionButton(display_state.menu_active_preset_index);
     char active_channel_text[4];
     char active_program_text[4];
     char inactive_channel_text[4];
@@ -285,7 +285,7 @@ static void Display_DrawMenuFunctionButtonCcCompareEditRowCore(uint16_t row_y,
                                                                uint8_t cc_index,
                                                                uint8_t clear_row)
 {
-    const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(display_state.menu_active_bank_index);
+    const RuntimeConfigFunctionButton_t *function_button = Presets_GetFunctionButton(display_state.menu_active_preset_index);
     char row_number_text[3];
     char active_channel_text[4];
     char active_cc_text[4];
@@ -382,7 +382,7 @@ void Display_FormatFunctionButtonCcCompareRow(uint8_t cc_index,
                                               char *buffer,
                                               size_t buffer_size)
 {
-    const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(display_state.menu_active_bank_index);
+    const RuntimeConfigFunctionButton_t *function_button = Presets_GetFunctionButton(display_state.menu_active_preset_index);
     char active_channel_text[4];
     char active_cc_text[4];
     char active_value_text[4];

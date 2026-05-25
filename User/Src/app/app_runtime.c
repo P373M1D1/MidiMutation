@@ -13,6 +13,7 @@
 #include "display_functions.h"
 #include "led_functions.h"
 #include "midi_functions.h"
+#include "runtime_config.h"
 
 #define EXT_CLOCK_HOLDOVER_MIRROR_ENABLED 1U
 
@@ -20,6 +21,13 @@ static uint8_t AppRuntime_IsFeedbackWindowActive(void);
 
 void AppRuntime_ServiceForeground(void)
 {
+    const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
+
+    if (global && global->sync_style == RUNTIME_CONFIG_SYNC_STYLE_TAP_TEMPO_CC)
+        MidiClockSetRealtimeOutputEnabled(0U);
+    else
+        MidiClockSetRealtimeOutputEnabled(1U);
+
     /* Keep transport-adjacent work running every loop, but defer input/UI/save
      * activity while the beat LED or metronome output is actively visible or
      * audible so those feedback windows stay clear under load. */

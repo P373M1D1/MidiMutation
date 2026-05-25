@@ -1,3 +1,12 @@
+/* 
+This file implements MIDI input handling, including UART configuration, interrupt service routine for receiving MIDI bytes, 
+and a queue for handling realtime MIDI events with low latency. It also includes diagnostics for monitoring the realtime event queue.
+Also, it implements a MIDI thru buffer to allow received MIDI bytes to be retransmitted with minimal latency, which is important 
+for live performance use cases where the device is in the MIDI signal path. The MIDI input UART is configured for the standard MIDI 
+baud rate of 31250 bps, and the IRQ handler captures incoming bytes along with a timestamp from TIM2 to allow for precise timing of 
+realtime events. The module also integrates with the transport handling code to immediately process realtime MIDI bytes for clock synchronization purposes.
+*/
+
 #include "midi_functions.h"
 #include "midi/midi_monitor.h"
 #include "midi/midi_transport_internal.h"

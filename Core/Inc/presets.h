@@ -15,6 +15,8 @@ extern "C" {
 #define PRESETS_PER_BANK     8U  /* number of numbered preset footswitch slots in each bank */
 #define PRESET_BANK_COUNT    8U  /* number of banks compiled into the preset table */
 #define PRESET_COUNT         (PRESETS_PER_BANK * PRESET_BANK_COUNT) /* total flat preset count across all banks */
+#define PRESET_GLOBAL_BYPASS_INDEX PRESET_COUNT
+#define PRESET_GLOBAL_MUTE_INDEX   (PRESET_COUNT + 1U)
 #define PRESET_BANK_NAME_MAXLEN  16U /* maximum displayed character width reserved for a bank name */
 #define PRESET_NAME_LENGTH   20U /* editable/displayed character count for preset names, excluding the trailing NUL */
 
@@ -26,6 +28,10 @@ extern "C" {
 #define PRESET_CC_VALUE_UNUSED    0xFFU /* sentinel CC value for an unused CC slot */
 #define PRESET_RELAY_OPEN         0U    /* relay state value for open/bypass */
 #define PRESET_RELAY_CLOSED       1U    /* relay state value for closed/engaged */
+#define RUNTIME_CONFIG_FUNCTION_BUTTON_NAME_LENGTH    6U
+#define RUNTIME_CONFIG_FUNCTION_BUTTON_LABEL_LENGTH   6U
+#define RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT  4U
+#define RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT       4U
 
 extern volatile uint8_t current_bank;
 
@@ -71,6 +77,21 @@ typedef struct {
     uint8_t value;
 } PresetCCSlot_t;
 
+typedef struct {
+    uint8_t channel;
+    uint8_t program;
+} RuntimeConfigProgramMessage_t;
+
+typedef struct {
+    char name[RUNTIME_CONFIG_FUNCTION_BUTTON_NAME_LENGTH + 1U];
+    char active_label[RUNTIME_CONFIG_FUNCTION_BUTTON_LABEL_LENGTH + 1U];
+    char inactive_label[RUNTIME_CONFIG_FUNCTION_BUTTON_LABEL_LENGTH + 1U];
+    RuntimeConfigProgramMessage_t active_programs[RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT];
+    PresetCCSlot_t active_cc[RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT];
+    RuntimeConfigProgramMessage_t inactive_programs[RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT];
+    PresetCCSlot_t inactive_cc[RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT];
+} RuntimeConfigFunctionButton_t;
+
 /** Number of independent relay outputs. */
 #define PRESET_RELAY_COUNT  2U /* number of relay outputs tracked per preset */
 
@@ -90,6 +111,7 @@ typedef struct {
     PresetDevice_t prg[PRESET_DEVICE_SLOTS];
     PresetCCSlot_t cc[PRESET_CC_SLOT_COUNT];
     uint8_t        relay[PRESET_RELAY_COUNT];
+    RuntimeConfigFunctionButton_t function_button;
 } Preset_t;
 
 /**
@@ -103,6 +125,15 @@ const Preset_t *Presets_Get(uint8_t index);
  *         Returns NULL if @p index is out of range.
  */
 Preset_t *Presets_GetMutable(uint8_t index);
+const RuntimeConfigFunctionButton_t *Presets_GetFunctionButton(uint8_t index);
+RuntimeConfigFunctionButton_t *Presets_GetMutableFunctionButton(uint8_t index);
+const RuntimeConfigFunctionButton_t *Presets_GetActiveFunctionButton(void);
+const Preset_t *Presets_GetGlobalBypassPreset(void);
+Preset_t *Presets_GetMutableGlobalBypassPreset(void);
+const Preset_t *Presets_GetGlobalMutePreset(void);
+Preset_t *Presets_GetMutableGlobalMutePreset(void);
+uint8_t Presets_IsGlobalBypassPreset(const Preset_t *preset);
+uint8_t Presets_IsGlobalMutePreset(const Preset_t *preset);
 
 /**
  * @brief  Reset the preset at @p index back to its compiled default data.

@@ -261,6 +261,7 @@ uint32_t MidiClockOutputTimerPeriodForBpm(uint16_t bpm);
  * @param  bpm  Whole-number tempo in beats per minute.
  */
 void MidiClockOutputSetTempoBpm(uint16_t bpm);
+void MidiClockSetRealtimeOutputEnabled(uint8_t enabled);
 
 /**
  * @brief  Return the public external MIDI clock tempo.

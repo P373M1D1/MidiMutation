@@ -1,3 +1,14 @@
+/*
+
+This is the MIDI clock output module, which owns the internal clock generation and output stream on TIM6. 
+It also provides the API for aligning the internal clock phase to the external clock and for tracking external
+pulse intervals to adapt the internal tempo. The external clock estimation and synchronization lifecycle management 
+all live in midi_clock_estimator.c, which feeds recovered tempo and phase information back to this module for output adjustments.
+
+
+
+*/
+
 #include "midi_functions.h"
 #include "midi/midi_clock_estimator.h"
 #include "midi/midi_clock_internal.h"
@@ -23,6 +34,7 @@ void Error_Handler(void);
 static TIM_HandleTypeDef midi_clock_output_timer;
 static uint8_t midi_internal_clock_pulse_count = 0U;
 static uint32_t midi_internal_transport_pulse_count = 0U;
+static volatile uint8_t midi_clock_realtime_output_enabled = 1U;
 
 #define MIDI_REALTIME_CLOCK                0xF8U
 #define MIDI_CLOCK_OUTPUT_TIMER_TICK_HZ    100000U
@@ -86,7 +98,8 @@ void MidiClockOutputIrqHandler(void)
 __attribute__((section(".RamFunc")))
 uint8_t MidiClockHandleInternalPulse(void)
 {
-    (void)MidiOutput_QueueRealtimeByte(MIDI_REALTIME_CLOCK);
+    if (midi_clock_realtime_output_enabled)
+        (void)MidiOutput_QueueRealtimeByte(MIDI_REALTIME_CLOCK);
 
     midi_internal_transport_pulse_count++;
     midi_internal_clock_pulse_count++;
@@ -95,6 +108,19 @@ uint8_t MidiClockHandleInternalPulse(void)
 
     midi_internal_clock_pulse_count = 0U;
     return 1U;
+}
+
+void MidiClockSetRealtimeOutputEnabled(uint8_t enabled)
+{
+    uint8_t next_enabled = enabled ? 1U : 0U;
+
+    if (next_enabled == midi_clock_realtime_output_enabled)
+        return;
+
+    midi_clock_realtime_output_enabled = next_enabled;
+
+    if (!midi_clock_realtime_output_enabled)
+        MidiOutput_ResetRealtimePacingGuard();
 }
 
 __attribute__((section(".RamFunc")))

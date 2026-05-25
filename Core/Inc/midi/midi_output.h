@@ -14,6 +14,7 @@ void MidiOutput_ServiceScheduler(void);
 void MidiOutput_HandleTxIrq(void);
 uint8_t MidiOutput_QueueMessageBytes(const uint8_t *bytes, uint16_t length);
 uint8_t MidiOutput_QueueRealtimeByte(uint8_t byte);
+void MidiOutput_ResetRealtimePacingGuard(void);
 
 #ifdef __cplusplus
 }

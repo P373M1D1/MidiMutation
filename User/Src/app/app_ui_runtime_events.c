@@ -9,6 +9,7 @@
 #include "display_functions.h"
 #include "led_functions.h"
 #include "midi_functions.h"
+#include "midi/midi_monitor.h"
 #include "runtime_config.h"
 
 static void AppUiEvents_SendFunctionButtonProgramMessages(const RuntimeConfigProgramMessage_t *messages,
@@ -21,6 +22,8 @@ static void AppUiEvents_HandleScreensaverActivity(void);
 static void AppUiEvents_HandlePeriodicService(void);
 static void AppUiEvents_HandleRedrawActiveDisplay(void);
 static void AppUiEvents_HandleRedrawMainScreen(void);
+
+static uint32_t app_ui_last_midi_monitor_revision = 0U;
 
 uint8_t AppUiEvents_HandleEvent(const AppEvent_t *event)
 {
@@ -115,7 +118,7 @@ static void AppUiEvents_SendFunctionButtonCcMessages(const PresetCCSlot_t *messa
 
 static void AppUiEvents_HandleSpecialFunctionToggle(uint8_t state_active)
 {
-    const RuntimeConfigFunctionButton_t *function_button = RuntimeConfig_GetFunctionButton(AppState_GetCurrentBank());
+    const RuntimeConfigFunctionButton_t *function_button = Presets_GetActiveFunctionButton();
 
     if (function_button)
     {
@@ -153,8 +156,20 @@ static void AppUiEvents_HandleScreensaverActivity(void)
 
 static void AppUiEvents_HandlePeriodicService(void)
 {
+    uint32_t midi_monitor_revision;
+
     App_AcknowledgePeriodicUiServiceEvent();
     AppUi_RequestStatusStripRefresh();
+
+    midi_monitor_revision = MidiMonitor_GetRevision();
+    if (midi_monitor_revision != app_ui_last_midi_monitor_revision)
+    {
+        app_ui_last_midi_monitor_revision = midi_monitor_revision;
+
+        if (!Display_MenuIsActive() && !Display_PresetEditIsActive())
+            AppUi_RequestLiveContentRefresh();
+    }
+
     Display_MenuMidiMonitorService();
     LED_Update();
     if (Display_ScreensaverUpdate())

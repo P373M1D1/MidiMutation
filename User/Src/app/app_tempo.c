@@ -8,6 +8,7 @@
 #include "button_functions.h"
 #include "display_functions.h"
 #include "led_functions.h"
+#include "midi_devices.h"
 #include "midi_functions.h"
 #include "stm32f4xx_hal.h"
 
@@ -26,6 +27,7 @@ static uint8_t app_tempo_ext_mirror_stable_count = 0U;
 static void AppTempo_HandleTapPress(uint32_t now);
 static void AppTempo_ApplyInternalTempoBpm(uint16_t bpm, uint8_t pulse_led);
 static void AppTempo_ApplyMirroredTempoBpm(uint16_t bpm);
+static void AppTempo_SendTapTempoCcToDevices(void);
 
 uint8_t AppTempo_HandleEvent(const AppEvent_t *event)
 {
@@ -46,14 +48,16 @@ static void AppTempo_HandleTapPress(uint32_t now)
     LED_TapPressPulse();
     App_QueueScreensaverWakeEvent();
 
+    if (AppButtonCombo_HandleTapPress(now, Button_IsMuteHeld()))
+        return;
+
+    AppTempo_SendTapTempoCcToDevices();
+
     if (screensaver_was_active)
     {
         App_QueueRedrawMainScreenEvent();
         return;
     }
-
-    if (AppButtonCombo_HandleTapPress(now, Button_IsMuteHeld()))
-        return;
 
     if (MidiClockIsExternalSignalPresent())
         return;
@@ -181,4 +185,20 @@ static void AppTempo_ApplyMirroredTempoBpm(uint16_t bpm)
 {
     AppState_SetTempoBpm(bpm);
     MidiClockOutputSetTempoBpm(bpm);
+}
+
+static void AppTempo_SendTapTempoCcToDevices(void)
+{
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+    {
+        const MidiDevice_t *device = MidiDevices_Get(device_index);
+
+        if (!device)
+            continue;
+
+        if (device->tap_tempo.cc == PRESET_CC_NUMBER_UNUSED)
+            continue;
+
+        MIDI_SendCC(device->channel, device->tap_tempo.cc, device->tap_tempo.value);
+    }
 }

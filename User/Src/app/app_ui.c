@@ -1,6 +1,7 @@
 #include "app/app_ui.h"
 
 #include "app_event.h"
+#include "app/app_board_init.h"
 #include "app/app_requests.h"
 #include "app/app_state.h"
 #include "display_functions.h"
@@ -21,13 +22,71 @@ static void AppUi_PresetEditLoadNameCells(const Preset_t *preset, char *name_cel
 static void AppUi_PresetEditStoreNameCells(Preset_t *preset, const char *name_cells);
 static uint8_t AppUi_PresetEditAdjustNameCharacter(Preset_t *preset, int8_t delta);
 static uint8_t AppUi_PresetEditAdjustProgramValue(Preset_t *preset, uint8_t slot, int8_t delta);
+static const Preset_t *AppUi_GetEditableActivePreset(void);
+static Preset_t *AppUi_GetMutableEditableActivePreset(void);
+static uint8_t AppUi_GetEditableActivePresetIndex(uint8_t *preset_index);
+
+static const Preset_t *AppUi_GetEditableActivePreset(void)
+{
+    const Preset_t *active_preset = AppState_GetActivePreset();
+
+    if (!active_preset)
+        return NULL;
+
+    if (active_preset == Presets_Get(AppState_GetActivePresetIndex()))
+        return active_preset;
+
+    if (Presets_IsGlobalBypassPreset(active_preset) || Presets_IsGlobalMutePreset(active_preset))
+        return active_preset;
+
+    return NULL;
+}
+
+static Preset_t *AppUi_GetMutableEditableActivePreset(void)
+{
+    const Preset_t *active_preset = AppState_GetActivePreset();
+
+    if (!active_preset)
+        return NULL;
+
+    if (active_preset == Presets_Get(AppState_GetActivePresetIndex()))
+        return Presets_GetMutable(AppState_GetActivePresetIndex());
+
+    if (Presets_IsGlobalBypassPreset(active_preset))
+        return Presets_GetMutableGlobalBypassPreset();
+
+    if (Presets_IsGlobalMutePreset(active_preset))
+        return Presets_GetMutableGlobalMutePreset();
+
+    return NULL;
+}
+
+static uint8_t AppUi_GetEditableActivePresetIndex(uint8_t *preset_index)
+{
+    const Preset_t *active_preset = AppUi_GetEditableActivePreset();
+
+    if (!active_preset || !preset_index)
+        return 0U;
+
+    if (Presets_IsGlobalBypassPreset(active_preset))
+    {
+        *preset_index = PRESET_GLOBAL_BYPASS_INDEX;
+        return 1U;
+    }
+
+    if (Presets_IsGlobalMutePreset(active_preset))
+    {
+        *preset_index = PRESET_GLOBAL_MUTE_INDEX;
+        return 1U;
+    }
+
+    *preset_index = AppState_GetActivePresetIndex();
+    return 1U;
+}
 
 uint8_t AppUi_PresetEditCurrentPresetIsEditable(void)
 {
-    const Preset_t *active_preset = AppState_GetActivePreset();
-    const Preset_t *active_real_preset = Presets_Get(AppState_GetActivePresetIndex());
-
-    return (active_preset != NULL && active_preset == active_real_preset) ? 1U : 0U;
+    return AppUi_GetEditableActivePreset() ? 1U : 0U;
 }
 
 static uint8_t AppUi_PresetEditAdjustSentinelValue(uint8_t *value,
@@ -179,7 +238,7 @@ uint8_t AppUi_PresetEditApplyDelta(int8_t delta)
         return 0U;
     }
 
-    preset = Presets_GetMutable(AppState_GetActivePresetIndex());
+    preset = AppUi_GetMutableEditableActivePreset();
     if (!preset)
         return 0U;
 
@@ -206,8 +265,12 @@ uint8_t AppUi_PresetEditApplyDelta(int8_t delta)
                 return 0U;
 
             preset->relay[field.itemIndex] = next_state;
+            AppBoard_SetRelayState(field.itemIndex, next_state);
             return 1U;
         }
+
+    case DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON:
+        return 0U;
 
     case DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL:
         if (field.itemIndex >= PRESET_CC_SLOT_COUNT)
@@ -264,7 +327,7 @@ void AppUi_PresetEditExit(void)
     App_QueueScreensaverActivityEvent();
     AppUi_RequestPresetEditModeRefresh();
 
-    if (Presets_IsDirty())
+    if (Presets_IsDirty() || RuntimeConfig_IsDirty())
         App_QueueSaveRequestEvent(APP_EVENT_SAVE_KIND_PRESETS);
 }
 
@@ -281,7 +344,7 @@ uint8_t AppUi_PresetEditSendCurrentPreset(void)
         return 1U;
     }
 
-    preset = Presets_Get(AppState_GetActivePresetIndex());
+    preset = AppUi_GetEditableActivePreset();
     if (!preset)
         return 0U;
 
@@ -291,6 +354,8 @@ uint8_t AppUi_PresetEditSendCurrentPreset(void)
 
 uint8_t AppUi_PresetEditResetCurrentPresetToDefaults(void)
 {
+    uint8_t preset_index;
+
     if (!Display_PresetEditIsActive())
         return 0U;
 
@@ -300,9 +365,44 @@ uint8_t AppUi_PresetEditResetCurrentPresetToDefaults(void)
         return 0U;
     }
 
-    Presets_ResetPresetToDefaults(AppState_GetActivePresetIndex());
-    Presets_MarkDirty();
+    if (!AppUi_GetEditableActivePresetIndex(&preset_index))
+        return 0U;
+
+    Presets_ResetPresetToDefaults(preset_index);
+
+    if (preset_index >= PRESET_COUNT)
+        RuntimeConfig_MarkDirty();
+    else
+        Presets_MarkDirty();
+
     return 1U;
+}
+
+uint8_t AppUi_PresetEditEnterFunctionButtonEditor(void)
+{
+    uint8_t preset_index;
+
+    if (!Display_PresetEditIsActive() || !AppUi_PresetEditCurrentPresetIsEditable())
+        return 0U;
+
+    if (!AppUi_GetEditableActivePresetIndex(&preset_index))
+        return 0U;
+
+    Display_MenuEnterPresetFunctionButtonEditor(preset_index);
+    return 1U;
+}
+
+void AppUi_PresetEditMarkDirty(void)
+{
+    const Preset_t *active_preset = AppUi_GetEditableActivePreset();
+
+    if (!active_preset)
+        return;
+
+    if (Presets_IsGlobalBypassPreset(active_preset) || Presets_IsGlobalMutePreset(active_preset))
+        RuntimeConfig_MarkDirty();
+    else
+        Presets_MarkDirty();
 }
 
 uint8_t AppUi_PresetEditBackOutOneLevel(void)
