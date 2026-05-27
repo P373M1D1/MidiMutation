@@ -33,6 +33,8 @@ static const Preset_t *AppUi_GetEditableActivePreset(void)
     if (!active_preset)
         return NULL;
 
+    /* A preset is editable when the live selection points at either a normal
+     * bank slot or one of the runtime-owned global overlay presets. */
     if (active_preset == Presets_Get(AppState_GetActivePresetIndex()))
         return active_preset;
 
@@ -52,6 +54,8 @@ static Preset_t *AppUi_GetMutableEditableActivePreset(void)
     if (active_preset == Presets_Get(AppState_GetActivePresetIndex()))
         return Presets_GetMutable(AppState_GetActivePresetIndex());
 
+    /* Overlay presets do not live in preset_store, so route edits back to the
+     * owning runtime-config objects instead of returning a stale bank slot. */
     if (Presets_IsGlobalBypassPreset(active_preset))
         return Presets_GetMutableGlobalBypassPreset();
 
@@ -102,6 +106,8 @@ static uint8_t AppUi_PresetEditAdjustSentinelValue(uint8_t *value,
     if (delta == 0)
         return 0U;
 
+    /* Treat the sentinel as one step below the legal range so encoder turns can
+     * move cleanly between "unused" and the first valid numeric value. */
     current_value = (*value == unused_value) ? unused_marker : (int16_t)(*value);
     next_value = current_value + (int16_t)delta;
 
@@ -149,6 +155,8 @@ static void AppUi_PresetEditStoreNameCells(Preset_t *preset, const char *name_ce
 
     memset(preset->name, 0, sizeof(preset->name));
 
+    /* Trim trailing padding back out so stored names stay compact and existing
+     * callers that expect a normal C string continue to work. */
     for (last_non_space_index = (int16_t)PRESET_NAME_LENGTH - 1; last_non_space_index >= 0; --last_non_space_index)
     {
         if (name_cells[last_non_space_index] != ' ')
@@ -218,6 +226,8 @@ static uint8_t AppUi_PresetEditAdjustProgramValue(Preset_t *preset, uint8_t slot
         return 0U;
     }
 
+    /* Preview program changes immediately so the user hears the new selection
+     * while still inside the edit field. */
     if (preset->prg[slot].program != previous_program && device != NULL)
         Midi_SendDeviceProgramSlot(slot, preset->prg[slot].program);
 

@@ -1416,6 +1416,8 @@ uint8_t Presets_IsGlobalMutePreset(const Preset_t *preset)
 
 static const Preset_t *Presets_GetButton11PresetForCurrentBank(void)
 {
+    /* Button 11 is no longer a hard-coded overlay. It now selects one of the
+     * editable global presets based on the bank's Wet/Dry mode. */
     if (Presets_CurrentBankUsesWetDry())
         return Presets_GetGlobalMutePreset();
 
@@ -1434,11 +1436,15 @@ static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index,
 
     if (update_index)
     {
+        /* Normal preset activation replaces the bank slot selection that the
+         * rest of the UI treats as the "real" active preset. */
         AppState_ActivatePresetSelection(preset, idx);
         LED_SetPresetIndicator((uint8_t)(idx % PRESETS_PER_BANK));
     }
     else
     {
+        /* Overlay presets reuse the active bank slot underneath, so only the
+         * live output state changes while the stored selection stays intact. */
         AppState_SetActiveOverlayPreset(preset);
     }
 
@@ -1515,6 +1521,8 @@ Preset_t *Presets_GetMutable(uint8_t index)
 {
     Presets_EnsureRuntimeStore();
 
+    /* Global presets live in runtime config instead of the flat preset_store,
+     * but callers edit them through the same index-based API. */
     if (index == PRESET_GLOBAL_BYPASS_INDEX)
         return Presets_GetMutableGlobalBypassPreset();
 
@@ -1555,6 +1563,8 @@ void Presets_ResetPresetToDefaults(uint8_t index)
 
     Presets_EnsureRuntimeStore();
 
+    /* Global overlays reset through runtime-config helpers because they are
+     * persisted alongside bank/device settings rather than preset flash data. */
     if (index == PRESET_GLOBAL_BYPASS_INDEX)
     {
         RuntimeConfig_ResetGlobalBypassPresetToDefaults();
@@ -1647,6 +1657,8 @@ void Presets_ActivateMute(void)
 {
     const Preset_t *overlay_preset = Presets_GetButton11PresetForCurrentBank();
 
+    /* The LED still points at the physical button, but the payload comes from
+     * whichever editable global preset applies to the current bank. */
     App_ActivatePresetData(overlay_preset, 0U, 0U);
 
     LED_SetActiveButtonIndicator(10U);

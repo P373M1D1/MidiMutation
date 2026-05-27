@@ -7,9 +7,21 @@
 #include "app/app_ui.h"
 #include "display/display_menu_page_midi_monitor.h"
 #include "display_functions.h"
+#include "midi_functions.h"
 #include "presets.h"
+#include "runtime_config.h"
 
 #include <stddef.h>
+
+static RuntimeConfigLiveEnc2Mode_t AppUiEvents_GetLiveEnc2Mode(void)
+{
+    const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
+
+    if (!global)
+        return RUNTIME_CONFIG_LIVE_ENC2_MODE_PRESET_BANK_SCROLL;
+
+    return global->live_enc2_mode;
+}
 
 void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
 {
@@ -26,6 +38,9 @@ void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
     switch (encoder_source)
     {
     case APP_EVENT_SOURCE_ENC1:
+        /* Left encoder always owns vertical/navigation movement. In menu mode
+         * that means row selection; in preset edit it means field selection;
+         * otherwise it scrolls the live info area. */
         if (Display_MenuIsActive())
         {
             if (Display_MenuMidiMonitorIsActive())
@@ -72,6 +87,8 @@ void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
         return;
 
     case APP_EVENT_SOURCE_ENC2:
+        /* Center encoder stays dedicated to coarse navigation between presets
+         * or menu-home actions, never value editing. */
         if (Display_MenuIsActive())
         {
             if (Display_MenuUserThemeEditIsActive())
@@ -82,6 +99,29 @@ void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
         if (Display_PresetEditIsActive())
             return;
 
+        switch (AppUiEvents_GetLiveEnc2Mode())
+        {
+        case RUNTIME_CONFIG_LIVE_ENC2_MODE_METRONOME:
+            (void)AppUi_MenuEnterMetronomeQuickAccess();
+            break;
+
+        case RUNTIME_CONFIG_LIVE_ENC2_MODE_TIMEBEND:
+        {
+            /* Tune for one-grip operation: aim to reach full bend span within
+             * roughly a 180-degree encoder sweep without requiring re-grip. */
+            int16_t scaled_delta = (int16_t)delta * 8;
+
+            if (scaled_delta > 127)
+                scaled_delta = 127;
+            else if (scaled_delta < -127)
+                scaled_delta = -127;
+
+            MidiTimebendInjectEncoderDelta((int8_t)scaled_delta);
+            break;
+        }
+
+        case RUNTIME_CONFIG_LIVE_ENC2_MODE_PRESET_BANK_SCROLL:
+        default:
         {
             int16_t bank_base = (int16_t)(current_bank * PRESETS_PER_BANK);
             int16_t slot_index = (int16_t)active_preset_index - bank_base;
@@ -97,10 +137,14 @@ void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
                 next_slot -= (int16_t)PRESETS_PER_BANK;
 
             App_QueuePresetActivateEvent((uint8_t)(bank_base + next_slot));
+            break;
+        }
         }
         return;
 
     case APP_EVENT_SOURCE_ENC3:
+        /* Right encoder is the value knob: menu edits, preset field changes,
+         * or live tempo adjustment when no editor is active. */
         if (Display_MenuIsActive())
         {
             if (Display_MenuMidiMonitorIsActive())
@@ -166,7 +210,7 @@ void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
     {
         if (press_mask & 0x01U)
         {
-            Display_MenuMidiMonitorTogglePause();
+            AppUi_MenuBackOutOneLevel();
             return;
         }
 
@@ -175,10 +219,18 @@ void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
             Display_MenuMidiMonitorClear();
             return;
         }
+
+        if (press_mask & 0x04U)
+        {
+            Display_MenuMidiMonitorTogglePause();
+            return;
+        }
     }
 
     if ((press_mask & 0x02U) && Display_MenuIsActive())
     {
+        /* Center press is the menu-wide "home" action unless the current page
+         * is showing a preview that intentionally consumes the control. */
         if (Display_MenuPreviewCanShow())
             return;
 
@@ -189,18 +241,29 @@ void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
 
     if ((press_mask & 0x01U) && Display_MenuIsActive())
     {
+        if (Display_MenuConfirmActionIsActive())
+            return;
+
         if (Display_MenuTextEditIsActive())
         {
             Display_MenuTextEditExit();
             return;
         }
 
+        /* Menu semantics were swapped so the left switch consistently means
+         * back/exit while the right switch means enter/confirm. */
         AppUi_MenuBackOutOneLevel();
         return;
     }
 
     if ((press_mask & 0x04U) && Display_MenuIsActive())
     {
+        if (Display_MenuConfirmActionIsActive())
+        {
+            AppUi_MenuBackOutOneLevel();
+            return;
+        }
+
         Display_MenuActivate();
         return;
     }
@@ -221,7 +284,23 @@ void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
 
     if ((press_mask & 0x02U) && !Display_PresetEditIsActive())
     {
-        App_QueueBankStepEvent(1, APP_EVENT_BANK_STEP_MODE_ACTIVE_SLOT);
+        switch (AppUiEvents_GetLiveEnc2Mode())
+        {
+        case RUNTIME_CONFIG_LIVE_ENC2_MODE_METRONOME:
+            (void)AppUi_MenuEnterMetronomeQuickAccess();
+            break;
+
+        case RUNTIME_CONFIG_LIVE_ENC2_MODE_TIMEBEND:
+            /* Timebend mode is reserved for a future live-control path. */
+            break;
+
+        case RUNTIME_CONFIG_LIVE_ENC2_MODE_PRESET_BANK_SCROLL:
+        default:
+            /* Outside edit mode, center press cycles bank pages while preserving
+             * the same slot index inside the destination bank. */
+            App_QueueBankStepEvent(1, APP_EVENT_BANK_STEP_MODE_ACTIVE_SLOT);
+            break;
+        }
         return;
     }
 
@@ -245,6 +324,8 @@ void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
 
     if ((press_mask & 0x01U) && !Display_PresetEditIsActive())
     {
+        /* Live mode still uses the left press to enter preset edit so the UI
+         * remains reachable without first opening the menu shell. */
         AppUi_PresetEditEnter();
     }
     else if ((press_mask & 0x01U) && Display_PresetEditIsActive() && !Display_PresetNameEditIsActive())

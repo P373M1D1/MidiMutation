@@ -184,45 +184,8 @@ static void Display_RestoreFactorySettings(void)
 
 static void Display_ResetActiveDeviceToUnusedDefaults(RuntimeConfigDevice_t *device)
 {
-    static const char * const default_device_names[MIDI_DEVICE_COUNT] = {
-        "Dev1",
-        "Dev2",
-        "Dev3",
-        "Dev4",
-        "Dev5",
-        "Dev6",
-        "Dev7",
-        "Dev8",
-    };
-
-    if (!device)
-        return;
-
-    memset(device->name, 0, sizeof(device->name));
-    if (display_state.menu_active_device_index < MIDI_DEVICE_COUNT)
-        memcpy(device->name,
-               default_device_names[display_state.menu_active_device_index],
-               sizeof(device->name) - 1U);
-    device->channel = (uint8_t)(display_state.menu_active_device_index + 1U);
-    device->active.cc = PRESET_CC_NUMBER_UNUSED;
-    device->active.value = 0U;
-    device->bypass.cc = PRESET_CC_NUMBER_UNUSED;
-    device->bypass.value = 0U;
-    device->tap_tempo.cc = PRESET_CC_NUMBER_UNUSED;
-    device->tap_tempo.value = 0U;
-    device->volume1.cc = PRESET_CC_NUMBER_UNUSED;
-    device->volume1.value = 0U;
-    device->volume2.cc = PRESET_CC_NUMBER_UNUSED;
-    device->volume2.value = 0U;
-    device->mix1.cc = PRESET_CC_NUMBER_UNUSED;
-    device->mix1.value = 0U;
-    device->mix2.cc = PRESET_CC_NUMBER_UNUSED;
-    device->mix2.value = 0U;
-    device->decay1.cc = PRESET_CC_NUMBER_UNUSED;
-    device->decay1.value = 0U;
-    device->decay2.cc = PRESET_CC_NUMBER_UNUSED;
-    device->decay2.value = 0U;
-    device->max_preset = 127U;
+    (void)device;
+    RuntimeConfig_ResetDeviceToDefaults(display_state.menu_active_device_index);
 }
 
 void Display_MenuEnter(void)
@@ -245,12 +208,59 @@ void Display_MenuEnter(void)
     display_state.menu_device_edit_selection_index = 0U;
     display_state.menu_global_selection_index = 0U;
     display_state.menu_metronome_selection_index = 0U;
+    display_state.menu_metronome_quick_access_live = 0U;
     display_state.menu_user_theme_selection_index = 0U;
     display_state.menu_active_user_theme_mode = (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_USER;
     display_state.main_layout_dirty = 1U;
     display_state.bpm_display_valid = 0U;
     display_state.transport_status_valid = 0U;
     Display_MenuRefresh();
+}
+
+uint8_t Display_MenuEnterMetronomeQuickAccess(void)
+{
+    if (display_state.preset_edit_mode_active)
+        return 0U;
+
+    if (!display_state.menu_mode_active)
+    {
+        display_state.menu_mode_active = 1U;
+        display_state.menu_preview_active = 0U;
+        display_state.menu_draw_state_valid = 0U;
+        display_state.menu_last_drawn_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT;
+        display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_METRONOME;
+        Display_ResetMenuTransientEditors();
+        display_state.menu_root_selection_index = 3U;
+        display_state.menu_bank_selection_index = current_bank;
+        display_state.menu_active_bank_index = current_bank;
+        display_state.menu_active_preset_index = 0U;
+        display_state.menu_return_to_preset_edit = 0U;
+        display_state.menu_bank_edit_selection_index = 0U;
+        display_state.menu_function_button_selection_index = 0U;
+        display_state.menu_device_selection_index = 0U;
+        display_state.menu_active_device_index = 0U;
+        display_state.menu_device_edit_selection_index = 0U;
+        display_state.menu_global_selection_index = 0U;
+        display_state.menu_metronome_selection_index = 0U;
+        display_state.menu_metronome_quick_access_live = 1U;
+        display_state.menu_user_theme_selection_index = 0U;
+        display_state.menu_active_user_theme_mode = (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_USER;
+        display_state.main_layout_dirty = 1U;
+        display_state.bpm_display_valid = 0U;
+        display_state.transport_status_valid = 0U;
+        Display_MenuRefresh();
+        return 1U;
+    }
+
+    display_state.menu_preview_active = 0U;
+    display_state.menu_draw_state_valid = 0U;
+    display_state.menu_root_selection_index = 3U;
+    display_state.menu_metronome_selection_index = 0U;
+    display_state.menu_metronome_quick_access_live = 0U;
+    display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_METRONOME;
+    Display_ResetMenuTransientEditors();
+    Display_MenuRefresh();
+    return 1U;
 }
 
 void Display_MenuEnterPresetFunctionButtonEditor(uint8_t preset_index)
@@ -282,6 +292,7 @@ void Display_MenuExit(void)
     display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT;
     display_state.menu_active_preset_index = 0U;
     display_state.menu_return_to_preset_edit = 0U;
+    display_state.menu_metronome_quick_access_live = 0U;
     display_state.main_layout_dirty = 1U;
     display_state.bpm_display_valid = 0U;
     display_state.transport_status_valid = 0U;
@@ -343,7 +354,7 @@ void Display_MenuHome(void)
     {
         Display_ResetMenuTransientEditors();
         Display_RestoreFactorySettings();
-        display_state.menu_global_selection_index = 8U;
+        display_state.menu_global_selection_index = 9U;
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return;
@@ -357,6 +368,7 @@ void Display_MenuHome(void)
         display_state.menu_root_selection_index = 2U;
         break;
     case DISPLAY_MENU_PAGE_METRONOME:
+        display_state.menu_metronome_quick_access_live = 0U;
         display_state.menu_root_selection_index = 3U;
         break;
     case DISPLAY_MENU_PAGE_MIDI_MONITOR:
@@ -472,11 +484,17 @@ uint8_t Display_MenuBack(void)
         Display_MenuRefresh();
         return 1U;
     case DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM:
-        display_state.menu_global_selection_index = 8U;
+        display_state.menu_global_selection_index = 9U;
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return 1U;
     case DISPLAY_MENU_PAGE_METRONOME:
+        if (display_state.menu_metronome_quick_access_live)
+        {
+            Display_MenuExit();
+            return 1U;
+        }
+
         display_state.menu_root_selection_index = 3U;
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT;
         Display_MenuRefresh();
@@ -487,7 +505,7 @@ uint8_t Display_MenuBack(void)
         Display_MenuRefresh();
         return 1U;
     case DISPLAY_MENU_PAGE_USER_THEME:
-        display_state.menu_global_selection_index = 3U;
+        display_state.menu_global_selection_index = 4U;
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return 1U;
@@ -514,6 +532,14 @@ uint8_t Display_MenuBack(void)
 uint8_t Display_MenuIsActive(void)
 {
     return display_state.menu_mode_active;
+}
+
+uint8_t Display_MenuConfirmActionIsActive(void)
+{
+    if (!display_state.menu_mode_active)
+        return 0U;
+
+    return Display_MenuPageUsesConfirmFootbar((DisplayMenuPage_t)display_state.menu_page);
 }
 
 uint8_t Display_MenuMoveSelection(int8_t delta)
@@ -633,6 +659,7 @@ uint8_t Display_MenuActivate(void)
         case 3U:
             display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_METRONOME;
             display_state.menu_metronome_selection_index = 0U;
+            display_state.menu_metronome_quick_access_live = 0U;
             break;
         case 4U:
             Display_MenuMidiMonitorEnter();
@@ -643,14 +670,14 @@ uint8_t Display_MenuActivate(void)
         }
         break;
     case DISPLAY_MENU_PAGE_GLOBAL:
-        if (display_state.menu_global_selection_index == 8U)
+        if (display_state.menu_global_selection_index == 9U)
         {
             display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM;
             Display_MenuRefresh();
             return 1U;
         }
 
-        if (display_state.menu_global_selection_index == 3U
+        if (display_state.menu_global_selection_index == 4U
          && global
          && RuntimeConfig_TryGetUserThemeIndex(global->display_mode, NULL))
         {

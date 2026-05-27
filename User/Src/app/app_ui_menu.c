@@ -66,3 +66,12 @@ uint8_t AppUi_MenuEnter(void)
     Display_MenuEnter();
     return 1U;
 }
+
+uint8_t AppUi_MenuEnterMetronomeQuickAccess(void)
+{
+    if (Display_PresetEditIsActive())
+        return 0U;
+
+    App_QueueScreensaverWakeEvent();
+    return Display_MenuEnterMetronomeQuickAccess();
+}

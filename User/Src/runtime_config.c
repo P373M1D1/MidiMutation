@@ -15,6 +15,7 @@
 #define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT   0U
 #define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT 96U
 #define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT    32U
+#define RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT    RUNTIME_CONFIG_LIVE_ENC2_MODE_PRESET_BANK_SCROLL
 #define RUNTIME_CONFIG_METRONOME_VOLUME_DEFAULT         50U
 #define RUNTIME_CONFIG_METRONOME_PITCH_DEFAULT          RUNTIME_CONFIG_METRONOME_PITCH_MID
 #define RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_DEFAULT  4U
@@ -113,6 +114,17 @@ typedef struct {
     RuntimeConfigSyncStyle_t sync_style;
     RuntimeConfigDisplayMode_t display_mode;
     uint16_t backlight_brightness;
+    uint8_t feedback_taper_enabled;
+    uint8_t feedback_taper_threshold;
+    uint8_t feedback_taper_reduce;
+} RuntimeConfigGlobalLegacyV10_t;
+
+typedef struct {
+    uint8_t startup_delay_seconds;
+    uint8_t screensaver_timeout_minutes;
+    RuntimeConfigSyncStyle_t sync_style;
+    RuntimeConfigDisplayMode_t display_mode;
+    uint16_t backlight_brightness;
 } RuntimeConfigGlobalLegacyV9_t;
 
 typedef struct {
@@ -188,7 +200,7 @@ typedef struct {
 typedef struct {
     RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
     RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
-    RuntimeConfigGlobal_t global;
+    RuntimeConfigGlobalLegacyV10_t global;
     RuntimeConfigMetronome_t metronome;
     RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
 } RuntimeConfigLegacyV10_t;
@@ -330,6 +342,7 @@ static const RuntimeConfig_t runtime_config_defaults = {
         .feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT,
         .feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT,
         .feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT,
+        .live_enc2_mode = RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT,
     },
     .metronome = RUNTIME_CONFIG_METRONOME_DEFAULT,
     .user_themes = {
@@ -375,6 +388,9 @@ static void RuntimeConfig_SeedGlobalMutePresetFromLegacyBehavior(Preset_t *prese
     if (!preset)
         return;
 
+    /* Older firmware treated mute as an implicit "send volume CC = 0" action.
+     * When migrating those snapshots, rebuild an explicit editable preset that
+     * preserves the same effective output behavior. */
     for (uint8_t cc_index = 0U; cc_index < PRESET_CC_SLOT_COUNT; ++cc_index)
     {
         preset->cc[cc_index].channel = PRESET_CC_CHANNEL_UNUSED;
@@ -386,6 +402,8 @@ static void RuntimeConfig_SeedGlobalMutePresetFromLegacyBehavior(Preset_t *prese
     {
         const RuntimeConfigDevice_t *device = &runtime_config_store.devices[device_index];
 
+        /* Skip unconfigured channels so the migrated mute preset only targets
+         * devices that could previously have reacted to volume CCs. */
         if (device->channel < 1U || device->channel > 16U)
             continue;
 
@@ -409,6 +427,9 @@ static void RuntimeConfig_SeedGlobalMutePresetFromLegacyBehavior(Preset_t *prese
 
 static void RuntimeConfig_InitGlobalPresetsForLegacySnapshot(void)
 {
+    /* Legacy snapshots do not carry the new global preset payloads, so start
+     * from current defaults and then derive the mute behavior from old device
+     * volume assignments where possible. */
     runtime_config_store.global_bypass_preset = runtime_config_global_bypass_preset_default;
     runtime_config_store.global_mute_preset = runtime_config_global_mute_preset_default;
     RuntimeConfig_SeedGlobalMutePresetFromLegacyBehavior(&runtime_config_store.global_mute_preset);
@@ -445,6 +466,8 @@ static void RuntimeConfig_CopyLegacyDevice(RuntimeConfigDevice_t *destination,
     if (!destination || !source)
         return;
 
+    /* V2 only had one level control. Map that forward into volume1 and leave
+     * the newer secondary controls explicitly unused. */
     memset(destination->name, 0, sizeof(destination->name));
     memcpy(destination->name, source->name, sizeof(source->name));
     destination->channel = source->channel;
@@ -695,6 +718,14 @@ static uint8_t RuntimeConfig_NormalizeFeedbackTaperReduce(uint8_t reduce)
         : RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_MAX;
 }
 
+static RuntimeConfigLiveEnc2Mode_t RuntimeConfig_NormalizeLiveEnc2Mode(uint8_t mode)
+{
+    if (mode > (uint8_t)RUNTIME_CONFIG_LIVE_ENC2_MODE_TIMEBEND)
+        return RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT;
+
+    return (RuntimeConfigLiveEnc2Mode_t)mode;
+}
+
 static void RuntimeConfig_ApplyLegacyGlobalV9(RuntimeConfigGlobal_t *destination,
                                               const RuntimeConfigGlobalLegacyV9_t *source)
 {
@@ -709,6 +740,24 @@ static void RuntimeConfig_ApplyLegacyGlobalV9(RuntimeConfigGlobal_t *destination
     destination->feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT;
     destination->feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT;
     destination->feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT;
+    destination->live_enc2_mode = RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT;
+}
+
+static void RuntimeConfig_ApplyLegacyGlobalV10(RuntimeConfigGlobal_t *destination,
+                                               const RuntimeConfigGlobalLegacyV10_t *source)
+{
+    if (!destination || !source)
+        return;
+
+    destination->startup_delay_seconds = source->startup_delay_seconds;
+    destination->screensaver_timeout_minutes = source->screensaver_timeout_minutes;
+    destination->sync_style = source->sync_style;
+    destination->display_mode = source->display_mode;
+    destination->backlight_brightness = source->backlight_brightness;
+    destination->feedback_taper_enabled = source->feedback_taper_enabled;
+    destination->feedback_taper_threshold = source->feedback_taper_threshold;
+    destination->feedback_taper_reduce = source->feedback_taper_reduce;
+    destination->live_enc2_mode = RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT;
 }
 
 static RuntimeConfigMetronomePitch_t RuntimeConfig_NormalizeMetronomePitch(uint8_t pitch)
@@ -864,6 +913,8 @@ static void RuntimeConfig_NormalizeLoadedStore(void)
         runtime_config_store.global.feedback_taper_threshold);
     runtime_config_store.global.feedback_taper_reduce = RuntimeConfig_NormalizeFeedbackTaperReduce(
         runtime_config_store.global.feedback_taper_reduce);
+    runtime_config_store.global.live_enc2_mode = RuntimeConfig_NormalizeLiveEnc2Mode(
+        (uint8_t)runtime_config_store.global.live_enc2_mode);
     runtime_config_store.global.display_mode = RuntimeConfig_NormalizeDisplayMode(
         (uint8_t)runtime_config_store.global.display_mode);
     runtime_config_store.metronome.volume = RuntimeConfig_NormalizeMetronomeVolume(
@@ -905,6 +956,7 @@ static void RuntimeConfig_ApplyLegacyV2Snapshot(const RuntimeConfigLegacyV2_t *l
     runtime_config_store.global.feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT;
     runtime_config_store.global.feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT;
     runtime_config_store.global.feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT;
+    runtime_config_store.global.live_enc2_mode = RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT;
     runtime_config_store.metronome = runtime_config_defaults.metronome;
 }
 
@@ -931,6 +983,7 @@ static void RuntimeConfig_ApplyLegacyV3Snapshot(const RuntimeConfigLegacyV3_t *l
     runtime_config_store.global.feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT;
     runtime_config_store.global.feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT;
     runtime_config_store.global.feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT;
+    runtime_config_store.global.live_enc2_mode = RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT;
     runtime_config_store.metronome = runtime_config_defaults.metronome;
 }
 
@@ -957,6 +1010,7 @@ static void RuntimeConfig_ApplyLegacyV4Snapshot(const RuntimeConfigLegacyV4_t *l
     runtime_config_store.global.feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT;
     runtime_config_store.global.feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT;
     runtime_config_store.global.feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT;
+    runtime_config_store.global.live_enc2_mode = RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT;
     runtime_config_store.metronome = runtime_config_defaults.metronome;
 }
 
@@ -1065,26 +1119,30 @@ static void RuntimeConfig_ApplyLegacyV9Snapshot(const RuntimeConfigLegacyV9_t *l
     memcpy(runtime_config_store.user_themes,
            legacy_store->user_themes,
            sizeof(runtime_config_store.user_themes));
-        RuntimeConfig_InitGlobalPresetsForLegacySnapshot();
-    }
+    /* V9 predates stored global overlay presets, so synthesize them after the
+     * rest of the snapshot has been copied into the current layout. */
+    RuntimeConfig_InitGlobalPresetsForLegacySnapshot();
+}
 
-    static void RuntimeConfig_ApplyLegacyV10Snapshot(const RuntimeConfigLegacyV10_t *legacy_store)
-    {
-        if (!legacy_store)
-         return;
+static void RuntimeConfig_ApplyLegacyV10Snapshot(const RuntimeConfigLegacyV10_t *legacy_store)
+{
+    if (!legacy_store)
+        return;
 
-        memcpy(runtime_config_store.banks,
-            legacy_store->banks,
-            sizeof(runtime_config_store.banks));
-        memcpy(runtime_config_store.devices,
-            legacy_store->devices,
-            sizeof(runtime_config_store.devices));
-        runtime_config_store.global = legacy_store->global;
-        runtime_config_store.metronome = legacy_store->metronome;
-        memcpy(runtime_config_store.user_themes,
-            legacy_store->user_themes,
-            sizeof(runtime_config_store.user_themes));
-        RuntimeConfig_InitGlobalPresetsForLegacySnapshot();
+    memcpy(runtime_config_store.banks,
+           legacy_store->banks,
+           sizeof(runtime_config_store.banks));
+    memcpy(runtime_config_store.devices,
+           legacy_store->devices,
+           sizeof(runtime_config_store.devices));
+    RuntimeConfig_ApplyLegacyGlobalV10(&runtime_config_store.global, &legacy_store->global);
+    runtime_config_store.metronome = legacy_store->metronome;
+    memcpy(runtime_config_store.user_themes,
+           legacy_store->user_themes,
+           sizeof(runtime_config_store.user_themes));
+    /* V10 has the modern bank/device/global layout but still predates the two
+     * editable global overlay presets, so upgrade them the same way as V9. */
+    RuntimeConfig_InitGlobalPresetsForLegacySnapshot();
 }
 
 static uint32_t RuntimeConfig_FlashChecksum(const uint8_t *data, size_t size)
@@ -1504,6 +1562,16 @@ RuntimeConfigDevice_t *RuntimeConfig_GetMutableDevice(uint8_t device_index)
         return NULL;
 
     return &runtime_config_store.devices[device_index];
+}
+
+void RuntimeConfig_ResetDeviceToDefaults(uint8_t device_index)
+{
+    RuntimeConfig_EnsureInitialized();
+
+    if (device_index >= MIDI_DEVICE_COUNT)
+        return;
+
+    runtime_config_store.devices[device_index] = runtime_config_defaults.devices[device_index];
 }
 
 const Preset_t *RuntimeConfig_GetGlobalBypassPreset(void)

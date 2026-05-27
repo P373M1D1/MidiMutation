@@ -69,6 +69,8 @@ extern "C" int __io_putchar(int ch)
 {
   uint8_t byte = (uint8_t)ch;
 
+  /* printf is routed to the ST-LINK virtual COM port when USART3 is alive,
+   * giving lightweight debug output without involving the MIDI UART path. */
   if (huart3.Instance == USART3)
     HAL_UART_Transmit(&huart3, &byte, 1U, 10U);
 
@@ -110,6 +112,8 @@ int main(void)
   MX_USART3_UART_Init();
   MX_USB_OTG_FS_PCD_Init();
   /* USER CODE BEGIN 2 */
+  /* Board/application startup owns the higher-level hardware bring-up that
+   * CubeMX does not model: runtime state, display, MIDI, storage, and UI. */
   AppStartup_Run();
 
   /* USER CODE END 2 */
@@ -119,6 +123,8 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+    /* Keep the foreground loop thin so time-sensitive work can stay in the
+     * app runtime/service layers instead of spreading through main(). */
     AppRuntime_ServiceForeground();
     /* USER CODE BEGIN 3 */
   }

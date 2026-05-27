@@ -29,6 +29,7 @@ void AppUi_ServiceMenuPreviewHold(uint8_t encoder2_switch_pressed);
 void AppUi_MenuSaveIfDirty(void);
 uint8_t AppUi_MenuBackOutOneLevel(void);
 uint8_t AppUi_MenuEnter(void);
+uint8_t AppUi_MenuEnterMetronomeQuickAccess(void);
 
 #ifdef __cplusplus
 }

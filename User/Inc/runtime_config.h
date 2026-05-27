@@ -34,6 +34,12 @@ typedef enum {
 } RuntimeConfigSyncStyle_t;
 
 typedef enum {
+    RUNTIME_CONFIG_LIVE_ENC2_MODE_PRESET_BANK_SCROLL = 0,
+    RUNTIME_CONFIG_LIVE_ENC2_MODE_METRONOME,
+    RUNTIME_CONFIG_LIVE_ENC2_MODE_TIMEBEND,
+} RuntimeConfigLiveEnc2Mode_t;
+
+typedef enum {
     RUNTIME_CONFIG_METRONOME_PITCH_LOW = 0,
     RUNTIME_CONFIG_METRONOME_PITCH_MID,
     RUNTIME_CONFIG_METRONOME_PITCH_HIGH,
@@ -154,6 +160,7 @@ typedef struct {
     uint8_t feedback_taper_enabled;
     uint8_t feedback_taper_threshold;
     uint8_t feedback_taper_reduce;
+    RuntimeConfigLiveEnc2Mode_t live_enc2_mode;
 } RuntimeConfigGlobal_t;
 
 typedef struct {
@@ -182,6 +189,7 @@ RuntimeConfigFunctionButton_t *RuntimeConfig_GetMutableFunctionButton(uint8_t ba
 
 const RuntimeConfigDevice_t *RuntimeConfig_GetDevice(uint8_t device_index);
 RuntimeConfigDevice_t *RuntimeConfig_GetMutableDevice(uint8_t device_index);
+void RuntimeConfig_ResetDeviceToDefaults(uint8_t device_index);
 const Preset_t *RuntimeConfig_GetGlobalBypassPreset(void);
 Preset_t *RuntimeConfig_GetMutableGlobalBypassPreset(void);
 const Preset_t *RuntimeConfig_GetGlobalMutePreset(void);

@@ -17,6 +17,7 @@
 #include "display/display_menu_row_render.h"
 #include "display/display_strings.h"
 #include "display/display_theme.h"
+#include "runtime_config.h"
 
 /* Menu page registry and shared menu chrome.
  *
@@ -37,11 +38,11 @@ static const char *Display_GetMidiMonitorFootbarLabel(uint8_t section_index)
     switch (section_index)
     {
     case 0U:
-        return Display_MenuMidiMonitorIsPaused() ? "SCROLL / READ" : "SCROLL / STOP";
+        return "EXIT";
     case 1U:
         return "CLEAR";
     case 2U:
-        return "EXIT";
+        return Display_MenuMidiMonitorIsPaused() ? "READ" : "STOP";
     default:
         return "";
     }
@@ -131,7 +132,27 @@ static const char *Display_GetFootbarLabel(uint8_t section_index)
     case 0U:
         return MAIN_FOOTBAR_LEFT_TEXT;
     case 1U:
+    {
+        const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
+
+        if (global)
+        {
+            switch (global->live_enc2_mode)
+            {
+            case RUNTIME_CONFIG_LIVE_ENC2_MODE_METRONOME:
+                return MAIN_FOOTBAR_CENTER_METRONOME_TEXT;
+
+            case RUNTIME_CONFIG_LIVE_ENC2_MODE_TIMEBEND:
+                return MAIN_FOOTBAR_CENTER_TIMEBEND_TEXT;
+
+            case RUNTIME_CONFIG_LIVE_ENC2_MODE_PRESET_BANK_SCROLL:
+            default:
+                break;
+            }
+        }
+
         return MAIN_FOOTBAR_CENTER_TEXT;
+    }
     case 2U:
         return MAIN_FOOTBAR_RIGHT_TEXT;
     default:
@@ -160,6 +181,8 @@ void Display_DrawFootbar(void)
         uint16_t text_x = (uint16_t)(section_x + ((MAIN_FOOTBAR_SECTION_WIDTH - text_w) / 2U));
         uint16_t text_y = (uint16_t)((MAIN_FOOTBAR_H - MAIN_FOOTBAR_FONT.height) / 2U);
 
+        /* Empty labels intentionally leave a section blank without shifting the
+         * neighboring captions away from their fixed soft-button positions. */
         if (text_len == 0U)
             continue;
 
@@ -351,6 +374,8 @@ static const char *Display_GetMenuHeaderTextForPage(DisplayMenuPage_t page, char
 
 uint8_t Display_MenuPageUsesConfirmFootbar(DisplayMenuPage_t page)
 {
+    /* Confirm pages share the same chrome even though the body text differs,
+     * which keeps the modal yes/home/no muscle memory consistent. */
     return (page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM
          || page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM
          || page == DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM) ? 1U : 0U;
@@ -358,6 +383,8 @@ uint8_t Display_MenuPageUsesConfirmFootbar(DisplayMenuPage_t page)
 
 uint8_t Display_MenuPageUsesFreeformBody(DisplayMenuPage_t page)
 {
+    /* These pages render prompts or monitor output instead of the standard
+     * selectable row list, so redraw code must bypass row-based assumptions. */
     return (page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM
          || page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM
             || page == DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM
@@ -435,6 +462,8 @@ void Display_DrawMainModeHeader(void)
     size_t text_len = strnlen(header_text, header_width_chars);
     size_t pad_left = ((size_t)header_width_chars - text_len) / 2U;
 
+    /* Pad before drawing so short header changes do not leave old pixels at
+     * the edges when the new text is narrower than the previous one. */
     memset(padded, ' ', header_width_chars);
     memcpy(padded + pad_left, header_text, text_len);
     padded[header_width_chars] = '\0';
@@ -489,6 +518,8 @@ void Display_ClearMenuBody(void)
 
 static DisplayMenuPageSpec_t Display_GetMenuPageSpec(DisplayMenuPage_t page)
 {
+    /* Central registry for page-local selection state plus the renderer pair
+     * that knows how to draw the body and individual visible rows. */
     switch (page)
     {
     case DISPLAY_MENU_PAGE_ROOT:

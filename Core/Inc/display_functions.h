@@ -74,13 +74,17 @@ void Display_PresetEditRefreshCurrentField(const Preset_t *p);
  * the main screen or the menu body and must restore only the obscured region. */
 void Display_ShowSavingPopup(void);
 void Display_HideSavingPopup(const Preset_t *p);
+void Display_ShowTimebendPopup(void);
+void Display_HideTimebendPopup(const Preset_t *p);
 
 /* -- Menu mode ----------------------------------------------------------------- */
 
 void Display_MenuEnter(void);
+uint8_t Display_MenuEnterMetronomeQuickAccess(void);
 void Display_MenuEnterPresetFunctionButtonEditor(uint8_t preset_index);
 void Display_MenuExit(void);
 uint8_t Display_MenuIsActive(void);
+uint8_t Display_MenuConfirmActionIsActive(void);
 void Display_MenuRefresh(void);
 void Display_MenuHome(void);
 uint8_t Display_MenuPreviewCanShow(void);

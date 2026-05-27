@@ -172,6 +172,7 @@ void AppBoard_HandleTimingCounterIrq(void)
         AppBoard_MetronomePwmStopImmediate();
     }
 
+    MidiHandleTimingCounterIrq();
     LED_HandleTimingCounterIrq();
     AppMetronome_HandleTimingCounterIrq();
 }

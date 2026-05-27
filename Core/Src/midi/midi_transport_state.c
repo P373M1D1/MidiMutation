@@ -2,6 +2,7 @@
 
 #include "midi/midi_clock_estimator.h"
 #include "midi/midi_clock_internal.h"
+#include "midi/midi_output.h"
 
 #include <stdio.h>
 
@@ -1370,6 +1371,7 @@ void MidiClockDiagnosticService(void)
     MidiTransportPhaseSnapshot_t phase_snapshot;
     MidiSyncTransitionEvent_t sync_event;
     MidiInputRealtimeRxDiagnostics_t realtime_rx_diag;
+    MidiOutputTimebendDiagnostics_t timebend_diag;
     uint32_t now = HAL_GetTick();
     uint32_t sum_us;
     uint32_t min_us;
@@ -1435,6 +1437,8 @@ void MidiClockDiagnosticService(void)
     uint8_t estimator_valid;
     uint8_t estimator_observed_pulses;
     uint8_t publication_ready;
+    int32_t timebend_phase_pct_x10 = 0;
+    int32_t timebend_effective_bpm_pct_x10 = 0;
     int32_t pll_phase_error_us = 0;
     int32_t pll_phase_correction_us = 0;
     int32_t pll_frequency_correction_us = 0;
@@ -1489,6 +1493,7 @@ void MidiClockDiagnosticService(void)
     }
 
     MidiInput_TakeRealtimeRxDiagnostics(&realtime_rx_diag);
+    MidiOutput_TakeTimebendDiagnostics(&timebend_diag);
     MidiClockEstimator_GetStatus(&estimator_status);
     midi_transport_update_sync_lifecycle();
     sync_state = midi_sync_state;
@@ -1602,6 +1607,36 @@ void MidiClockDiagnosticService(void)
     have_clock_interval_stats = (count != 0U && min_us != UINT32_MAX) ? 1U : 0U;
     have_quarter_service_stats = (quarter_service_count != 0U) ? 1U : 0U;
 
+    if (have_clock_interval_stats && sum_us != 0U)
+    {
+        uint32_t interval_avg_us = sum_us / (uint32_t)count;
+
+        if (interval_avg_us != 0U)
+        {
+            int64_t scaled = ((int64_t)timebend_diag.phase_offset_us * 1000LL);
+
+            if (scaled >= 0)
+                timebend_phase_pct_x10 = (int32_t)((scaled + (int64_t)(interval_avg_us / 2U)) / (int64_t)interval_avg_us);
+            else
+                timebend_phase_pct_x10 = (int32_t)((scaled - (int64_t)(interval_avg_us / 2U)) / (int64_t)interval_avg_us);
+        }
+    }
+
+    if (have_clock_interval_stats && sum_us != 0U && timebend_diag.emit_interval_avg_us != 0U)
+    {
+        uint32_t truth_interval_avg_us = sum_us / (uint32_t)count;
+        int64_t scaled_ratio_x10 = ((int64_t)truth_interval_avg_us * 1000LL);
+
+        if (scaled_ratio_x10 >= 0)
+            scaled_ratio_x10 = (scaled_ratio_x10 + (int64_t)(timebend_diag.emit_interval_avg_us / 2U))
+                / (int64_t)timebend_diag.emit_interval_avg_us;
+        else
+            scaled_ratio_x10 = (scaled_ratio_x10 - (int64_t)(timebend_diag.emit_interval_avg_us / 2U))
+                / (int64_t)timebend_diag.emit_interval_avg_us;
+
+        timebend_effective_bpm_pct_x10 = (int32_t)(scaled_ratio_x10 - 1000LL);
+    }
+
     if (!have_clock_interval_stats
      && !have_quarter_service_stats
      && !active
@@ -1613,7 +1648,7 @@ void MidiClockDiagnosticService(void)
     }
 
     (void)MidiClockGetRawExternalBpmX10(&bpm_x10);
-        printf("CLKDIAG ext_active=%u transport_run=%u rearm_pending=%u sync_lost=%u barbeat_valid=%u interval_samples=%u interval_avg_us=%lu interval_min_us=%lu interval_max_us=%lu interval_pkpk_us=%lu raw_bpm=%u.%u est_window=%u est_observed=%u history_confidence=%c est_valid=%u publication_ready=%u sync_state=%s sync_state_age_ms=%lu holdover_ms=%lu last_lock_age_ms=%lu last_transition=%s->%s transition_reason=%s transition_age_ms=%lu transition_phase_err_us=%ld transition_window=%u transition_observed=%u acq_ms_last=%lu acq_ms_avg=%lu acq_ms_max=%lu relock_ms_last=%lu relock_ms_avg=%lu relock_ms_max=%lu lock_acquired=%lu acquire_success=%lu relock_success=%lu lock_lost=%lu holdover_entries=%lu adapt_action=%s adapt_action_age_ms=%lu adapt_last_rollback=%u adapt_prob_active=%u adapt_prob_action=%s adapt_prob_windows=%u adapt_win_age_ms=%lu adapt_win_relock_ms=%lu adapt_win_jitter_us=%lu adapt_win_jitter_samples=%lu adapt_win_lock_lost=%lu adapt_win_holdover=%lu adapt_cd_windows=%u adapt_stable_windows=%u adapt_levels=%u/%u/%u adapt_gains=%u/%u/%u/%u adapt_lock_div=%u/%u adapt_lock_stable=%u phase_tick=%lu.%03u phase_src=%c live_lock=%c pll_err_us=%ld pll_phase_corr_us=%ld pll_freq_corr_us=%ld rx_q_now=%u rx_q_peak=%u rx_q_lifetime_peak=%u rx_drop_interval=%lu rx_drop_total=%lu rx_latency_avg_us=%lu rx_latency_max_us=%lu rx_latency_samples=%u beat_service_avg_us=%lu beat_service_max_us=%lu beat_service_samples=%u\r\n",
+        printf("CLKDIAG ext_active=%u transport_run=%u rearm_pending=%u sync_lost=%u barbeat_valid=%u interval_samples=%u interval_avg_us=%lu interval_min_us=%lu interval_max_us=%lu interval_pkpk_us=%lu raw_bpm=%u.%u est_window=%u est_observed=%u history_confidence=%c est_valid=%u publication_ready=%u sync_state=%s sync_state_age_ms=%lu holdover_ms=%lu last_lock_age_ms=%lu last_transition=%s->%s transition_reason=%s transition_age_ms=%lu transition_phase_err_us=%ld transition_window=%u transition_observed=%u acq_ms_last=%lu acq_ms_avg=%lu acq_ms_max=%lu relock_ms_last=%lu relock_ms_avg=%lu relock_ms_max=%lu lock_acquired=%lu acquire_success=%lu relock_success=%lu lock_lost=%lu holdover_entries=%lu adapt_action=%s adapt_action_age_ms=%lu adapt_last_rollback=%u adapt_prob_active=%u adapt_prob_action=%s adapt_prob_windows=%u adapt_win_age_ms=%lu adapt_win_relock_ms=%lu adapt_win_jitter_us=%lu adapt_win_jitter_samples=%lu adapt_win_lock_lost=%lu adapt_win_holdover=%lu adapt_cd_windows=%u adapt_stable_windows=%u adapt_levels=%u/%u/%u adapt_gains=%u/%u/%u/%u adapt_lock_div=%u/%u adapt_lock_stable=%u phase_tick=%lu.%03u phase_src=%c live_lock=%c pll_err_us=%ld pll_phase_corr_us=%ld pll_freq_corr_us=%ld rx_q_now=%u rx_q_peak=%u rx_q_lifetime_peak=%u rx_drop_interval=%lu rx_drop_total=%lu rx_latency_avg_us=%lu rx_latency_max_us=%lu rx_latency_samples=%u beat_service_avg_us=%lu beat_service_max_us=%lu beat_service_samples=%u tb_active=%u tb_phase_us=%ld tb_phase_pct_x10=%ld tb_eff_bpm_pct_x10=%ld tb_vel_usps=%ld tb_q_depth=%u tb_q_peak=%u tb_enq=%lu tb_emit=%lu tb_emit_iavg_us=%lu tb_emit_imin_us=%lu tb_emit_imax_us=%lu tb_emit_isamples=%lu tb_drop=%lu tb_clamp_min=%lu tb_clamp_max=%lu tb_late_avg_us=%lu tb_late_max_us=%lu tb_late_samples=%lu tb_miss=%lu tb_cross_backlog_now=%lu tb_cross_backlog_peak=%lu tb_uart_q_now=%u tb_uart_q_peak=%u tb_phase_nonmono=%lu\r\n",
            (unsigned)active,
             (unsigned)running,
             (unsigned)rearm_required,
@@ -1694,6 +1729,31 @@ void MidiClockDiagnosticService(void)
            (unsigned)realtime_rx_diag.interval_latency_sample_count,
            (unsigned long)(have_quarter_service_stats ? (quarter_service_sum_us / (uint32_t)quarter_service_count) : 0U),
            (unsigned long)(have_quarter_service_stats ? quarter_service_max_us : 0U),
-           (unsigned)quarter_service_count);
+           (unsigned)quarter_service_count,
+           (unsigned)timebend_diag.active,
+           (long)timebend_diag.phase_offset_us,
+           (long)timebend_phase_pct_x10,
+           (long)timebend_effective_bpm_pct_x10,
+           (long)timebend_diag.velocity_us_per_s,
+           (unsigned)timebend_diag.due_depth,
+           (unsigned)timebend_diag.due_peak_depth,
+           (unsigned long)timebend_diag.enqueued_count,
+           (unsigned long)timebend_diag.emitted_count,
+           (unsigned long)timebend_diag.emit_interval_avg_us,
+           (unsigned long)timebend_diag.emit_interval_min_us,
+           (unsigned long)timebend_diag.emit_interval_max_us,
+           (unsigned long)timebend_diag.emit_interval_sample_count,
+           (unsigned long)timebend_diag.dropped_count,
+           (unsigned long)timebend_diag.clamp_min_count,
+           (unsigned long)timebend_diag.clamp_max_count,
+           (unsigned long)timebend_diag.late_avg_us,
+           (unsigned long)timebend_diag.late_max_us,
+           (unsigned long)timebend_diag.late_sample_count,
+           (unsigned long)timebend_diag.missed_emit_count,
+           (unsigned long)timebend_diag.crossing_backlog_now,
+           (unsigned long)timebend_diag.crossing_backlog_peak,
+           (unsigned)timebend_diag.uart_clock_depth,
+           (unsigned)timebend_diag.uart_clock_peak_depth,
+           (unsigned long)timebend_diag.phase_nonmono_count);
 #endif
 }

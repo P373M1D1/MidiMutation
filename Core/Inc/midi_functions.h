@@ -354,6 +354,10 @@ uint8_t MidiTransportGetContinuousPhase(MidiTransportPhaseSnapshot_t *phase);
  *         outgoing MIDI clock bytes.
  */
 void MidiOutputSchedulerService(void);
+void MidiHandleTimingCounterIrq(void);
+void MidiTimebendSetActive(uint8_t active);
+void MidiTimebendInjectEncoderDelta(int8_t delta);
+uint8_t MidiTimebendIsEngaged(void);
 
 /**
  * @brief  Emit a once-per-second clock diagnostic summary on the debug UART.

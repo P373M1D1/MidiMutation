@@ -20,6 +20,7 @@ static const char * const menu_global_labels[MENU_GLOBAL_ITEM_COUNT] = {
     "Startup Delay",
     "Screen Saver",
     "Sync Style",
+    "Live ENC2",
     "Theme",
     "Brightness",
     "Feedback Taper",
@@ -50,6 +51,21 @@ void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buff
                        (global->sync_style == RUNTIME_CONFIG_SYNC_STYLE_TAP_TEMPO_CC) ? "Tap Tempo CC" : "MIDI clock");
         break;
     case 3U:
+        switch (global->live_enc2_mode)
+        {
+        case RUNTIME_CONFIG_LIVE_ENC2_MODE_METRONOME:
+            (void)snprintf(buffer, buffer_size, "%s", "Metronome");
+            break;
+        case RUNTIME_CONFIG_LIVE_ENC2_MODE_TIMEBEND:
+            (void)snprintf(buffer, buffer_size, "%s", "Timebend");
+            break;
+        case RUNTIME_CONFIG_LIVE_ENC2_MODE_PRESET_BANK_SCROLL:
+        default:
+            (void)snprintf(buffer, buffer_size, "%s", "Preset/Bank");
+            break;
+        }
+        break;
+    case 4U:
         /* Theme names come from the registration table in display_theme.c, so
          * adding a theme there automatically updates the menu label here. */
         (void)snprintf(buffer,
@@ -57,25 +73,25 @@ void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buff
                        "%s",
                        Display_GetThemeName(global->display_mode));
         break;
-    case 4U:
+    case 5U:
         (void)snprintf(buffer,
                        buffer_size,
                        "%u",
                        Display_GetGlobalBrightnessUiValue(global->backlight_brightness));
         break;
-    case 5U:
+    case 6U:
         (void)snprintf(buffer,
                        buffer_size,
                        "%s",
                        global->feedback_taper_enabled ? "Enabled" : "Disabled");
         break;
-    case 6U:
+    case 7U:
         (void)snprintf(buffer, buffer_size, "%u", global->feedback_taper_threshold);
         break;
-    case 7U:
+    case 8U:
         (void)snprintf(buffer, buffer_size, "%u", global->feedback_taper_reduce);
         break;
-    case 8U:
+    case 9U:
         buffer[0] = '\0';
         break;
     default:
@@ -112,7 +128,7 @@ void Display_DrawMenuGlobalItem(uint8_t item_index)
 
     row_index = (uint8_t)(item_index - first_visible_index);
 
-    if (item_index == 8U)
+    if (item_index == 9U)
     {
         /* Factory reset is intentionally rendered as a badge instead of a value
          * row so it stands apart from ordinary editable global settings. */

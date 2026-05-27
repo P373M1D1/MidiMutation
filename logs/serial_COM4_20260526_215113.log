@@ -1,0 +1,354 @@
+---- Opened serial port COM4 at 115200 baud ----
+---- Session log: C:\Users\Pete\Documents\Chattest\ChatTest\.\logs\serial_COM4_20260526_215113.log ----
+---- Press Ctrl+C to stop capture ----
+METDIAG en=1 src=0 beat=2 qint=499922us click=29/30us cs=2
+METDIAG en=1 src=0 beat=4 qint=499920us click=29/29us cs=2
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+METDIAG en=1 src=0 beat=2 qint=499916us click=29/30us cs=2
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+METDIAG en=1 src=0 beat=4 qint=499924us click=29/29us cs=2
+METDIAG en=1 src=0 beat=2 qint=499920us click=30/30us cs=2
+METDIAG en=1 src=0 beat=4 qint=499920us click=30/31us cs=2
+METDIAG en=1 src=0 beat=2 qint=499917us click=29/30us cs=2
+METDIAG en=1 src=0 beat=4 qint=499920us click=30/31us cs=2
+METDIAG en=1 src=0 beat=2 qint=499920us click=29/30us cs=2
+METDIAG en=1 src=0 beat=4 qint=499920us click=29/30us cs=2
+METDIAG en=1 src=0 beat=2 qint=499920us click=29/29us cs=2
+METDIAG en=1 src=0 beat=4 qint=499920us click=30/30us cs=2
+CLKDIAG ext_active=1 transport_run=0 rearm_pending=0 sync_lost=0 barbeat_valid=0 interval_samples=2 interval_avg_us=22516 interval_min_us=20850 interval_max_us=24182 interval_pkpk_us=3332 raw_bpm=119.9 est_window=1 est_observed=2 history_confidence=O est_valid=0 publication_ready=0 sync_state=IDLE sync_state_age_ms=54608 holdover_ms=0 last_lock_age_ms=0 last_transition=IDLE->IDLE transition_reason=NONE transition_age_ms=0 transition_phase_err_us=0 transition_window=0 transition_observed=0 acq_ms_last=0 acq_ms_avg=0 acq_ms_max=0 relock_ms_last=0 relock_ms_avg=0 relock_ms_max=0 lock_acquired=0 acquire_success=0 relock_success=0 lock_lost=0 holdover_entries=0 adapt_action=NONE adapt_action_age_ms=0 adapt_last_rollback=0 adapt_prob_active=0 adapt_prob_action=NONE adapt_prob_windows=0 adapt_win_age_ms=46175 adapt_win_relock_ms=0 adapt_win_jitter_us=0 adapt_win_jitter_samples=0 adapt_win_lock_lost=0 adapt_win_holdover=0 adapt_cd_windows=0 adapt_stable_windows=0 adapt_levels=0/0/0 adapt_gains=2/16/8/64 adapt_lock_div=5/3 adapt_lock_stable=12 phase_tick=0.000 phase_src=- live_lock=A pll_err_us=-3332 pll_phase_corr_us=-1666 pll_freq_corr_us=-208 rx_q_now=0 rx_q_peak=0 rx_q_lifetime_peak=0 rx_drop_interval=0 rx_drop_total=0 rx_latency_avg_us=0 rx_latency_max_us=0 rx_latency_samples=0 beat_service_avg_us=0 beat_service_max_us=0 beat_service_samples=0 tb_active=1 tb_phase_us=0 tb_phase_pct_x10=0 tb_eff_bpm_pct_x10=81 tb_vel_usps=0 tb_q_depth=0 tb_q_peak=1 tb_enq=48 tb_emit=48 tb_emit_iavg_us=20830 tb_emit_imin_us=20829 tb_emit_imax_us=20831 tb_emit_isamples=48 tb_drop=0 tb_clamp_min=0 tb_clamp_max=0 tb_late_avg_us=1 tb_late_max_us=1 tb_late_samples=48
+BPMDIAG raw_bpm=124.4 raw_valid=1 source_bpm=0.0 source_valid=0 est_window=1 history_confidence=O est_valid=0 publication_ready=0 sync_state=I live_lock=A display_bpm=120.0 display_external=0 sync_lost=0 display_age_ms=0 delta=0.0 hysteresis=0.0 hold=0 slew_pending=0
+METDIAG en=1 src=0 beat=4 qint=499920us click=0/0us cs=0
+CLKDIAG ext_active=1 transport_run=0 rearm_pending=0 sync_lost=0 barbeat_valid=0 interval_samples=44 interval_avg_us=25326 interval_min_us=18116 interval_max_us=137642 interval_pkpk_us=119526 raw_bpm=109.8 est_window=24 est_observed=46 history_confidence=S est_valid=1 publication_ready=0 sync_state=IDLE sync_state_age_ms=55608 holdover_ms=0 last_lock_age_ms=0 last_transition=IDLE->IDLE transition_reason=NONE transition_age_ms=0 transition_phase_err_us=0 transition_window=0 transition_observed=0 acq_ms_last=0 acq_ms_avg=0 acq_ms_max=0 relock_ms_last=0 relock_ms_avg=0 relock_ms_max=0 lock_acquired=0 acquire_success=0 relock_success=0 lock_lost=0 holdover_entries=0 adapt_action=NONE adapt_action_age_ms=0 adapt_last_rollback=0 adapt_prob_active=0 adapt_prob_action=NONE adapt_prob_windows=0 adapt_win_age_ms=47175 adapt_win_relock_ms=0 adapt_win_jitter_us=0 adapt_win_jitter_samples=0 adapt_win_lock_lost=0 adapt_win_holdover=0 adapt_cd_windows=0 adapt_stable_windows=0 adapt_levels=0/0/0 adapt_gains=2/16/8/64 adapt_lock_div=5/3 adapt_lock_stable=12 phase_tick=0.000 phase_src=- live_lock=A pll_err_us=1200 pll_phase_corr_us=600 pll_freq_corr_us=75 rx_q_now=0 rx_q_peak=0 rx_q_lifetime_peak=0 rx_drop_interval=0 rx_drop_total=0 rx_latency_avg_us=0 rx_latency_max_us=0 rx_latency_samples=0 beat_service_avg_us=0 beat_service_max_us=0 beat_service_samples=0 tb_active=1 tb_phase_us=0 tb_phase_pct_x10=0 tb_eff_bpm_pct_x10=216 tb_vel_usps=0 tb_q_depth=0 tb_q_peak=1 tb_enq=48 tb_emit=48 tb_emit_iavg_us=20830 tb_emit_imin_us=20829 tb_emit_imax_us=20831 tb_emit_isamples=48 tb_drop=0 tb_clamp_min=0 tb_clamp_max=0 tb_late_avg_us=1 tb_late_max_us=2 tb_late_samples=48
+BPMDIAG raw_bpm=110.3 raw_valid=1 source_bpm=0.0 source_valid=0 est_window=24 history_confidence=S est_valid=1 publication_ready=0 sync_state=I live_lock=L display_bpm=120.0 display_external=0 sync_lost=0 display_age_ms=0 delta=0.0 hysteresis=0.0 hold=0 slew_pending=0
+METDIAG en=1 src=0 beat=4 qint=499920us click=0/0us cs=0
+CLKDIAG ext_active=1 transport_run=0 rearm_pending=0 sync_lost=0 barbeat_valid=0 interval_samples=44 interval_avg_us=22760 interval_min_us=18074 interval_max_us=26188 interval_pkpk_us=8114 raw_bpm=109.3 est_window=24 est_observed=90 history_confidence=S est_valid=1 publication_ready=0 sync_state=IDLE sync_state_age_ms=56608 holdover_ms=0 last_lock_age_ms=0 last_transition=IDLE->IDLE transition_reason=NONE transition_age_ms=0 transition_phase_err_us=0 transition_window=0 transition_observed=0 acq_ms_last=0 acq_ms_avg=0 acq_ms_max=0 relock_ms_last=0 relock_ms_avg=0 relock_ms_max=0 lock_acquired=0 acquire_success=0 relock_success=0 lock_lost=0 holdover_entries=0 adapt_action=NONE adapt_action_age_ms=0 adapt_last_rollback=0 adapt_prob_active=0 adapt_prob_action=NONE adapt_prob_windows=0 adapt_win_age_ms=48175 adapt_win_relock_ms=0 adapt_win_jitter_us=0 adapt_win_jitter_samples=0 adapt_win_lock_lost=0 adapt_win_holdover=0 adapt_cd_windows=0 adapt_stable_windows=0 adapt_levels=0/0/0 adapt_gains=2/16/8/64 adapt_lock_div=5/3 adapt_lock_stable=12 phase_tick=0.000 phase_src=- live_lock=L pll_err_us=1993 pll_phase_corr_us=249 pll_freq_corr_us=31 rx_q_now=0 rx_q_peak=0 rx_q_lifetime_peak=0 rx_drop_interval=0 rx_drop_total=0 rx_latency_avg_us=0 rx_latency_max_us=0 rx_latency_samples=0 beat_service_avg_us=0 beat_service_max_us=0 beat_service_samples=0 tb_active=1 tb_phase_us=0 tb_phase_pct_x10=0 tb_eff_bpm_pct_x10=93 tb_vel_usps=0 tb_q_depth=0 tb_q_peak=1 tb_enq=48 tb_emit=48 tb_emit_iavg_us=20830 tb_emit_imin_us=20830 tb_emit_imax_us=20830 tb_emit_isamples=48 tb_drop=0 tb_clamp_min=0 tb_clamp_max=0 tb_late_avg_us=1 tb_late_max_us=1 tb_late_samples=48
+BPMDIAG raw_bpm=109.6 raw_valid=1 source_bpm=0.0 source_valid=0 est_window=24 history_confidence=S est_valid=1 publication_ready=0 sync_state=I live_lock=L display_bpm=120.0 display_external=0 sync_lost=0 display_age_ms=0 delta=0.0 hysteresis=0.0 hold=0 slew_pending=0
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+METDIAG en=1 src=0 beat=4 qint=499920us click=0/0us cs=0
+CLKDIAG ext_active=1 transport_run=0 rearm_pending=0 sync_lost=0 barbeat_valid=0 interval_samples=44 interval_avg_us=22705 interval_min_us=18724 interval_max_us=25788 interval_pkpk_us=7064 raw_bpm=110.2 est_window=31 est_observed=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=IDLE sync_state_age_ms=57608 holdover_ms=0 last_lock_age_ms=0 last_transition=IDLE->IDLE transition_reason=NONE transition_age_ms=0 transition_phase_err_us=0 transition_window=0 transition_observed=0 acq_ms_last=0 acq_ms_avg=0 acq_ms_max=0 relock_ms_last=0 relock_ms_avg=0 relock_ms_max=0 lock_acquired=0 acquire_success=0 relock_success=0 lock_lost=0 holdover_entries=0 adapt_action=NONE adapt_action_age_ms=0 adapt_last_rollback=0 adapt_prob_active=0 adapt_prob_action=NONE adapt_prob_windows=0 adapt_win_age_ms=49175 adapt_win_relock_ms=0 adapt_win_jitter_us=0 adapt_win_jitter_samples=0 adapt_win_lock_lost=0 adapt_win_holdover=0 adapt_cd_windows=0 adapt_stable_windows=0 adapt_levels=0/0/0 adapt_gains=2/16/8/64 adapt_lock_div=5/3 adapt_lock_stable=12 phase_tick=0.000 phase_src=- live_lock=L pll_err_us=845 pll_phase_corr_us=105 pll_freq_corr_us=13 rx_q_now=0 rx_q_peak=0 rx_q_lifetime_peak=0 rx_drop_interval=0 rx_drop_total=0 rx_latency_avg_us=0 rx_latency_max_us=0 rx_latency_samples=0 beat_service_avg_us=0 beat_service_max_us=0 beat_service_samples=0 tb_active=1 tb_phase_us=-9373 tb_phase_pct_x10=-413 tb_eff_bpm_pct_x10=90 tb_vel_usps=-17856 tb_q_depth=0 tb_q_peak=1 tb_enq=48 tb_emit=48 tb_emit_iavg_us=20830 tb_emit_imin_us=20812 tb_emit_imax_us=20848 tb_emit_isamples=48 tb_drop=0 tb_clamp_min=0 tb_clamp_max=0 tb_late_avg_us=1 tb_late_max_us=19 tb_late_samples=48
+BPMDIAG raw_bpm=110.3 raw_valid=1 source_bpm=0.0 source_valid=0 est_window=32 history_confidence=S est_valid=1 publication_ready=0 sync_state=I live_lock=L display_bpm=120.0 display_external=0 sync_lost=0 display_age_ms=0 delta=0.0 hysteresis=0.0 hold=0 slew_pending=0
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CCW
+Encoder 2 CCW
+METDIAG en=1 src=0 beat=4 qint=499920us click=0/0us cs=0
+CLKDIAG ext_active=1 transport_run=0 rearm_pending=0 sync_lost=0 barbeat_valid=0 interval_samples=44 interval_avg_us=22756 interval_min_us=17708 interval_max_us=26264 interval_pkpk_us=8556 raw_bpm=109.9 est_window=45 est_observed=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=IDLE sync_state_age_ms=58608 holdover_ms=0 last_lock_age_ms=0 last_transition=IDLE->IDLE transition_reason=NONE transition_age_ms=0 transition_phase_err_us=0 transition_window=0 transition_observed=0 acq_ms_last=0 acq_ms_avg=0 acq_ms_max=0 relock_ms_last=0 relock_ms_avg=0 relock_ms_max=0 lock_acquired=0 acquire_success=0 relock_success=0 lock_lost=0 holdover_entries=0 adapt_action=NONE adapt_action_age_ms=0 adapt_last_rollback=0 adapt_prob_active=0 adapt_prob_action=NONE adapt_prob_windows=0 adapt_win_age_ms=50175 adapt_win_relock_ms=0 adapt_win_jitter_us=0 adapt_win_jitter_samples=0 adapt_win_lock_lost=0 adapt_win_holdover=0 adapt_cd_windows=0 adapt_stable_windows=0 adapt_levels=0/0/0 adapt_gains=2/16/8/64 adapt_lock_div=5/3 adapt_lock_stable=12 phase_tick=0.000 phase_src=- live_lock=L pll_err_us=1809 pll_phase_corr_us=226 pll_freq_corr_us=28 rx_q_now=0 rx_q_peak=0 rx_q_lifetime_peak=0 rx_drop_interval=0 rx_drop_total=0 rx_latency_avg_us=0 rx_latency_max_us=0 rx_latency_samples=0 beat_service_avg_us=0 beat_service_max_us=0 beat_service_samples=0 tb_active=1 tb_phase_us=-2063 tb_phase_pct_x10=-91 tb_eff_bpm_pct_x10=92 tb_vel_usps=17856 tb_q_depth=0 tb_q_peak=1 tb_enq=48 tb_emit=48 tb_emit_iavg_us=20830 tb_emit_imin_us=20830 tb_emit_imax_us=20830 tb_emit_isamples=48 tb_drop=0 tb_clamp_min=0 tb_clamp_max=0 tb_late_avg_us=1 tb_late_max_us=1 tb_late_samples=48
+BPMDIAG raw_bpm=110.1 raw_valid=1 source_bpm=0.0 source_valid=0 est_window=49 history_confidence=S est_valid=1 publication_ready=0 sync_state=I live_lock=L display_bpm=120.0 display_external=0 sync_lost=0 display_age_ms=0 delta=0.0 hysteresis=0.0 hold=0 slew_pending=0
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+METDIAG en=1 src=0 beat=4 qint=499920us click=0/0us cs=0
+CLKDIAG ext_active=1 transport_run=0 rearm_pending=0 sync_lost=0 barbeat_valid=0 interval_samples=44 interval_avg_us=22705 interval_min_us=17806 interval_max_us=26594 interval_pkpk_us=8788 raw_bpm=109.9 est_window=67 est_observed=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=IDLE sync_state_age_ms=59608 holdover_ms=0 last_lock_age_ms=0 last_transition=IDLE->IDLE transition_reason=NONE transition_age_ms=0 transition_phase_err_us=0 transition_window=0 transition_observed=0 acq_ms_last=0 acq_ms_avg=0 acq_ms_max=0 relock_ms_last=0 relock_ms_avg=0 relock_ms_max=0 lock_acquired=0 acquire_success=0 relock_success=0 lock_lost=0 holdover_entries=0 adapt_action=NONE adapt_action_age_ms=0 adapt_last_rollback=0 adapt_prob_active=0 adapt_prob_action=NONE adapt_prob_windows=0 adapt_win_age_ms=51175 adapt_win_relock_ms=0 adapt_win_jitter_us=0 adapt_win_jitter_samples=0 adapt_win_lock_lost=0 adapt_win_holdover=0 adapt_cd_windows=0 adapt_stable_windows=0 adapt_levels=0/0/0 adapt_gains=2/16/8/64 adapt_lock_div=5/3 adapt_lock_stable=12 phase_tick=0.000 phase_src=- live_lock=L pll_err_us=1008 pll_phase_corr_us=126 pll_freq_corr_us=15 rx_q_now=0 rx_q_peak=0 rx_q_lifetime_peak=0 rx_drop_interval=0 rx_drop_total=0 rx_latency_avg_us=0 rx_latency_max_us=0 rx_latency_samples=0 beat_service_avg_us=0 beat_service_max_us=0 beat_service_samples=0 tb_active=1 tb_phase_us=8045 tb_phase_pct_x10=354 tb_eff_bpm_pct_x10=81 tb_vel_usps=-17856 tb_q_depth=0 tb_q_peak=1 tb_enq=48 tb_emit=48 tb_emit_iavg_us=20996 tb_emit_imin_us=20458 tb_emit_imax_us=21216 tb_emit_isamples=48 tb_drop=0 tb_clamp_min=0 tb_clamp_max=0 tb_late_avg_us=1 tb_late_max_us=15 tb_late_samples=48
+BPMDIAG raw_bpm=110.1 raw_valid=1 source_bpm=0.0 source_valid=0 est_window=68 history_confidence=S est_valid=1 publication_ready=0 sync_state=I live_lock=L display_bpm=120.0 display_external=0 sync_lost=0 display_age_ms=0 delta=0.0 hysteresis=0.0 hold=0 slew_pending=0
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CW
+Encoder 2 CW
+METDIAG en=1 src=0 beat=4 qint=499920us click=0/0us cs=0
+Encoder 2 CW
+CLKDIAG ext_active=1 transport_run=0 rearm_pending=0 sync_lost=0 barbeat_valid=0 interval_samples=44 interval_avg_us=22711 interval_min_us=18436 interval_max_us=26280 interval_pkpk_us=7844 raw_bpm=110.1 est_window=84 est_observed=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=IDLE sync_state_age_ms=60609 holdover_ms=0 last_lock_age_ms=0 last_transition=IDLE->IDLE transition_reason=NONE transition_age_ms=0 transition_phase_err_us=0 transition_window=0 transition_observed=0 acq_ms_last=0 acq_ms_avg=0 acq_ms_max=0 relock_ms_last=0 relock_ms_avg=0 relock_ms_max=0 lock_acquired=0 acquire_success=0 relock_success=0 lock_lost=0 holdover_entries=0 adapt_action=NONE adapt_action_age_ms=0 adapt_last_rollback=0 adapt_prob_active=0 adapt_prob_action=NONE adapt_prob_windows=0 adapt_win_age_ms=52176 adapt_win_relock_ms=0 adapt_win_jitter_us=0 adapt_win_jitter_samples=0 adapt_win_lock_lost=0 adapt_win_holdover=0 adapt_cd_windows=0 adapt_stable_windows=0 adapt_levels=0/0/0 adapt_gains=2/16/8/64 adapt_lock_div=5/3 adapt_lock_stable=12 phase_tick=0.000 phase_src=- live_lock=L pll_err_us=766 pll_phase_corr_us=95 pll_freq_corr_us=11 rx_q_now=0 rx_q_peak=0 rx_q_lifetime_peak=0 rx_drop_interval=0 rx_drop_total=0 rx_latency_avg_us=0 rx_latency_max_us=0 rx_latency_samples=0 beat_service_avg_us=0 beat_service_max_us=0 beat_service_samples=0 tb_active=1 tb_phase_us=6621 tb_phase_pct_x10=292 tb_eff_bpm_pct_x10=92 tb_vel_usps=-17856 tb_q_depth=1 tb_q_peak=1 tb_enq=49 tb_emit=48 tb_emit_iavg_us=20807 tb_emit_imin_us=20456 tb_emit_imax_us=21203 tb_emit_isamples=48 tb_drop=0 tb_clamp_min=0 tb_clamp_max=0 tb_late_avg_us=1 tb_late_max_us=3 tb_late_samples=48
+BPMDIAG raw_bpm=110.1 raw_valid=1 source_bpm=0.0 source_valid=0 est_window=89 history_confidence=S est_valid=1 publication_ready=0 sync_state=I live_lock=L display_bpm=120.0 display_external=0 sync_lost=0 display_age_ms=0 delta=0.0 hysteresis=0.0 hold=0 slew_pending=0
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+METDIAG en=1 src=0 beat=4 qint=499920us click=0/0us cs=0
+CLKDIAG ext_active=1 transport_run=0 rearm_pending=0 sync_lost=0 barbeat_valid=0 interval_samples=44 interval_avg_us=22725 interval_min_us=18396 interval_max_us=25764 interval_pkpk_us=7368 raw_bpm=110.0 est_window=96 est_observed=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=IDLE sync_state_age_ms=61609 holdover_ms=0 last_lock_age_ms=0 last_transition=IDLE->IDLE transition_reason=NONE transition_age_ms=0 transition_phase_err_us=0 transition_window=0 transition_observed=0 acq_ms_last=0 acq_ms_avg=0 acq_ms_max=0 relock_ms_last=0 relock_ms_avg=0 relock_ms_max=0 lock_acquired=0 acquire_success=0 relock_success=0 lock_lost=0 holdover_entries=0 adapt_action=NONE adapt_action_age_ms=0 adapt_last_rollback=0 adapt_prob_active=0 adapt_prob_action=NONE adapt_prob_windows=0 adapt_win_age_ms=53176 adapt_win_relock_ms=0 adapt_win_jitter_us=0 adapt_win_jitter_samples=0 adapt_win_lock_lost=0 adapt_win_holdover=0 adapt_cd_windows=0 adapt_stable_windows=0 adapt_levels=0/0/0 adapt_gains=2/16/8/64 adapt_lock_div=5/3 adapt_lock_stable=12 phase_tick=0.000 phase_src=- live_lock=L pll_err_us=203 pll_phase_corr_us=25 pll_freq_corr_us=3 rx_q_now=0 rx_q_peak=0 rx_q_lifetime_peak=0 rx_drop_interval=0 rx_drop_total=0 rx_latency_avg_us=0 rx_latency_max_us=0 rx_latency_samples=0 beat_service_avg_us=0 beat_service_max_us=0 beat_service_samples=0 tb_active=1 tb_phase_us=5728 tb_phase_pct_x10=252 tb_eff_bpm_pct_x10=93 tb_vel_usps=17856 tb_q_depth=1 tb_q_peak=1 tb_enq=48 tb_emit=48 tb_emit_iavg_us=20795 tb_emit_imin_us=20458 tb_emit_imax_us=21202 tb_emit_isamples=48 tb_drop=0 tb_clamp_min=0 tb_clamp_max=0 tb_late_avg_us=1 tb_late_max_us=1 tb_late_samples=48
+Encoder 2 CCW
+BPMDIAG raw_bpm=110.1 raw_valid=1 source_bpm=0.0 source_valid=0 est_window=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=I live_lock=L display_bpm=120.0 display_external=0 sync_lost=0 display_age_ms=0 delta=0.0 hysteresis=0.0 hold=0 slew_pending=0
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+METDIAG en=1 src=0 beat=4 qint=499920us click=0/0us cs=0
+Encoder 2 CCW
+CLKDIAG ext_active=1 transport_run=0 rearm_pending=0 sync_lost=0 barbeat_valid=0 interval_samples=44 interval_avg_us=22740 interval_min_us=19158 interval_max_us=25998 interval_pkpk_us=6840 raw_bpm=109.9 est_window=96 est_observed=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=IDLE sync_state_age_ms=62609 holdover_ms=0 last_lock_age_ms=0 last_transition=IDLE->IDLE transition_reason=NONE transition_age_ms=0 transition_phase_err_us=0 transition_window=0 transition_observed=0 acq_ms_last=0 acq_ms_avg=0 acq_ms_max=0 relock_ms_last=0 relock_ms_avg=0 relock_ms_max=0 lock_acquired=0 acquire_success=0 relock_success=0 lock_lost=0 holdover_entries=0 adapt_action=NONE adapt_action_age_ms=0 adapt_last_rollback=0 adapt_prob_active=0 adapt_prob_action=NONE adapt_prob_windows=0 adapt_win_age_ms=54176 adapt_win_relock_ms=0 adapt_win_jitter_us=0 adapt_win_jitter_samples=0 adapt_win_lock_lost=0 adapt_win_holdover=0 adapt_cd_windows=0 adapt_stable_windows=0 adapt_levels=0/0/0 adapt_gains=2/16/8/64 adapt_lock_div=5/3 adapt_lock_stable=12 phase_tick=0.000 phase_src=- live_lock=L pll_err_us=579 pll_phase_corr_us=72 pll_freq_corr_us=9 rx_q_now=0 rx_q_peak=0 rx_q_lifetime_peak=0 rx_drop_interval=0 rx_drop_total=0 rx_latency_avg_us=0 rx_latency_max_us=0 rx_latency_samples=0 beat_service_avg_us=0 beat_service_max_us=0 beat_service_samples=0 tb_active=1 tb_phase_us=486 tb_phase_pct_x10=21 tb_eff_bpm_pct_x10=97 tb_vel_usps=17856 tb_q_depth=0 tb_q_peak=1 tb_enq=48 tb_emit=49 tb_emit_iavg_us=20730 tb_emit_imin_us=20450 tb_emit_imax_us=21202 tb_emit_isamples=49 tb_drop=0 tb_clamp_min=0 tb_clamp_max=0 tb_late_avg_us=1 tb_late_max_us=9 tb_late_samples=49
+Encoder 2 CCW
+BPMDIAG raw_bpm=110.1 raw_valid=1 source_bpm=0.0 source_valid=0 est_window=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=I live_lock=L display_bpm=120.0 display_external=0 sync_lost=0 display_age_ms=0 delta=0.0 hysteresis=0.0 hold=0 slew_pending=0
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CCW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+Encoder 2 CW
+METDIAG en=1 src=0 beat=4 qint=499920us click=0/0us cs=0
+CLKDIAG ext_active=1 transport_run=0 rearm_pending=0 sync_lost=0 barbeat_valid=0 interval_samples=44 interval_avg_us=22717 interval_min_us=18938 interval_max_us=25764 interval_pkpk_us=6826 raw_bpm=109.9 est_window=96 est_observed=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=IDLE sync_state_age_ms=63609 holdover_ms=0 last_lock_age_ms=0 last_transition=IDLE->IDLE transition_reason=NONE transition_age_ms=0 transition_phase_err_us=0 transition_window=0 transition_observed=0 acq_ms_last=0 acq_ms_avg=0 acq_ms_max=0 relock_ms_last=0 relock_ms_avg=0 relock_ms_max=0 lock_acquired=0 acquire_success=0 relock_success=0 lock_lost=0 holdover_entries=0 adapt_action=NONE adapt_action_age_ms=0 adapt_last_rollback=0 adapt_prob_active=0 adapt_prob_action=NONE adapt_prob_windows=0 adapt_win_age_ms=55176 adapt_win_relock_ms=0 adapt_win_jitter_us=0 adapt_win_jitter_samples=0 adapt_win_lock_lost=0 adapt_win_holdover=0 adapt_cd_windows=0 adapt_stable_windows=0 adapt_levels=0/0/0 adapt_gains=2/16/8/64 adapt_lock_div=5/3 adapt_lock_stable=12 phase_tick=0.000 phase_src=- live_lock=L pll_err_us=445 pll_phase_corr_us=55 pll_freq_corr_us=6 rx_q_now=0 rx_q_peak=0 rx_q_lifetime_peak=0 rx_drop_interval=0 rx_drop_total=0 rx_latency_avg_us=0 rx_latency_max_us=0 rx_latency_samples=0 beat_service_avg_us=0 beat_service_max_us=0 beat_service_samples=0 tb_active=1 tb_phase_us=-1175 tb_phase_pct_x10=-52 tb_eff_bpm_pct_x10=91 tb_vel_usps=-17281 tb_q_depth=0 tb_q_peak=1 tb_enq=48 tb_emit=48 tb_emit_iavg_us=20821 tb_emit_imin_us=20456 tb_emit_imax_us=21202 tb_emit_isamples=48 tb_drop=0 tb_clamp_min=0 tb_clamp_max=0 tb_late_avg_us=1 tb_late_max_us=2 tb_late_samples=48
+BPMDIAG raw_bpm=110.1 raw_valid=1 source_bpm=0.0 source_valid=0 est_window=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=I live_lock=L display_bpm=120.0 display_external=0 sync_lost=0 display_age_ms=0 delta=0.0 hysteresis=0.0 hold=0 slew_pending=0
+Encoder 2 CCW
+METDIAG en=1 src=0 beat=4 qint=499920us click=0/0us cs=0
+CLKDIAG ext_active=1 transport_run=0 rearm_pending=0 sync_lost=0 barbeat_valid=0 interval_samples=44 interval_avg_us=22732 interval_min_us=18242 interval_max_us=26836 interval_pkpk_us=8594 raw_bpm=109.9 est_window=96 est_observed=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=IDLE sync_state_age_ms=64609 holdover_ms=0 last_lock_age_ms=0 last_transition=IDLE->IDLE transition_reason=NONE transition_age_ms=0 transition_phase_err_us=0 transition_window=0 transition_observed=0 acq_ms_last=0 acq_ms_avg=0 acq_ms_max=0 relock_ms_last=0 relock_ms_avg=0 relock_ms_max=0 lock_acquired=0 acquire_success=0 relock_success=0 lock_lost=0 holdover_entries=0 adapt_action=NONE adapt_action_age_ms=0 adapt_last_rollback=0 adapt_prob_active=0 adapt_prob_action=NONE adapt_prob_windows=0 adapt_win_age_ms=56176 adapt_win_relock_ms=0 adapt_win_jitter_us=0 adapt_win_jitter_samples=0 adapt_win_lock_lost=0 adapt_win_holdover=0 adapt_cd_windows=0 adapt_stable_windows=0 adapt_levels=0/0/0 adapt_gains=2/16/8/64 adapt_lock_div=5/3 adapt_lock_stable=12 phase_tick=0.000 phase_src=- live_lock=L pll_err_us=834 pll_phase_corr_us=104 pll_freq_corr_us=13 rx_q_now=0 rx_q_peak=0 rx_q_lifetime_peak=0 rx_drop_interval=0 rx_drop_total=0 rx_latency_avg_us=0 rx_latency_max_us=0 rx_latency_samples=0 beat_service_avg_us=0 beat_service_max_us=0 beat_service_samples=0 tb_active=1 tb_phase_us=2712 tb_phase_pct_x10=119 tb_eff_bpm_pct_x10=88 tb_vel_usps=3902 tb_q_depth=1 tb_q_peak=1 tb_enq=48 tb_emit=47 tb_emit_iavg_us=20886 tb_emit_imin_us=20802 tb_emit_imax_us=21181 tb_emit_isamples=47 tb_drop=0 tb_clamp_min=0 tb_clamp_max=0 tb_late_avg_us=1 tb_late_max_us=27 tb_late_samples=47
+BPMDIAG raw_bpm=110.1 raw_valid=1 source_bpm=0.0 source_valid=0 est_window=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=I live_lock=L display_bpm=120.0 display_external=0 sync_lost=0 display_age_ms=0 delta=0.0 hysteresis=0.0 hold=0 slew_pending=0
+METDIAG en=1 src=0 beat=4 qint=499920us click=0/0us cs=0
+CLKDIAG ext_active=1 transport_run=0 rearm_pending=0 sync_lost=0 barbeat_valid=0 interval_samples=44 interval_avg_us=22748 interval_min_us=18134 interval_max_us=25620 interval_pkpk_us=7486 raw_bpm=109.9 est_window=96 est_observed=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=IDLE sync_state_age_ms=65609 holdover_ms=0 last_lock_age_ms=0 last_transition=IDLE->IDLE transition_reason=NONE transition_age_ms=0 transition_phase_err_us=0 transition_window=0 transition_observed=0 acq_ms_last=0 acq_ms_avg=0 acq_ms_max=0 relock_ms_last=0 relock_ms_avg=0 relock_ms_max=0 lock_acquired=0 acquire_success=0 relock_success=0 lock_lost=0 holdover_entries=0 adapt_action=NONE adapt_action_age_ms=0 adapt_last_rollback=0 adapt_prob_active=0 adapt_prob_action=NONE adapt_prob_windows=0 adapt_win_age_ms=57176 adapt_win_relock_ms=0 adapt_win_jitter_us=0 adapt_win_jitter_samples=0 adapt_win_lock_lost=0 adapt_win_holdover=0 adapt_cd_windows=0 adapt_stable_windows=0 adapt_levels=0/0/0 adapt_gains=2/16/8/64 adapt_lock_div=5/3 adapt_lock_stable=12 phase_tick=0.000 phase_src=- live_lock=L pll_err_us=1520 pll_phase_corr_us=190 pll_freq_corr_us=23 rx_q_now=0 rx_q_peak=0 rx_q_lifetime_peak=0 rx_drop_interval=0 rx_drop_total=0 rx_latency_avg_us=0 rx_latency_max_us=0 rx_latency_samples=0 beat_service_avg_us=0 beat_service_max_us=0 beat_service_samples=0 tb_active=1 tb_phase_us=550 tb_phase_pct_x10=24 tb_eff_bpm_pct_x10=94 tb_vel_usps=-58 tb_q_depth=0 tb_q_peak=1 tb_enq=48 tb_emit=49 tb_emit_iavg_us=20785 tb_emit_imin_us=20772 tb_emit_imax_us=20805 tb_emit_isamples=49 tb_drop=0 tb_clamp_min=0 tb_clamp_max=0 tb_late_avg_us=1 tb_late_max_us=1 tb_late_samples=49
+BPMDIAG raw_bpm=110.1 raw_valid=1 source_bpm=0.0 source_valid=0 est_window=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=I live_lock=L display_bpm=120.0 display_external=0 sync_lost=0 display_age_ms=0 delta=0.0 hysteresis=0.0 hold=0 slew_pending=0
+METDIAG en=1 src=0 beat=4 qint=499920us click=0/0us cs=0
+CLKDIAG ext_active=1 transport_run=0 rearm_pending=0 sync_lost=0 barbeat_valid=0 interval_samples=44 interval_avg_us=22698 interval_min_us=18002 interval_max_us=26736 interval_pkpk_us=8734 raw_bpm=109.9 est_window=96 est_observed=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=IDLE sync_state_age_ms=66609 holdover_ms=0 last_lock_age_ms=0 last_transition=IDLE->IDLE transition_reason=NONE transition_age_ms=0 transition_phase_err_us=0 transition_window=0 transition_observed=0 acq_ms_last=0 acq_ms_avg=0 acq_ms_max=0 relock_ms_last=0 relock_ms_avg=0 relock_ms_max=0 lock_acquired=0 acquire_success=0 relock_success=0 lock_lost=0 holdover_entries=0 adapt_action=NONE adapt_action_age_ms=0 adapt_last_rollback=0 adapt_prob_active=0 adapt_prob_action=NONE adapt_prob_windows=0 adapt_win_age_ms=58176 adapt_win_relock_ms=0 adapt_win_jitter_us=0 adapt_win_jitter_samples=0 adapt_win_lock_lost=0 adapt_win_holdover=0 adapt_cd_windows=0 adapt_stable_windows=0 adapt_levels=0/0/0 adapt_gains=2/16/8/64 adapt_lock_div=5/3 adapt_lock_stable=12 phase_tick=0.000 phase_src=- live_lock=L pll_err_us=609 pll_phase_corr_us=76 pll_freq_corr_us=9 rx_q_now=0 rx_q_peak=0 rx_q_lifetime_peak=0 rx_drop_interval=0 rx_drop_total=0 rx_latency_avg_us=0 rx_latency_max_us=0 rx_latency_samples=0 beat_service_avg_us=0 beat_service_max_us=0 beat_service_samples=0 tb_active=1 tb_phase_us=44 tb_phase_pct_x10=2 tb_eff_bpm_pct_x10=90 tb_vel_usps=-39 tb_q_depth=0 tb_q_peak=1 tb_enq=48 tb_emit=48 tb_emit_iavg_us=20820 tb_emit_imin_us=20805 tb_emit_imax_us=20830 tb_emit_isamples=48 tb_drop=0 tb_clamp_min=0 tb_clamp_max=0 tb_late_avg_us=1 tb_late_max_us=1 tb_late_samples=48
+BPMDIAG raw_bpm=110.1 raw_valid=1 source_bpm=0.0 source_valid=0 est_window=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=I live_lock=L display_bpm=120.0 display_external=0 sync_lost=0 display_age_ms=0 delta=0.0 hysteresis=0.0 hold=0 slew_pending=0
+METDIAG en=1 src=0 beat=4 qint=499920us click=0/0us cs=0
+CLKDIAG ext_active=1 transport_run=0 rearm_pending=0 sync_lost=0 barbeat_valid=0 interval_samples=44 interval_avg_us=22736 interval_min_us=18028 interval_max_us=25750 interval_pkpk_us=7722 raw_bpm=109.9 est_window=96 est_observed=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=IDLE sync_state_age_ms=67609 holdover_ms=0 last_lock_age_ms=0 last_transition=IDLE->IDLE transition_reason=NONE transition_age_ms=0 transition_phase_err_us=0 transition_window=0 transition_observed=0 acq_ms_last=0 acq_ms_avg=0 acq_ms_max=0 relock_ms_last=0 relock_ms_avg=0 relock_ms_max=0 lock_acquired=0 acquire_success=0 relock_success=0 lock_lost=0 holdover_entries=0 adapt_action=NONE adapt_action_age_ms=0 adapt_last_rollback=0 adapt_prob_active=0 adapt_prob_action=NONE adapt_prob_windows=0 adapt_win_age_ms=59176 adapt_win_relock_ms=0 adapt_win_jitter_us=0 adapt_win_jitter_samples=0 adapt_win_lock_lost=0 adapt_win_holdover=0 adapt_cd_windows=0 adapt_stable_windows=0 adapt_levels=0/0/0 adapt_gains=2/16/8/64 adapt_lock_div=5/3 adapt_lock_stable=12 phase_tick=0.000 phase_src=- live_lock=L pll_err_us=2263 pll_phase_corr_us=282 pll_freq_corr_us=35 rx_q_now=0 rx_q_peak=0 rx_q_lifetime_peak=0 rx_drop_interval=0 rx_drop_total=0 rx_latency_avg_us=0 rx_latency_max_us=0 rx_latency_samples=0 beat_service_avg_us=0 beat_service_max_us=0 beat_service_samples=0 tb_active=1 tb_phase_us=0 tb_phase_pct_x10=0 tb_eff_bpm_pct_x10=92 tb_vel_usps=0 tb_q_depth=0 tb_q_peak=1 tb_enq=48 tb_emit=48 tb_emit_iavg_us=20830 tb_emit_imin_us=20801 tb_emit_imax_us=20859 tb_emit_isamples=48 tb_drop=0 tb_clamp_min=0 tb_clamp_max=0 tb_late_avg_us=1 tb_late_max_us=1 tb_late_samples=48
+BPMDIAG raw_bpm=110.1 raw_valid=1 source_bpm=0.0 source_valid=0 est_window=96 history_confidence=S est_valid=1 publication_ready=0 sync_state=I live_lock=L display_bpm=120.0 display_external=0 sync_lost=0 display_age_ms=0 delta=0.0 hysteresis=0.0 hold=0 slew_pending=0
+METDIAG en=1 src=0 beat=4 qint=499920us click=0/0us cs=0
+---- Closed serial port COM4 ----

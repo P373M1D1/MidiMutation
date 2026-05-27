@@ -8,6 +8,10 @@ const Preset_t *active_preset = NULL;
 uint8_t active_preset_index = PRESET_DEFAULT;
 volatile uint8_t current_bank = 0U;
 
+/* active_preset_index tracks the persistent bank slot selection, while
+ * active_preset may temporarily point at a runtime overlay such as global
+ * mute/bypass. Keeping both lets the UI return to the underlying slot cleanly. */
+
 uint16_t AppState_GetTempoBpm(void)
 {
 	return g_bpm;
@@ -61,6 +65,8 @@ void AppState_ActivatePresetSelection(const Preset_t *preset, uint8_t preset_ind
 
 void AppState_SetActiveOverlayPreset(const Preset_t *preset)
 {
+	/* Overlays intentionally do not disturb active_preset_index because they
+	 * sit on top of the current slot rather than replacing it permanently. */
 	active_preset = preset;
 }
 

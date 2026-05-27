@@ -23,7 +23,7 @@ extern "C" {
 /* Menu layout constants shared across display modules. */
 #define MENU_ROOT_ITEM_COUNT            5U
 #define MENU_VISIBLE_ROW_COUNT          4U
-#define MENU_GLOBAL_ITEM_COUNT          9U
+#define MENU_GLOBAL_ITEM_COUNT          10U
 #define MENU_METRONOME_ITEM_COUNT       4U
 #define MENU_USER_THEME_ITEM_COUNT      RUNTIME_CONFIG_USER_THEME_FIELD_COUNT
 #define MENU_BANK_EDIT_ITEM_COUNT       4U
@@ -75,6 +75,7 @@ typedef struct DisplayState {
 	uint8_t menu_device_cc_field_edit_active;
 	uint8_t menu_global_selection_index;
 	uint8_t menu_metronome_selection_index;
+	uint8_t menu_metronome_quick_access_live;
 	uint8_t menu_user_theme_selection_index;
 	uint8_t menu_active_user_theme_mode;
 	uint8_t menu_user_theme_edit_active;

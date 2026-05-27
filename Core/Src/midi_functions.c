@@ -47,6 +47,26 @@ void MidiOutputSchedulerService(void)
     MidiOutput_ServiceScheduler();
 }
 
+void MidiHandleTimingCounterIrq(void)
+{
+    MidiOutput_HandleTimingCounterIrq();
+}
+
+void MidiTimebendSetActive(uint8_t active)
+{
+    MidiOutput_TimebendSetActive(active);
+}
+
+void MidiTimebendInjectEncoderDelta(int8_t delta)
+{
+    MidiOutput_TimebendInjectEncoderDelta(delta);
+}
+
+uint8_t MidiTimebendIsEngaged(void)
+{
+    return MidiOutput_TimebendIsEngaged();
+}
+
 static void midi_output_send_bytes(const uint8_t *bytes, uint16_t length)
 {
     (void)MidiOutput_QueueMessageBytes(bytes, length);

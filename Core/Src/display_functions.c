@@ -57,9 +57,9 @@
 #define MAIN_FOOTBAR_MENU_LEFT_TEXT    "NAV / BACK"               // label for the left footer region while menu mode is active
 #define MAIN_FOOTBAR_MENU_CENTER_TEXT  "HOME"                     // label for the middle footer region while menu mode is active
 #define MAIN_FOOTBAR_MENU_RIGHT_TEXT   "VALUE / ENTER"            // label for the right footer region while menu mode is active
-#define MAIN_FOOTBAR_CONFIRM_LEFT_TEXT  "NO"                      // left footer label while a confirm page is active
-#define MAIN_FOOTBAR_CONFIRM_CENTER_TEXT "HOME"                   // center footer label while a confirm page is active
-#define MAIN_FOOTBAR_CONFIRM_RIGHT_TEXT "YES"                     // right footer label while a confirm page is active
+#define MAIN_FOOTBAR_CONFIRM_LEFT_TEXT  ""                        // left footer label while a confirm page is active (unused)
+#define MAIN_FOOTBAR_CONFIRM_CENTER_TEXT "YES"                    // center footer label while a confirm page is active
+#define MAIN_FOOTBAR_CONFIRM_RIGHT_TEXT "NO"                      // right footer label while a confirm page is active
 #define MAIN_INFO_LEFT_X               30U                  // x origin of the left info column (MIDI programs)
 #define MAIN_INFO_RIGHT_X              235U                 // x origin of the right info column (relay / special state), shifted right by one glyph cell
 #define MAIN_INFO_FONT                 (*Display_GetThemeInfoFont())   // font used for bank text, BPM text, and info rows
@@ -84,6 +84,11 @@
 #define MAIN_EMPTY_RIGHT_INFO_TEXT     "                "   // blank filler used to clear an unused right-side row
 #define MAIN_SAVING_POPUP_TEXT         " SAVING "          // temporary overlay shown while preset edits are being committed to flash
 #define MAIN_SAVING_POPUP_ROW_INDEX    1U                   // center the saving overlay on the middle info row
+#define MAIN_TIMEBEND_POPUP_TEXT       " TIMEBEND ACTIVE " // live overlay shown when ENC2 controls outbound timebend
+#define MAIN_TIMEBEND_POPUP_ROW_INDEX  1U                   // center the timebend overlay on the middle info row
+#define MAIN_TIMEBEND_POPUP_TEXT_COLOUR BLACK               // fixed black text per UX requirement
+#define MAIN_TIMEBEND_POPUP_BG_COLOUR   WHITE               // fixed white background per UX requirement
+#define MAIN_TIMEBEND_POPUP_BORDER_COLOUR BLACK             // dark border to frame the white badge
 #define MAIN_SCROLL_INDICATOR_X        8U                   // x position of the device-list scroll indicator triangles
 #define MAIN_SCROLL_INDICATOR_W        9U                   // width of the scroll indicator triangles
 #define MAIN_SCROLL_INDICATOR_H        5U                   // height of the scroll indicator triangles
@@ -133,6 +138,8 @@ DisplayState display_state = {
     .menu_last_drawn_page = (uint8_t)DISPLAY_MENU_PAGE_ROOT,
     .menu_text_edit_field = (uint8_t)DISPLAY_MENU_TEXT_FIELD_NONE,
 };
+
+static uint8_t timebend_popup_visible = 0U;
 
 /* Legacy compatibility aliases.
  *
@@ -934,6 +941,61 @@ static void Display_DrawSavingPopup(void)
                         MAIN_INFO_FONT.height);
 }
 
+static void Display_DrawTimebendPopup(void)
+{
+    uint16_t popup_w = (uint16_t)(strlen(MAIN_TIMEBEND_POPUP_TEXT) * MAIN_INFO_FONT.width);
+    uint16_t popup_x = (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
+    uint16_t popup_y = main_info_row_y[MAIN_TIMEBEND_POPUP_ROW_INDEX];
+
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            popup_w,
+                            MAIN_INFO_FONT.height,
+                            MAIN_TIMEBEND_POPUP_BG_COLOUR);
+    Display_ComposeString32(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            MAIN_TIMEBEND_POPUP_TEXT,
+                            MAIN_INFO_FONT,
+                            MAIN_TIMEBEND_POPUP_TEXT_COLOUR,
+                            MAIN_TIMEBEND_POPUP_BG_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            popup_w,
+                            1U,
+                            MAIN_TIMEBEND_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            (uint16_t)(MAIN_INFO_FONT.height - 1U),
+                            popup_w,
+                            1U,
+                            MAIN_TIMEBEND_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            1U,
+                            MAIN_INFO_FONT.height,
+                            MAIN_TIMEBEND_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            (uint16_t)(popup_w - 1U),
+                            0U,
+                            1U,
+                            MAIN_INFO_FONT.height,
+                            MAIN_TIMEBEND_POPUP_BORDER_COLOUR);
+    Display_ComposeBlit(popup_x,
+                        popup_y,
+                        popup_w,
+                        MAIN_INFO_FONT.height);
+}
+
 void Display_ShowSavingPopup(void)
 {
     saving_popup_visible = 1U;
@@ -958,6 +1020,80 @@ void Display_HideSavingPopup(const Preset_t *preset)
         /* Restore only the obscured menu rows, then clear the small strip of
          * popup area that sits below the last row cell and would otherwise be
          * left behind. This avoids the full-body menu redraw that flickers. */
+        Display_MenuRefreshBodyOnly();
+
+        for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
+        {
+            uint16_t row_y = Display_GetMenuRowYByIndex(row_index);
+            uint16_t row_bottom = (uint16_t)(row_y + MAIN_INFO_FONT_CELL_HEIGHT);
+
+            if (row_bottom <= popup_y || row_y >= popup_bottom)
+                continue;
+
+            if (clear_y < row_y)
+            {
+                uint16_t clear_h = (uint16_t)(row_y - clear_y);
+
+                Display_ComposeClear(popup_w,
+                                     clear_h,
+                                     DISPLAY_BG_COLOUR);
+                Display_ComposeBlit(popup_x,
+                                    clear_y,
+                                    popup_w,
+                                    clear_h);
+            }
+
+            clear_y = (row_bottom < popup_bottom) ? row_bottom : popup_bottom;
+            if (clear_y >= popup_bottom)
+                break;
+        }
+
+        if (clear_y < popup_bottom)
+        {
+            uint16_t clear_h = (uint16_t)(popup_bottom - clear_y);
+
+            Display_ComposeClear(popup_w,
+                                 clear_h,
+                                 DISPLAY_BG_COLOUR);
+            Display_ComposeBlit(popup_x,
+                                clear_y,
+                                popup_w,
+                                clear_h);
+        }
+
+        return;
+    }
+
+    if (!preset)
+        return;
+
+    Display_DrawMainInfoRows(preset);
+}
+
+void Display_ShowTimebendPopup(void)
+{
+    if (timebend_popup_visible)
+        return;
+
+    timebend_popup_visible = 1U;
+    Display_DrawTimebendPopup();
+}
+
+void Display_HideTimebendPopup(const Preset_t *preset)
+{
+    if (!timebend_popup_visible)
+        return;
+
+    timebend_popup_visible = 0U;
+
+    if (menu_mode_active)
+    {
+        uint16_t popup_w = (uint16_t)(strlen(MAIN_TIMEBEND_POPUP_TEXT) * MAIN_INFO_FONT.width);
+        uint16_t popup_x = (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
+        uint16_t popup_y = main_info_row_y[MAIN_TIMEBEND_POPUP_ROW_INDEX];
+        uint16_t popup_bottom = (uint16_t)(popup_y + MAIN_INFO_FONT.height);
+        uint16_t clear_y = popup_y;
+
         Display_MenuRefreshBodyOnly();
 
         for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)

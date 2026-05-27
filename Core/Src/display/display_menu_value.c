@@ -449,6 +449,19 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
 
         case 3U:
         {
+            uint8_t live_enc2_mode = (uint8_t)global->live_enc2_mode;
+
+            changed = Display_AdjustWrappedU8(&live_enc2_mode,
+                                              (uint8_t)RUNTIME_CONFIG_LIVE_ENC2_MODE_PRESET_BANK_SCROLL,
+                                              (uint8_t)RUNTIME_CONFIG_LIVE_ENC2_MODE_TIMEBEND,
+                                              delta);
+            if (changed)
+                global->live_enc2_mode = (RuntimeConfigLiveEnc2Mode_t)live_enc2_mode;
+            break;
+        }
+
+        case 4U:
+        {
             RuntimeConfigDisplayMode_t next_display_mode = RuntimeConfig_StepDisplayMode(global->display_mode,
                                                                                          delta);
 
@@ -461,7 +474,7 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
             break;
         }
 
-        case 4U:
+        case 5U:
         {
             uint8_t brightness_ui = Display_GetGlobalBrightnessUiValue(global->backlight_brightness);
 
@@ -477,18 +490,18 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
             break;
         }
 
-        case 5U:
+        case 6U:
             changed = Display_AdjustWrappedU8(&global->feedback_taper_enabled, 0U, 1U, delta);
             break;
 
-        case 6U:
+        case 7U:
             changed = Display_AdjustClampedU8(&global->feedback_taper_threshold,
                                               0U,
                                               RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_MAX,
                                               delta);
             break;
 
-        case 7U:
+        case 8U:
             changed = Display_AdjustClampedU8(&global->feedback_taper_reduce,
                                               0U,
                                               RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_MAX,
