@@ -26,12 +26,7 @@ static const char * const menu_global_labels[MENU_GLOBAL_ITEM_COUNT] = {
     "Feedback Taper",
     "Threshold",
     "Reduce",
-    "Expr Pedal",
-    "Expr Min",
-    "Expr Max",
-    "Expr Invert",
-    "Expr Learn Min",
-    "Expr Learn Max",
+    "Expression",
     "Factory Reset",
 };
 
@@ -98,32 +93,9 @@ void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buff
         (void)snprintf(buffer, buffer_size, "%u", global->feedback_taper_reduce);
         break;
     case 9U:
-        (void)snprintf(buffer,
-                       buffer_size,
-                       "%s",
-                       (global->expression_pedal_mode == RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_TIMEBEND)
-                           ? "Timebend"
-                           : "Disabled");
+        (void)snprintf(buffer, buffer_size, "%s", "Open");
         break;
     case 10U:
-        (void)snprintf(buffer, buffer_size, "%u", global->expression_pedal_min_raw);
-        break;
-    case 11U:
-        (void)snprintf(buffer, buffer_size, "%u", global->expression_pedal_max_raw);
-        break;
-    case 12U:
-        (void)snprintf(buffer,
-                       buffer_size,
-                       "%s",
-                       global->expression_pedal_invert ? "Inverted" : "Normal");
-        break;
-    case 13U:
-        (void)snprintf(buffer, buffer_size, "%s", "Press ENC3");
-        break;
-    case 14U:
-        (void)snprintf(buffer, buffer_size, "%s", "Press ENC3");
-        break;
-    case 15U:
         buffer[0] = '\0';
         break;
     default:

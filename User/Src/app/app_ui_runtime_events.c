@@ -164,6 +164,7 @@ static void AppUiEvents_HandleUiTick100Ms(void)
     App_AcknowledgeUiTick100MsEvent();
 
     Display_MenuMidiMonitorService();
+    AppUi_PresetEditLearningService();
     LED_Update();
     if (Display_ScreensaverUpdate())
         App_QueueRedrawMainScreenEvent();
@@ -171,6 +172,8 @@ static void AppUiEvents_HandleUiTick100Ms(void)
 
 static void AppUiEvents_HandleMidiMonitorChanged(void)
 {
+    Display_MenuApplyMidiLearnIfPending();
+    AppUi_PresetEditLearningService();
     MidiMonitor_AcknowledgeChangedEvent();
     AppUi_RequestLiveContentRefresh();
 }

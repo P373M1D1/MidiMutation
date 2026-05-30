@@ -57,27 +57,6 @@ static uint8_t Display_AdjustClampedU8(uint8_t *value, uint8_t min_value, uint8_
     return 1U;
 }
 
-static uint8_t Display_AdjustClampedU16(uint16_t *value, uint16_t min_value, uint16_t max_value, int8_t delta)
-{
-    int32_t next_value;
-
-    if (!value || min_value > max_value || delta == 0)
-        return 0U;
-
-    next_value = (int32_t)(*value) + (int32_t)delta;
-
-    if (next_value < (int32_t)min_value)
-        next_value = (int32_t)min_value;
-    else if (next_value > (int32_t)max_value)
-        next_value = (int32_t)max_value;
-
-    if ((uint16_t)next_value == *value)
-        return 0U;
-
-    *value = (uint16_t)next_value;
-    return 1U;
-}
-
 static uint8_t Display_AdjustDirectionalU8(uint8_t *value,
                                            uint8_t negative_value,
                                            uint8_t positive_value,
@@ -434,6 +413,47 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
             }
         }
     }
+    else if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_EXPRESSION)
+    {
+        if (!global)
+            return 0U;
+
+        if (display_state.menu_expression_selection_index == 0U)
+        {
+            uint8_t expression_mode = (uint8_t)global->expression_pedal_mode;
+
+            changed = Display_AdjustWrappedU8(&expression_mode,
+                                              (uint8_t)RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_DISABLED,
+                                              (uint8_t)RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_TIMEBEND,
+                                              delta);
+            if (changed)
+                global->expression_pedal_mode = (RuntimeConfigExpressionPedalMode_t)expression_mode;
+        }
+        else if (display_state.menu_expression_selection_index <= RUNTIME_CONFIG_EXPRESSION_PEDAL_CC_SLOT_COUNT)
+        {
+            RuntimeConfigExpressionPedalCcSlot_t *slot = &global->expression_pedal_cc_slots[
+                display_state.menu_expression_selection_index - 1U];
+
+            switch (display_state.menu_expression_field_index)
+            {
+            case 0U:
+                changed = Display_AdjustWrappedOptionalU8(&slot->cc,
+                                                          PRESET_CC_NUMBER_UNUSED,
+                                                          0U,
+                                                          127U,
+                                                          delta);
+                break;
+            case 1U:
+                changed = Display_AdjustWrappedU8(&slot->heel_value, 0U, 127U, delta);
+                break;
+            case 2U:
+                changed = Display_AdjustWrappedU8(&slot->toe_value, 0U, 127U, delta);
+                break;
+            default:
+                break;
+            }
+        }
+    }
     else if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_GLOBAL)
     {
         if (!global)
@@ -527,51 +547,6 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
                                               0U,
                                               RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_MAX,
                                               delta);
-            break;
-
-        case 9U:
-        {
-            uint8_t expression_mode = (uint8_t)global->expression_pedal_mode;
-
-            changed = Display_AdjustWrappedU8(&expression_mode,
-                                              (uint8_t)RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_DISABLED,
-                                              (uint8_t)RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_TIMEBEND,
-                                              delta);
-            if (changed)
-                global->expression_pedal_mode = (RuntimeConfigExpressionPedalMode_t)expression_mode;
-            break;
-        }
-
-        case 10U:
-        {
-            uint16_t min_upper_bound = global->expression_pedal_max_raw;
-
-            if (min_upper_bound <= RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MIN)
-                min_upper_bound = (uint16_t)(RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MIN + 1U);
-
-            changed = Display_AdjustClampedU16(&global->expression_pedal_min_raw,
-                                               RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MIN,
-                                               (uint16_t)(min_upper_bound - 1U),
-                                               delta);
-            break;
-        }
-
-        case 11U:
-        {
-            uint16_t max_lower_bound = global->expression_pedal_min_raw;
-
-            if (max_lower_bound >= RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MAX)
-                max_lower_bound = (uint16_t)(RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MAX - 1U);
-
-            changed = Display_AdjustClampedU16(&global->expression_pedal_max_raw,
-                                               (uint16_t)(max_lower_bound + 1U),
-                                               RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MAX,
-                                               delta);
-            break;
-        }
-
-        case 12U:
-            changed = Display_AdjustWrappedU8(&global->expression_pedal_invert, 0U, 1U, delta);
             break;
 
         default:

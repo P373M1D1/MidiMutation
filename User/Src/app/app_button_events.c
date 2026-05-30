@@ -3,7 +3,9 @@
 #include "app/app_requests.h"
 #include "app/app_special_functions.h"
 #include "app/app_state.h"
+#include "app/app_ui.h"
 #include "button_functions.h"
+#include "display_functions.h"
 
 #define APP_BUTTON_EVENTS_RANDOM_BUTTON_INDEX 8U
 #define APP_BUTTON_EVENTS_SPECIAL_FUNCTION_BUTTON_INDEX 9U
@@ -47,6 +49,8 @@ static void AppButtonEvents_HandleFootswitchEdge(const AppEvent_t *event)
 
 static void AppButtonEvents_HandleFootswitchPress(uint8_t index, uint32_t now)
 {
+    uint8_t target_preset_index;
+
     App_QueueScreensaverWakeEvent();
 
     if (index == APP_BUTTON_EVENTS_RANDOM_BUTTON_INDEX)
@@ -63,7 +67,18 @@ static void AppButtonEvents_HandleFootswitchPress(uint8_t index, uint32_t now)
         return;
     }
 
-    App_QueuePresetActivateEvent((uint8_t)(AppState_GetCurrentBank() * PRESETS_PER_BANK + index));
+    target_preset_index = (uint8_t)(AppState_GetCurrentBank() * PRESETS_PER_BANK + index);
+
+    /* In preset edit mode, pressing the already-active preset footswitch now
+     * intentionally re-transmits the current preset payload without leaving
+     * edit mode or depending on ENC2's learn control. */
+    if (Display_PresetEditIsActive() && target_preset_index == AppState_GetActivePresetIndex())
+    {
+        (void)AppUi_PresetEditSendCurrentPreset();
+        return;
+    }
+
+    App_QueuePresetActivateEvent(target_preset_index);
 }
 
 static void AppButtonEvents_PushSimpleEvent(AppEventType_t type, int16_t value, uint32_t tick)

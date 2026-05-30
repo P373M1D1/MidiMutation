@@ -215,6 +215,30 @@ uint8_t MidiMonitor_CopyEntries(MidiMonitorEntry_t *dest, uint8_t capacity)
     return count;
 }
 
+uint8_t MidiMonitor_TryGetLatestEntry(MidiMonitorEntry_t *entry_out, uint32_t *revision_out)
+{
+    uint32_t primask = __get_PRIMASK();
+
+    if (!entry_out || !revision_out)
+        return 0U;
+
+    __disable_irq();
+    if (midi_monitor_count == 0U)
+    {
+        if (primask == 0U)
+            __enable_irq();
+        return 0U;
+    }
+
+    *entry_out = midi_monitor_entries[(uint8_t)((MIDI_MONITOR_ENTRY_CAPACITY + midi_monitor_head - 1U)
+                                               % MIDI_MONITOR_ENTRY_CAPACITY)];
+    *revision_out = midi_monitor_revision;
+    if (primask == 0U)
+        __enable_irq();
+
+    return 1U;
+}
+
 uint8_t MidiMonitor_TryGetLatestControlValue(uint8_t source_uart,
                                              uint8_t channel,
                                              uint8_t cc_number,
@@ -285,6 +309,78 @@ uint8_t MidiMonitor_TryGetLatestControlValueAnySource(uint8_t channel,
             continue;
 
         *value_out = entry->value2;
+        if (primask == 0U)
+            __enable_irq();
+        return 1U;
+    }
+
+    if (primask == 0U)
+        __enable_irq();
+
+    return 0U;
+}
+
+uint8_t MidiMonitor_TryGetLatestControlChangeAnySource(uint8_t *channel_out,
+                                                       uint8_t *cc_out,
+                                                       uint8_t *value_out)
+{
+    uint32_t primask = __get_PRIMASK();
+    uint8_t count;
+    uint8_t head;
+
+    if (!channel_out || !cc_out || !value_out)
+        return 0U;
+
+    __disable_irq();
+    count = midi_monitor_count;
+    head = midi_monitor_head;
+
+    for (uint8_t offset = 0U; offset < count; ++offset)
+    {
+        uint8_t index = (uint8_t)((MIDI_MONITOR_ENTRY_CAPACITY + head - 1U - offset) % MIDI_MONITOR_ENTRY_CAPACITY);
+        const MidiMonitorEntry_t *entry = &midi_monitor_entries[index];
+
+        if (entry->type != MIDI_MONITOR_MESSAGE_CONTROL_CHANGE)
+            continue;
+
+        *channel_out = entry->channel;
+        *cc_out = entry->value1;
+        *value_out = entry->value2;
+        if (primask == 0U)
+            __enable_irq();
+        return 1U;
+    }
+
+    if (primask == 0U)
+        __enable_irq();
+
+    return 0U;
+}
+
+uint8_t MidiMonitor_TryGetLatestProgramChangeAnySource(uint8_t *channel_out,
+                                                       uint8_t *program_out)
+{
+    uint32_t primask = __get_PRIMASK();
+    uint8_t count;
+    uint8_t head;
+
+    if (!channel_out || !program_out)
+        return 0U;
+
+    __disable_irq();
+    count = midi_monitor_count;
+    head = midi_monitor_head;
+
+    for (uint8_t offset = 0U; offset < count; ++offset)
+    {
+        uint8_t index = (uint8_t)((MIDI_MONITOR_ENTRY_CAPACITY + head - 1U - offset) % MIDI_MONITOR_ENTRY_CAPACITY);
+        const MidiMonitorEntry_t *entry = &midi_monitor_entries[index];
+
+        if (entry->type != MIDI_MONITOR_MESSAGE_PROGRAM_CHANGE)
+            continue;
+
+        *channel_out = entry->channel;
+        *program_out = entry->value1;
         if (primask == 0U)
             __enable_irq();
         return 1U;

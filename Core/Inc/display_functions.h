@@ -108,6 +108,10 @@ void Display_HideSavingPopup(const Preset_t *p);
 void Display_ShowTimebendPopup(void);
 /** Hides the timebend popup overlay and restores the obscured content. */
 void Display_HideTimebendPopup(const Preset_t *p);
+/** Shows the preset-edit LEARNING popup overlay. */
+void Display_ShowLearningPopup(void);
+/** Hides the preset-edit LEARNING popup overlay and restores obscured content. */
+void Display_HideLearningPopup(const Preset_t *p);
 
 /* -- Menu mode ----------------------------------------------------------------- */
 
@@ -160,6 +164,12 @@ uint8_t Display_MenuAdjustValue(int8_t delta);
 uint8_t Display_MenuAdjustUserThemeHue(int8_t delta);
 /** Adjusts the user-theme brightness. */
 uint8_t Display_MenuAdjustUserThemeBrightness(int8_t delta);
+/** Returns true when ENC2 can toggle learn mode in the active menu context. */
+uint8_t Display_MenuCanToggleLearn(void);
+/** Toggles one-shot MIDI-learn mode for the active editable field. */
+uint8_t Display_MenuToggleLearn(void);
+/** Applies one-shot learn if armed and a new MIDI CC message arrived. */
+void Display_MenuApplyMidiLearnIfPending(void);
 
 /* -- Screensaver/loading ------------------------------------------------------- */
 

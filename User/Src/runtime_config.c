@@ -20,6 +20,9 @@
 #define RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MIN_RAW_DEFAULT RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MIN
 #define RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MAX_RAW_DEFAULT RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MAX
 #define RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_INVERT_DEFAULT 0U
+#define RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_CC_DEFAULT PRESET_CC_NUMBER_UNUSED
+#define RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_HEEL_DEFAULT 0U
+#define RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_TOE_DEFAULT 127U
 #define RUNTIME_CONFIG_METRONOME_VOLUME_DEFAULT         50U
 #define RUNTIME_CONFIG_METRONOME_PITCH_DEFAULT          RUNTIME_CONFIG_METRONOME_PITCH_MID
 #define RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_DEFAULT  4U
@@ -154,6 +157,22 @@ typedef struct {
     RuntimeConfigSyncStyle_t sync_style;
     RuntimeConfigDisplayMode_t display_mode;
     uint16_t backlight_brightness;
+    uint8_t feedback_taper_enabled;
+    uint8_t feedback_taper_threshold;
+    uint8_t feedback_taper_reduce;
+    RuntimeConfigLiveEnc2Mode_t live_enc2_mode;
+    RuntimeConfigExpressionPedalMode_t expression_pedal_mode;
+    uint16_t expression_pedal_min_raw;
+    uint16_t expression_pedal_max_raw;
+    uint8_t expression_pedal_invert;
+} RuntimeConfigGlobalLegacyV13_t;
+
+typedef struct {
+    uint8_t startup_delay_seconds;
+    uint8_t screensaver_timeout_minutes;
+    RuntimeConfigSyncStyle_t sync_style;
+    RuntimeConfigDisplayMode_t display_mode;
+    uint16_t backlight_brightness;
 } RuntimeConfigGlobalLegacyV9_t;
 
 typedef struct {
@@ -235,6 +254,16 @@ typedef struct {
     Preset_t global_bypass_preset;
     Preset_t global_mute_preset;
 } RuntimeConfigLegacyV12_t;
+
+typedef struct {
+    RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
+    RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigGlobalLegacyV13_t global;
+    RuntimeConfigMetronome_t metronome;
+    RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
+    Preset_t global_bypass_preset;
+    Preset_t global_mute_preset;
+} RuntimeConfigLegacyV13_t;
 
 typedef struct {
     RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
@@ -426,6 +455,13 @@ static const RuntimeConfig_t runtime_config_defaults = {
         .expression_pedal_min_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MIN_RAW_DEFAULT,
         .expression_pedal_max_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MAX_RAW_DEFAULT,
         .expression_pedal_invert = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_INVERT_DEFAULT,
+        .expression_pedal_cc_slots = {
+            [0 ... (RUNTIME_CONFIG_EXPRESSION_PEDAL_CC_SLOT_COUNT - 1)] = {
+                .cc = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_CC_DEFAULT,
+                .heel_value = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_HEEL_DEFAULT,
+                .toe_value = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_TOE_DEFAULT,
+            },
+        },
     },
     .metronome = RUNTIME_CONFIG_METRONOME_DEFAULT,
     .user_themes = {
@@ -692,6 +728,7 @@ uint8_t RuntimeConfig_PersistentConfigSizeIsSupported(uint32_t config_size)
     return (config_size == sizeof(RuntimeConfig_t)
             || config_size == sizeof(RuntimeConfigLegacyWithRoles_t)
             || config_size == sizeof(RuntimeConfigLegacyWithRolesNoGlobalPresets_t)
+            || config_size == sizeof(RuntimeConfigLegacyV13_t)
             || config_size == sizeof(RuntimeConfigLegacyV12_t)
             || config_size == sizeof(RuntimeConfigLegacyV11_t)
             || config_size == sizeof(RuntimeConfigLegacyV10_t)
@@ -834,6 +871,46 @@ static uint8_t RuntimeConfig_NormalizeExpressionPedalInvert(uint8_t invert)
     return invert ? 1U : 0U;
 }
 
+static uint8_t RuntimeConfig_NormalizeExpressionPedalCc(uint8_t cc)
+{
+    return (cc == PRESET_CC_NUMBER_UNUSED || cc <= 127U)
+        ? cc
+        : PRESET_CC_NUMBER_UNUSED;
+}
+
+static uint8_t RuntimeConfig_NormalizeExpressionPedalValue(uint8_t value)
+{
+    return (value <= 127U) ? value : 127U;
+}
+
+static void RuntimeConfig_NormalizeExpressionPedalCcSlots(RuntimeConfigGlobal_t *global)
+{
+    if (!global)
+        return;
+
+    for (uint8_t slot_index = 0U; slot_index < RUNTIME_CONFIG_EXPRESSION_PEDAL_CC_SLOT_COUNT; ++slot_index)
+    {
+        RuntimeConfigExpressionPedalCcSlot_t *slot = &global->expression_pedal_cc_slots[slot_index];
+
+        slot->cc = RuntimeConfig_NormalizeExpressionPedalCc(slot->cc);
+        slot->heel_value = RuntimeConfig_NormalizeExpressionPedalValue(slot->heel_value);
+        slot->toe_value = RuntimeConfig_NormalizeExpressionPedalValue(slot->toe_value);
+    }
+}
+
+static void RuntimeConfig_InitExpressionPedalCcSlotsDefaults(RuntimeConfigGlobal_t *global)
+{
+    if (!global)
+        return;
+
+    for (uint8_t slot_index = 0U; slot_index < RUNTIME_CONFIG_EXPRESSION_PEDAL_CC_SLOT_COUNT; ++slot_index)
+    {
+        global->expression_pedal_cc_slots[slot_index].cc = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_CC_DEFAULT;
+        global->expression_pedal_cc_slots[slot_index].heel_value = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_HEEL_DEFAULT;
+        global->expression_pedal_cc_slots[slot_index].toe_value = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_TOE_DEFAULT;
+    }
+}
+
 static void RuntimeConfig_NormalizeExpressionPedalCalibration(RuntimeConfigGlobal_t *global)
 {
     if (!global)
@@ -847,6 +924,7 @@ static void RuntimeConfig_NormalizeExpressionPedalCalibration(RuntimeConfigGloba
         global->expression_pedal_max_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MAX_RAW_DEFAULT;
     }
     global->expression_pedal_invert = RuntimeConfig_NormalizeExpressionPedalInvert(global->expression_pedal_invert);
+    RuntimeConfig_NormalizeExpressionPedalCcSlots(global);
 }
 
 static void RuntimeConfig_ApplyLegacyGlobalV9(RuntimeConfigGlobal_t *destination,
@@ -868,6 +946,7 @@ static void RuntimeConfig_ApplyLegacyGlobalV9(RuntimeConfigGlobal_t *destination
     destination->expression_pedal_min_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MIN_RAW_DEFAULT;
     destination->expression_pedal_max_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MAX_RAW_DEFAULT;
     destination->expression_pedal_invert = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_INVERT_DEFAULT;
+    RuntimeConfig_InitExpressionPedalCcSlotsDefaults(destination);
 }
 
 static void RuntimeConfig_ApplyLegacyGlobalV10(RuntimeConfigGlobal_t *destination,
@@ -889,6 +968,7 @@ static void RuntimeConfig_ApplyLegacyGlobalV10(RuntimeConfigGlobal_t *destinatio
     destination->expression_pedal_min_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MIN_RAW_DEFAULT;
     destination->expression_pedal_max_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MAX_RAW_DEFAULT;
     destination->expression_pedal_invert = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_INVERT_DEFAULT;
+    RuntimeConfig_InitExpressionPedalCcSlotsDefaults(destination);
 }
 
 static void RuntimeConfig_ApplyLegacyGlobalV11(RuntimeConfigGlobal_t *destination,
@@ -910,6 +990,7 @@ static void RuntimeConfig_ApplyLegacyGlobalV11(RuntimeConfigGlobal_t *destinatio
     destination->expression_pedal_min_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MIN_RAW_DEFAULT;
     destination->expression_pedal_max_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MAX_RAW_DEFAULT;
     destination->expression_pedal_invert = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_INVERT_DEFAULT;
+    RuntimeConfig_InitExpressionPedalCcSlotsDefaults(destination);
 }
 
 static void RuntimeConfig_ApplyLegacyGlobalV12(RuntimeConfigGlobal_t *destination,
@@ -931,6 +1012,29 @@ static void RuntimeConfig_ApplyLegacyGlobalV12(RuntimeConfigGlobal_t *destinatio
     destination->expression_pedal_min_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MIN_RAW_DEFAULT;
     destination->expression_pedal_max_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MAX_RAW_DEFAULT;
     destination->expression_pedal_invert = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_INVERT_DEFAULT;
+    RuntimeConfig_InitExpressionPedalCcSlotsDefaults(destination);
+}
+
+static void RuntimeConfig_ApplyLegacyGlobalV13(RuntimeConfigGlobal_t *destination,
+                                               const RuntimeConfigGlobalLegacyV13_t *source)
+{
+    if (!destination || !source)
+        return;
+
+    destination->startup_delay_seconds = source->startup_delay_seconds;
+    destination->screensaver_timeout_minutes = source->screensaver_timeout_minutes;
+    destination->sync_style = source->sync_style;
+    destination->display_mode = source->display_mode;
+    destination->backlight_brightness = source->backlight_brightness;
+    destination->feedback_taper_enabled = source->feedback_taper_enabled;
+    destination->feedback_taper_threshold = source->feedback_taper_threshold;
+    destination->feedback_taper_reduce = source->feedback_taper_reduce;
+    destination->live_enc2_mode = source->live_enc2_mode;
+    destination->expression_pedal_mode = source->expression_pedal_mode;
+    destination->expression_pedal_min_raw = source->expression_pedal_min_raw;
+    destination->expression_pedal_max_raw = source->expression_pedal_max_raw;
+    destination->expression_pedal_invert = source->expression_pedal_invert;
+    RuntimeConfig_InitExpressionPedalCcSlotsDefaults(destination);
 }
 
 static RuntimeConfigMetronomePitch_t RuntimeConfig_NormalizeMetronomePitch(uint8_t pitch)
@@ -1361,6 +1465,26 @@ static void RuntimeConfig_ApplyLegacyV12Snapshot(const RuntimeConfigLegacyV12_t 
     runtime_config_store.global_mute_preset = legacy_store->global_mute_preset;
 }
 
+static void RuntimeConfig_ApplyLegacyV13Snapshot(const RuntimeConfigLegacyV13_t *legacy_store)
+{
+    if (!legacy_store)
+        return;
+
+    memcpy(runtime_config_store.banks,
+           legacy_store->banks,
+           sizeof(runtime_config_store.banks));
+    memcpy(runtime_config_store.devices,
+           legacy_store->devices,
+           sizeof(runtime_config_store.devices));
+    RuntimeConfig_ApplyLegacyGlobalV13(&runtime_config_store.global, &legacy_store->global);
+    runtime_config_store.metronome = legacy_store->metronome;
+    memcpy(runtime_config_store.user_themes,
+           legacy_store->user_themes,
+           sizeof(runtime_config_store.user_themes));
+    runtime_config_store.global_bypass_preset = legacy_store->global_bypass_preset;
+    runtime_config_store.global_mute_preset = legacy_store->global_mute_preset;
+}
+
 static void RuntimeConfig_CopyLegacyBanksWithRoles(const RuntimeConfigBankLegacyWithRoles_t *source)
 {
     if (!source)
@@ -1567,6 +1691,13 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
             memcpy(&legacy_store, config_payload, sizeof(legacy_store));
             RuntimeConfig_ApplyLegacyWithRolesNoGlobalPresetsSnapshot(&legacy_store);
         }
+        else if (header_v3->config_size == sizeof(RuntimeConfigLegacyV13_t))
+        {
+            RuntimeConfigLegacyV13_t legacy_store;
+
+            memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+            RuntimeConfig_ApplyLegacyV13Snapshot(&legacy_store);
+        }
         else if (header_v3->config_size == sizeof(RuntimeConfigLegacyV12_t))
         {
             RuntimeConfigLegacyV12_t legacy_store;
@@ -1688,6 +1819,13 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
 
         memcpy(&legacy_store, config_payload, sizeof(legacy_store));
         RuntimeConfig_ApplyLegacyWithRolesNoGlobalPresetsSnapshot(&legacy_store);
+    }
+    else if (header->config_size == sizeof(RuntimeConfigLegacyV13_t))
+    {
+        RuntimeConfigLegacyV13_t legacy_store;
+
+        memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+        RuntimeConfig_ApplyLegacyV13Snapshot(&legacy_store);
     }
     else if (header->config_size == sizeof(RuntimeConfigLegacyV12_t))
     {

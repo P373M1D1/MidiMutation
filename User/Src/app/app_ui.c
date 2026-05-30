@@ -5,12 +5,29 @@
 #include "app/app_requests.h"
 #include "app/app_state.h"
 #include "display_functions.h"
+#include "midi/midi_monitor.h"
 #include "midi_devices.h"
 #include "midi_functions.h"
 #include "runtime_config.h"
+#include "stm32f4xx_hal.h"
 #include <string.h>
 
 static const char AppUi_PresetEditNameCharset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ";
+#define APP_UI_PRESET_LEARN_VALUE_TIMEOUT_MS 3000U
+
+typedef struct {
+    uint8_t active;
+    DisplayPresetEditField_t field;
+    uint32_t last_valid_cc_tick;
+    uint32_t last_seen_monitor_revision;
+} AppUiPresetLearnState_t;
+
+static AppUiPresetLearnState_t app_ui_preset_learn_state = {
+    .active = 0U,
+    .field = { DISPLAY_PRESET_EDIT_FIELD_NONE, 0U },
+    .last_valid_cc_tick = 0U,
+    .last_seen_monitor_revision = 0U,
+};
 
 static uint8_t AppUi_PresetEditAdjustSentinelValue(uint8_t *value,
                                                    uint8_t unused_value,
@@ -25,6 +42,36 @@ static uint8_t AppUi_PresetEditAdjustProgramValue(Preset_t *preset, uint8_t slot
 static const Preset_t *AppUi_GetEditableActivePreset(void);
 static Preset_t *AppUi_GetMutableEditableActivePreset(void);
 static uint8_t AppUi_GetEditableActivePresetIndex(uint8_t *preset_index);
+static uint8_t AppUi_PresetEditFieldSupportsLearning(DisplayPresetEditField_t field);
+static void AppUi_PresetEditStopLearningSession(void);
+
+static uint8_t AppUi_PresetEditFieldSupportsLearning(DisplayPresetEditField_t field)
+{
+    switch (field.type)
+    {
+    case DISPLAY_PRESET_EDIT_FIELD_PROGRAM:
+    case DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER:
+    case DISPLAY_PRESET_EDIT_FIELD_CC_VALUE:
+        return 1U;
+
+    default:
+        return 0U;
+    }
+}
+
+static void AppUi_PresetEditStopLearningSession(void)
+{
+    if (!app_ui_preset_learn_state.active)
+        return;
+
+    app_ui_preset_learn_state.active = 0U;
+    app_ui_preset_learn_state.field.type = DISPLAY_PRESET_EDIT_FIELD_NONE;
+    app_ui_preset_learn_state.field.itemIndex = 0U;
+    app_ui_preset_learn_state.last_valid_cc_tick = 0U;
+    app_ui_preset_learn_state.last_seen_monitor_revision = 0U;
+
+    Display_HideLearningPopup(AppUi_GetEditableActivePreset());
+}
 
 static const Preset_t *AppUi_GetEditableActivePreset(void)
 {
@@ -333,6 +380,8 @@ void AppUi_PresetEditExit(void)
     if (!Display_PresetEditIsActive())
         return;
 
+    AppUi_PresetEditStopLearningSession();
+
     Display_PresetEditExit();
     App_QueueScreensaverActivityEvent();
     AppUi_RequestPresetEditModeRefresh();
@@ -360,6 +409,132 @@ uint8_t AppUi_PresetEditSendCurrentPreset(void)
 
     Midi_LoadPreset(preset);
     return 1U;
+}
+
+uint8_t AppUi_PresetEditToggleLearningSession(void)
+{
+    DisplayPresetEditField_t field;
+
+    if (!Display_PresetEditIsActive())
+        return 0U;
+
+    if (!AppUi_PresetEditCurrentPresetIsEditable())
+    {
+        AppUi_PresetEditExit();
+        return 0U;
+    }
+
+    if (app_ui_preset_learn_state.active)
+    {
+        AppUi_PresetEditStopLearningSession();
+        return 1U;
+    }
+
+    field = Display_PresetEditGetField();
+    if (!AppUi_PresetEditFieldSupportsLearning(field))
+        return 0U;
+
+    app_ui_preset_learn_state.active = 1U;
+    app_ui_preset_learn_state.field = field;
+    app_ui_preset_learn_state.last_valid_cc_tick = HAL_GetTick();
+    app_ui_preset_learn_state.last_seen_monitor_revision = MidiMonitor_GetRevision();
+    Display_ShowLearningPopup();
+    return 1U;
+}
+
+void AppUi_PresetEditLearningService(void)
+{
+    Preset_t *preset;
+    DisplayPresetEditField_t field;
+    MidiMonitorEntry_t latest_entry;
+    uint32_t latest_revision;
+    uint8_t has_new_entry = 0U;
+
+    if (!app_ui_preset_learn_state.active)
+        return;
+
+    if (!Display_PresetEditIsActive())
+    {
+        AppUi_PresetEditStopLearningSession();
+        return;
+    }
+
+    preset = AppUi_GetMutableEditableActivePreset();
+    if (!preset)
+    {
+        AppUi_PresetEditStopLearningSession();
+        return;
+    }
+
+    field = app_ui_preset_learn_state.field;
+
+    if (MidiMonitor_TryGetLatestEntry(&latest_entry, &latest_revision)
+     && latest_revision != app_ui_preset_learn_state.last_seen_monitor_revision)
+    {
+        app_ui_preset_learn_state.last_seen_monitor_revision = latest_revision;
+        has_new_entry = 1U;
+    }
+
+    switch (field.type)
+    {
+    case DISPLAY_PRESET_EDIT_FIELD_PROGRAM:
+        if (field.itemIndex < PRESET_DEVICE_SLOTS)
+        {
+            if (has_new_entry && latest_entry.type == MIDI_MONITOR_MESSAGE_PROGRAM_CHANGE)
+            {
+                preset->prg[field.itemIndex].program = latest_entry.value1;
+                AppUi_PresetEditMarkDirty();
+                AppUi_RequestPresetEditFieldRefresh();
+                AppUi_PresetEditStopLearningSession();
+            }
+        }
+        else
+        {
+            AppUi_PresetEditStopLearningSession();
+        }
+        break;
+
+    case DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER:
+        if (field.itemIndex < PRESET_CC_SLOT_COUNT)
+        {
+            if (has_new_entry && latest_entry.type == MIDI_MONITOR_MESSAGE_CONTROL_CHANGE)
+            {
+                preset->cc[field.itemIndex].cc_number = latest_entry.value1;
+                AppUi_PresetEditMarkDirty();
+                AppUi_RequestPresetEditFieldRefresh();
+                AppUi_PresetEditStopLearningSession();
+            }
+        }
+        else
+        {
+            AppUi_PresetEditStopLearningSession();
+        }
+        break;
+
+    case DISPLAY_PRESET_EDIT_FIELD_CC_VALUE:
+        if (field.itemIndex < PRESET_CC_SLOT_COUNT)
+        {
+            if (has_new_entry && latest_entry.type == MIDI_MONITOR_MESSAGE_CONTROL_CHANGE)
+            {
+                preset->cc[field.itemIndex].value = latest_entry.value2;
+                app_ui_preset_learn_state.last_valid_cc_tick = HAL_GetTick();
+                AppUi_PresetEditMarkDirty();
+                AppUi_RequestPresetEditFieldRefresh();
+            }
+
+            if ((HAL_GetTick() - app_ui_preset_learn_state.last_valid_cc_tick) >= APP_UI_PRESET_LEARN_VALUE_TIMEOUT_MS)
+                AppUi_PresetEditStopLearningSession();
+        }
+        else
+        {
+            AppUi_PresetEditStopLearningSession();
+        }
+        break;
+
+    default:
+        AppUi_PresetEditStopLearningSession();
+        break;
+    }
 }
 
 uint8_t AppUi_PresetEditResetCurrentPresetToDefaults(void)

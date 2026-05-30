@@ -23,6 +23,7 @@ extern "C" {
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX      4095U
 #define RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MIN       0U
 #define RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MAX       4095U
+#define RUNTIME_CONFIG_EXPRESSION_PEDAL_CC_SLOT_COUNT  8U
 #define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_MAX 127U
 #define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_MAX    127U
 #define RUNTIME_CONFIG_USER_THEME_COUNT               3U
@@ -159,6 +160,12 @@ typedef struct {
 } RuntimeConfigMetronome_t;
 
 typedef struct {
+    uint8_t cc;
+    uint8_t heel_value;
+    uint8_t toe_value;
+} RuntimeConfigExpressionPedalCcSlot_t;
+
+typedef struct {
     uint8_t startup_delay_seconds;
     uint8_t screensaver_timeout_minutes;
     RuntimeConfigSyncStyle_t sync_style;
@@ -172,6 +179,7 @@ typedef struct {
     uint16_t expression_pedal_min_raw;
     uint16_t expression_pedal_max_raw;
     uint8_t expression_pedal_invert;
+    RuntimeConfigExpressionPedalCcSlot_t expression_pedal_cc_slots[RUNTIME_CONFIG_EXPRESSION_PEDAL_CC_SLOT_COUNT];
 } RuntimeConfigGlobal_t;
 
 typedef struct {

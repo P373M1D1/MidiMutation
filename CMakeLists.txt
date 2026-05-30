@@ -75,6 +75,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/display/display_menu_redraw_utils.c
     Core/Src/display/display_menu_page_devices.c
     Core/Src/display/display_menu_page_device_edit.c
+    Core/Src/display/display_menu_page_expression.c
     Core/Src/display/display_menu_page_bank_edit.c
     Core/Src/display/display_menu_page_global.c
     Core/Src/display/display_menu_page_metronome.c

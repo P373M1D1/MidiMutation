@@ -23,7 +23,8 @@ extern "C" {
 /* Menu layout constants shared across display modules. */
 #define MENU_ROOT_ITEM_COUNT            5U
 #define MENU_VISIBLE_ROW_COUNT          4U
-#define MENU_GLOBAL_ITEM_COUNT          16U
+#define MENU_GLOBAL_ITEM_COUNT          11U
+#define MENU_EXPRESSION_ITEM_COUNT      (1U + RUNTIME_CONFIG_EXPRESSION_PEDAL_CC_SLOT_COUNT)
 #define MENU_METRONOME_ITEM_COUNT       4U
 #define MENU_USER_THEME_ITEM_COUNT      RUNTIME_CONFIG_USER_THEME_FIELD_COUNT
 #define MENU_BANK_EDIT_ITEM_COUNT       4U
@@ -73,7 +74,11 @@ typedef struct DisplayState {
 	uint8_t menu_device_edit_selection_index;
 	uint8_t menu_device_cc_field_index;
 	uint8_t menu_device_cc_field_edit_active;
+	uint8_t menu_device_cc_learn_armed;
 	uint8_t menu_global_selection_index;
+	uint8_t menu_expression_selection_index;
+	uint8_t menu_expression_field_index;
+	uint8_t menu_expression_learn_armed;
 	uint8_t menu_metronome_selection_index;
 	uint8_t menu_metronome_quick_access_live;
 	uint8_t menu_user_theme_selection_index;
@@ -105,6 +110,7 @@ typedef enum {
 	DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM,
 	DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM,
 	DISPLAY_MENU_PAGE_GLOBAL,
+	DISPLAY_MENU_PAGE_EXPRESSION,
 	DISPLAY_MENU_PAGE_METRONOME,
 	DISPLAY_MENU_PAGE_MIDI_MONITOR,
 	DISPLAY_MENU_PAGE_USER_THEME,

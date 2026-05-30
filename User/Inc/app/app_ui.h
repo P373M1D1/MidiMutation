@@ -30,6 +30,8 @@ uint8_t AppUi_PresetEditApplyDelta(int8_t delta);
 uint8_t AppUi_PresetEditEnter(void);
 void AppUi_PresetEditExit(void);
 uint8_t AppUi_PresetEditSendCurrentPreset(void);
+uint8_t AppUi_PresetEditToggleLearningSession(void);
+void AppUi_PresetEditLearningService(void);
 uint8_t AppUi_PresetEditResetCurrentPresetToDefaults(void);
 uint8_t AppUi_PresetEditEnterFunctionButtonEditor(void);
 uint8_t AppUi_PresetEditBackOutOneLevel(void);

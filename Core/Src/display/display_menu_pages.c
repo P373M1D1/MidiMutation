@@ -7,6 +7,7 @@
 #include "display/display_menu_page_banks.h"
 #include "display/display_menu_page_device_edit.h"
 #include "display/display_menu_page_devices.h"
+#include "display/display_menu_page_expression.h"
 #include "display/display_menu_page_function_button.h"
 #include "display/display_menu_page_global.h"
 #include "display/display_menu_page_metronome.h"
@@ -101,6 +102,14 @@ static const char *Display_GetFootbarLabel(uint8_t section_index)
         case 1U:
             if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_USER_THEME)
                 return MAIN_FOOTBAR_MENU_PREVIEW_CENTER_TEXT;
+            if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_DEVICE_EDIT
+             || (DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_EXPRESSION)
+            {
+                if (display_state.menu_device_cc_learn_armed || display_state.menu_expression_learn_armed)
+                    return "LEARN ON";
+
+                return "LEARN";
+            }
             return MAIN_FOOTBAR_MENU_CENTER_TEXT;
         case 2U:
             return MAIN_FOOTBAR_MENU_RIGHT_TEXT;
@@ -360,6 +369,8 @@ static const char *Display_GetMenuHeaderTextForPage(DisplayMenuPage_t page, char
         return "CONFIRM";
     case DISPLAY_MENU_PAGE_GLOBAL:
         return "GLOBAL";
+    case DISPLAY_MENU_PAGE_EXPRESSION:
+        return "EXPRESSION";
     case DISPLAY_MENU_PAGE_METRONOME:
         return "METRONOME";
     case DISPLAY_MENU_PAGE_MIDI_MONITOR:
@@ -544,6 +555,8 @@ static DisplayMenuPageSpec_t Display_GetMenuPageSpec(DisplayMenuPage_t page)
         return (DisplayMenuPageSpec_t){ NULL, 0U, Display_DrawMenuFactoryResetConfirm, NULL };
     case DISPLAY_MENU_PAGE_GLOBAL:
         return (DisplayMenuPageSpec_t){ &display_state.menu_global_selection_index, MENU_GLOBAL_ITEM_COUNT, Display_DrawMenuGlobal, Display_DrawMenuGlobalItem };
+    case DISPLAY_MENU_PAGE_EXPRESSION:
+        return (DisplayMenuPageSpec_t){ &display_state.menu_expression_selection_index, MENU_EXPRESSION_ITEM_COUNT, Display_DrawMenuExpression, Display_DrawMenuExpressionItem };
     case DISPLAY_MENU_PAGE_METRONOME:
         return (DisplayMenuPageSpec_t){ &display_state.menu_metronome_selection_index, MENU_METRONOME_ITEM_COUNT, Display_DrawMenuMetronome, Display_DrawMenuMetronomeItem };
     case DISPLAY_MENU_PAGE_MIDI_MONITOR:

@@ -52,7 +52,7 @@
 #define MAIN_FOOTBAR_CENTER_TEXT       "PRESET / BANK"               // label for the middle footer region during normal operation
 #define MAIN_FOOTBAR_RIGHT_TEXT        "TEMPO / MENU"               // label for the right footer region during normal operation
 #define MAIN_FOOTBAR_EDIT_LEFT_TEXT    "SELECT / ENTER"                    // label for the left footer region while preset edit mode is active
-#define MAIN_FOOTBAR_EDIT_CENTER_TEXT  "SEND"                      // label for the middle footer region while preset edit mode is active
+#define MAIN_FOOTBAR_EDIT_CENTER_TEXT  "LEARN"                      // label for the middle footer region while preset edit mode is active
 #define MAIN_FOOTBAR_EDIT_RIGHT_TEXT   "VALUE / EXIT"              // label for the right footer region while preset edit mode is active
 #define MAIN_FOOTBAR_MENU_LEFT_TEXT    "NAV / BACK"               // label for the left footer region while menu mode is active
 #define MAIN_FOOTBAR_MENU_CENTER_TEXT  "HOME"                     // label for the middle footer region while menu mode is active
@@ -86,6 +86,8 @@
 #define MAIN_SAVING_POPUP_ROW_INDEX    1U                   // center the saving overlay on the middle info row
 #define MAIN_TIMEBEND_POPUP_TEXT       " TIMEBEND ACTIVE " // live overlay shown when ENC2 controls outbound timebend
 #define MAIN_TIMEBEND_POPUP_ROW_INDEX  1U                   // center the timebend overlay on the middle info row
+#define MAIN_LEARNING_POPUP_TEXT       " LEARNING "        // transient overlay shown while preset-edit learn capture is active
+#define MAIN_LEARNING_POPUP_ROW_INDEX  1U                   // center the learning overlay on the middle info row
 #define MAIN_TIMEBEND_POPUP_TEXT_COLOUR BLACK               // fixed black text per UX requirement
 #define MAIN_TIMEBEND_POPUP_BG_COLOUR   WHITE               // fixed white background per UX requirement
 #define MAIN_TIMEBEND_POPUP_BORDER_COLOUR BLACK             // dark border to frame the white badge
@@ -140,6 +142,7 @@ DisplayState display_state = {
 };
 
 static uint8_t timebend_popup_visible = 0U;
+static uint8_t learning_popup_visible = 0U;
 
 /* Legacy compatibility aliases.
  *
@@ -996,6 +999,61 @@ static void Display_DrawTimebendPopup(void)
                         MAIN_INFO_FONT.height);
 }
 
+static void Display_DrawLearningPopup(void)
+{
+    uint16_t popup_w = (uint16_t)(strlen(MAIN_LEARNING_POPUP_TEXT) * MAIN_INFO_FONT.width);
+    uint16_t popup_x = (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
+    uint16_t popup_y = main_info_row_y[MAIN_LEARNING_POPUP_ROW_INDEX];
+
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            popup_w,
+                            MAIN_INFO_FONT.height,
+                            MAIN_TIMEBEND_POPUP_BG_COLOUR);
+    Display_ComposeString32(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            MAIN_LEARNING_POPUP_TEXT,
+                            MAIN_INFO_FONT,
+                            MAIN_TIMEBEND_POPUP_TEXT_COLOUR,
+                            MAIN_TIMEBEND_POPUP_BG_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            popup_w,
+                            1U,
+                            MAIN_TIMEBEND_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            (uint16_t)(MAIN_INFO_FONT.height - 1U),
+                            popup_w,
+                            1U,
+                            MAIN_TIMEBEND_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            1U,
+                            MAIN_INFO_FONT.height,
+                            MAIN_TIMEBEND_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            (uint16_t)(popup_w - 1U),
+                            0U,
+                            1U,
+                            MAIN_INFO_FONT.height,
+                            MAIN_TIMEBEND_POPUP_BORDER_COLOUR);
+    Display_ComposeBlit(popup_x,
+                        popup_y,
+                        popup_w,
+                        MAIN_INFO_FONT.height);
+}
+
 void Display_ShowSavingPopup(void)
 {
     saving_popup_visible = 1U;
@@ -1091,6 +1149,80 @@ void Display_HideTimebendPopup(const Preset_t *preset)
         uint16_t popup_w = (uint16_t)(strlen(MAIN_TIMEBEND_POPUP_TEXT) * MAIN_INFO_FONT.width);
         uint16_t popup_x = (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
         uint16_t popup_y = main_info_row_y[MAIN_TIMEBEND_POPUP_ROW_INDEX];
+        uint16_t popup_bottom = (uint16_t)(popup_y + MAIN_INFO_FONT.height);
+        uint16_t clear_y = popup_y;
+
+        Display_MenuRefreshBodyOnly();
+
+        for (uint8_t row_index = 0U; row_index < MENU_VISIBLE_ROW_COUNT; ++row_index)
+        {
+            uint16_t row_y = Display_GetMenuRowYByIndex(row_index);
+            uint16_t row_bottom = (uint16_t)(row_y + MAIN_INFO_FONT_CELL_HEIGHT);
+
+            if (row_bottom <= popup_y || row_y >= popup_bottom)
+                continue;
+
+            if (clear_y < row_y)
+            {
+                uint16_t clear_h = (uint16_t)(row_y - clear_y);
+
+                Display_ComposeClear(popup_w,
+                                     clear_h,
+                                     DISPLAY_BG_COLOUR);
+                Display_ComposeBlit(popup_x,
+                                    clear_y,
+                                    popup_w,
+                                    clear_h);
+            }
+
+            clear_y = (row_bottom < popup_bottom) ? row_bottom : popup_bottom;
+            if (clear_y >= popup_bottom)
+                break;
+        }
+
+        if (clear_y < popup_bottom)
+        {
+            uint16_t clear_h = (uint16_t)(popup_bottom - clear_y);
+
+            Display_ComposeClear(popup_w,
+                                 clear_h,
+                                 DISPLAY_BG_COLOUR);
+            Display_ComposeBlit(popup_x,
+                                clear_y,
+                                popup_w,
+                                clear_h);
+        }
+
+        return;
+    }
+
+    if (!preset)
+        return;
+
+    Display_DrawMainInfoRows(preset);
+}
+
+void Display_ShowLearningPopup(void)
+{
+    if (learning_popup_visible)
+        return;
+
+    learning_popup_visible = 1U;
+    Display_DrawLearningPopup();
+}
+
+void Display_HideLearningPopup(const Preset_t *preset)
+{
+    if (!learning_popup_visible)
+        return;
+
+    learning_popup_visible = 0U;
+
+    if (menu_mode_active)
+    {
+        uint16_t popup_w = (uint16_t)(strlen(MAIN_LEARNING_POPUP_TEXT) * MAIN_INFO_FONT.width);
+        uint16_t popup_x = (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
+        uint16_t popup_y = main_info_row_y[MAIN_LEARNING_POPUP_ROW_INDEX];
         uint16_t popup_bottom = (uint16_t)(popup_y + MAIN_INFO_FONT.height);
         uint16_t clear_y = popup_y;
 

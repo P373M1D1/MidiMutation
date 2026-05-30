@@ -259,6 +259,12 @@ void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
 
     if ((press_mask & 0x02U) && Display_MenuIsActive())
     {
+        if (Display_MenuCanToggleLearn())
+        {
+            (void)Display_MenuToggleLearn();
+            return;
+        }
+
         /* Center press is the menu-wide "home" action unless the current page
          * is showing a preview that intentionally consumes the control. */
         if (Display_MenuPreviewCanShow())
@@ -308,7 +314,7 @@ void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
             return;
         }
 
-        AppUi_PresetEditSendCurrentPreset();
+        (void)AppUi_PresetEditToggleLearningSession();
         return;
     }
 
