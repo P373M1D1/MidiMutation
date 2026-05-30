@@ -12,6 +12,7 @@ static volatile uint8_t app_event_write_index = 0U;
 static volatile uint8_t app_event_count = 0U;
 static volatile uint32_t app_event_dropped_count = 0U;
 
+/* Resets the central event queue to an empty state. */
 void AppEvent_Init(void)
 {
     uint32_t primask = __get_PRIMASK();
@@ -25,6 +26,7 @@ void AppEvent_Init(void)
         __enable_irq();
 }
 
+/* Pushes one event into the central queue if capacity remains. */
 uint8_t AppEvent_Push(const AppEvent_t *event)
 {
     uint32_t primask;
@@ -51,6 +53,7 @@ uint8_t AppEvent_Push(const AppEvent_t *event)
     return 1U;
 }
 
+/* Pops the oldest queued event for foreground dispatch. */
 uint8_t AppEvent_Pop(AppEvent_t *event)
 {
     uint32_t primask;
@@ -76,11 +79,13 @@ uint8_t AppEvent_Pop(AppEvent_t *event)
     return 1U;
 }
 
+/* Returns the number of events dropped because the queue was full. */
 uint32_t AppEvent_GetDroppedCount(void)
 {
     return app_event_dropped_count;
 }
 
+/* Emits optional queue-drop diagnostics when enabled. */
 void AppEvent_DiagnosticService(void)
 {
 #if APP_EVENT_DIAGNOSTICS_ENABLED

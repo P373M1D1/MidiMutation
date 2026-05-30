@@ -8,6 +8,7 @@
 #include "persistent_store_layout.h"
 #include "runtime_config.h"
 #include "stm32f4xx_hal.h"
+#include <stddef.h>
 #include <string.h>
 
 /* ── Bank names ─────────────────────────────────────────────────────────────
@@ -941,9 +942,32 @@ static size_t Presets_GetLegacyPayloadSize(void)
     return sizeof(PresetLegacy_t) * PRESET_COUNT;
 }
 
+static uint8_t Presets_TryInferLegacyRecordStride(size_t payload_size, size_t *record_stride)
+{
+    size_t inferred_stride;
+
+    if (!record_stride || payload_size == 0U)
+        return 0U;
+
+    if ((payload_size % PRESET_COUNT) != 0U)
+        return 0U;
+
+    inferred_stride = payload_size / PRESET_COUNT;
+    if (inferred_stride < sizeof(PresetLegacy_t))
+        return 0U;
+
+    *record_stride = inferred_stride;
+    return 1U;
+}
+
 static uint8_t Presets_PayloadSizeIsSupported(size_t payload_size)
 {
-    return (payload_size == sizeof(preset_store) || payload_size == Presets_GetLegacyPayloadSize()) ? 1U : 0U;
+    size_t inferred_stride = 0U;
+
+    if (payload_size == sizeof(preset_store) || payload_size == Presets_GetLegacyPayloadSize())
+        return 1U;
+
+    return Presets_TryInferLegacyRecordStride(payload_size, &inferred_stride);
 }
 
 static void Presets_SetFunctionButtonDefaults(RuntimeConfigFunctionButton_t *function_button)
@@ -970,6 +994,38 @@ static void Presets_CopyLegacyStore(const PresetLegacy_t *legacy_store)
         memcpy(preset_store[index].cc, legacy_store[index].cc, sizeof(legacy_store[index].cc));
         memcpy(preset_store[index].relay, legacy_store[index].relay, sizeof(legacy_store[index].relay));
         Presets_SetFunctionButtonDefaults(&preset_store[index].function_button);
+    }
+}
+
+static void Presets_CopyLegacyStoreWithStride(const uint8_t *payload, size_t record_stride)
+{
+    size_t function_button_offset = offsetof(Preset_t, function_button);
+
+    if (!payload || record_stride < sizeof(PresetLegacy_t))
+        return;
+
+    memcpy(preset_store, preset_table, sizeof(preset_store));
+
+    for (uint8_t index = 0U; index < PRESET_COUNT; ++index)
+    {
+        const uint8_t *record_bytes = payload + ((size_t)index * record_stride);
+        const PresetLegacy_t *legacy_record = (const PresetLegacy_t *)record_bytes;
+
+        memcpy(preset_store[index].name, legacy_record->name, sizeof(legacy_record->name));
+        memcpy(preset_store[index].prg, legacy_record->prg, sizeof(legacy_record->prg));
+        memcpy(preset_store[index].cc, legacy_record->cc, sizeof(legacy_record->cc));
+        memcpy(preset_store[index].relay, legacy_record->relay, sizeof(legacy_record->relay));
+
+        if (record_stride >= (function_button_offset + sizeof(RuntimeConfigFunctionButton_t)))
+        {
+            const RuntimeConfigFunctionButton_t *saved_function_button =
+                (const RuntimeConfigFunctionButton_t *)(record_bytes + function_button_offset);
+            preset_store[index].function_button = *saved_function_button;
+        }
+        else
+        {
+            Presets_SetFunctionButtonDefaults(&preset_store[index].function_button);
+        }
     }
 }
 
@@ -1015,6 +1071,7 @@ static uint8_t Presets_FlashHeaderV2IsValid(const PersistentStoreHeaderV2_t *hea
          && header->presets_per_bank == PRESETS_PER_BANK
          && header->preset_count == PRESET_COUNT
             && Presets_PayloadSizeIsSupported(header->payload_size)
+                && RuntimeConfig_PersistentConfigSizeIsSupported(header->config_size)
             && header->config_size > 0U
          && ((sizeof(PersistentStoreHeaderV2_t)
             + header->payload_size
@@ -1038,6 +1095,7 @@ static uint8_t Presets_FlashHeaderV3IsValid(const PersistentStoreHeaderV3_t *hea
          && header->presets_per_bank == PRESETS_PER_BANK
          && header->preset_count == PRESET_COUNT
             && Presets_PayloadSizeIsSupported(header->payload_size)
+            && RuntimeConfig_PersistentConfigSizeIsSupported(header->config_size)
          && header->config_size > 0U
          && ((sizeof(PersistentStoreHeaderV3_t)
             + header->payload_size
@@ -1126,6 +1184,7 @@ static uint8_t Presets_FlashLegacyStoreIsValid(void)
 static uint8_t Presets_FlashLoadRuntimeStore(void)
 {
     uint32_t slot_address = 0U;
+    size_t inferred_stride = 0U;
     const PersistentStoreHeaderV1_t *header_v1 = (const PersistentStoreHeaderV1_t *)PERSISTENT_STORE_FLASH_ADDR;
     const PersistentStoreHeaderV2_t *header_v2 = (const PersistentStoreHeaderV2_t *)PERSISTENT_STORE_FLASH_ADDR;
     const uint8_t *preset_payload;
@@ -1137,8 +1196,12 @@ static uint8_t Presets_FlashLoadRuntimeStore(void)
         preset_payload = (const uint8_t *)(slot_address + sizeof(PersistentStoreHeaderV3_t));
         if (header->payload_size == sizeof(preset_store))
             memcpy(preset_store, preset_payload, sizeof(preset_store));
-        else
+        else if (header->payload_size == Presets_GetLegacyPayloadSize())
             Presets_CopyLegacyStore((const PresetLegacy_t *)preset_payload);
+        else if (Presets_TryInferLegacyRecordStride(header->payload_size, &inferred_stride))
+            Presets_CopyLegacyStoreWithStride(preset_payload, inferred_stride);
+        else
+            return 0U;
         return 1U;
     }
 
@@ -1150,8 +1213,12 @@ static uint8_t Presets_FlashLoadRuntimeStore(void)
 
         if (header_v2->payload_size == sizeof(preset_store))
             memcpy(preset_store, preset_payload, sizeof(preset_store));
-        else
+        else if (header_v2->payload_size == Presets_GetLegacyPayloadSize())
             Presets_CopyLegacyStore((const PresetLegacy_t *)preset_payload);
+        else if (Presets_TryInferLegacyRecordStride(header_v2->payload_size, &inferred_stride))
+            Presets_CopyLegacyStoreWithStride(preset_payload, inferred_stride);
+        else
+            return 0U;
 
         return 1U;
     }
@@ -1165,8 +1232,12 @@ static uint8_t Presets_FlashLoadRuntimeStore(void)
 
     if (header_v1->payload_size == sizeof(preset_store))
         memcpy(preset_store, preset_payload, sizeof(preset_store));
-    else
+    else if (header_v1->payload_size == Presets_GetLegacyPayloadSize())
         Presets_CopyLegacyStore((const PresetLegacy_t *)preset_payload);
+    else if (Presets_TryInferLegacyRecordStride(header_v1->payload_size, &inferred_stride))
+        Presets_CopyLegacyStoreWithStride(preset_payload, inferred_stride);
+    else
+        return 0U;
     return 1U;
 }
 

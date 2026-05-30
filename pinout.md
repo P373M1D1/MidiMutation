@@ -142,3 +142,34 @@ These timers are used internally by the firmware. They do not currently consume 
 - `TIM6` and `TIM7` are the two active firmware timer interrupts.
 - The encoder pushbuttons themselves still use GPIO EXTI lines; `TIM7` is only the shared sampling timebase for the rotary A/B signals and switch debounce.
 - `PB8 -> TIM4_CH3` is now reserved for the manual metronome PWM backend; `PE9 -> TIM1_CH1` remains unavailable because `PE9` is already the Special Function footswitch input.
+
+
+TRS wiring and pin recommendation
+
+Use this default wiring for an expression pedal jack:
+
+Tip: connect to PA0 configured as ADC1_IN0
+PA0 is currently free in your .ioc and not assigned in board defines.
+Relevant refs:
+ChatTest.ioc
+main.h
+Ring: connect to 3.3V rail
+Do not drive ring from a GPIO pin.
+Sleeve: connect to GND
+Recommended front-end on tip line:
+
+1k series resistor between jack tip and PA0
+100nF from PA0 to GND (close to MCU pin)
+Optional 100k from PA0 to GND so unplugged jack does not float
+Notes:
+
+If pedal direction feels reversed, use Expr Invert in GLOBAL menu.
+If your pedal is TRS-wired opposite to this convention, invert will usually fix feel without rewiring.
+How to use the new learn flow
+
+Move pedal to heel.
+Go to Expr Learn Min and press ENC3.
+Move pedal to toe.
+Go to Expr Learn Max and press ENC3.
+Set Expr Invert if needed.
+If you want, next I can add a tiny status text on those learn rows showing the captured raw value so you get immediate feedback after each ENC3 press.

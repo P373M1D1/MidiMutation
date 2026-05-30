@@ -12,6 +12,7 @@ static void AppActivation_HandlePresetActivateEvent(uint8_t preset_index);
 static void AppActivation_HandlePresetActivateRandomEvent(void);
 static void AppActivation_HandlePresetActivateMuteEvent(void);
 
+/* Applies preset and bank-step activation events from the central queue. */
 uint8_t AppActivation_HandleEvent(const AppEvent_t *event)
 {
     if (event == 0)
@@ -40,6 +41,7 @@ uint8_t AppActivation_HandleEvent(const AppEvent_t *event)
     }
 }
 
+/* Steps the current bank and queues the matching preset activation. */
 static void AppActivation_HandleBankStepEvent(int8_t delta, uint8_t step_mode)
 {
     int16_t next_bank;
@@ -64,6 +66,7 @@ static void AppActivation_HandleBankStepEvent(int8_t delta, uint8_t step_mode)
     App_QueuePresetActivateEvent((uint8_t)((uint8_t)next_bank * PRESETS_PER_BANK + preset_slot));
 }
 
+/* Activates a specific preset index if it differs from the current selection. */
 static void AppActivation_HandlePresetActivateEvent(uint8_t preset_index)
 {
     const Preset_t *preset;
@@ -82,6 +85,7 @@ static void AppActivation_HandlePresetActivateEvent(uint8_t preset_index)
     AppUi_RequestLiveContentRefresh();
 }
 
+/* Activates the random overlay preset and refreshes the live display. */
 static void AppActivation_HandlePresetActivateRandomEvent(void)
 {
     AppUiEvents_PreparePresetActivation(1U);
@@ -89,6 +93,7 @@ static void AppActivation_HandlePresetActivateRandomEvent(void)
     AppUi_RequestLiveContentRefresh();
 }
 
+/* Activates the mute overlay preset and refreshes the live display. */
 static void AppActivation_HandlePresetActivateMuteEvent(void)
 {
     AppUiEvents_PreparePresetActivation(1U);

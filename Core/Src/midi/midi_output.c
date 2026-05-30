@@ -171,6 +171,19 @@ void MidiOutput_HandleTxIrq(void)
     if (!midi_output_uart || midi_output_uart->Instance == NULL)
         return;
 
+    /* Give queued preset/program/CC bytes a fair chance to drain in the
+     * realtime-safe window between clock ticks so they cannot be starved by
+     * continuous clock traffic. */
+    if (midi_output_message_tail != midi_output_message_head)
+    {
+        if (MidiOutput_MessageCanStartNow())
+        {
+            midi_output_uart->Instance->DR = midi_output_message_buffer[midi_output_message_tail];
+            midi_output_message_tail = (uint8_t)((midi_output_message_tail + 1U) % MIDI_OUTPUT_MESSAGE_QUEUE_SIZE);
+            return;
+        }
+    }
+
     if (midi_output_clock_tail != midi_output_clock_head)
     {
         midi_output_uart->Instance->DR = midi_output_clock_buffer[midi_output_clock_tail];
@@ -563,8 +576,11 @@ static uint8_t MidiOutput_MessageCanStartNow(void)
     if (elapsed_us < MIDI_OUTPUT_POST_CLOCK_GUARD_US)
         return 0U;
 
+    /* If no new realtime edge has arrived within one nominal interval, treat
+     * clock pacing as stale and allow queued preset/program/CC messages.
+     * Otherwise, messages can deadlock indefinitely after clock stops. */
     if (elapsed_us >= interval_us)
-        return 0U;
+        return 1U;
 
     time_until_next_clock = interval_us - elapsed_us;
     return (uint8_t)(time_until_next_clock > (MIDI_OUTPUT_BYTE_TIME_US + MIDI_OUTPUT_PRE_CLOCK_GUARD_US));

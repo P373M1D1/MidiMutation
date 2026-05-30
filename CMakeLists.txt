@@ -116,6 +116,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     User/Src/app/app_button_monitor.c
     User/Src/app/app_encoder_sampler.c
     User/Src/app/app_encoder_math.c
+    User/Src/app/app_expression_input.c
     User/Src/app/app_footswitch_input.c
     User/Src/app/app_midi_clock_sync.c
     User/Src/app/app_midi_transport.c
@@ -136,6 +137,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     User/Src/app/app_startup_clock.c
     User/Src/app/app_startup_display.c
     User/Src/app/app_tempo.c
+    User/Src/app/app_timer_events.c
     User/Src/app/app_ui.c
     User/Src/app/app_ui_menu.c
     User/Src/app/app_ui_input_events.c

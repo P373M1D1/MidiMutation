@@ -5,12 +5,13 @@
 
 static uint8_t app_screensaver_wake_event_pending = 0U;
 static uint8_t app_screensaver_activity_event_pending = 0U;
-static uint8_t app_periodic_ui_service_event_pending = 0U;
+static uint8_t app_ui_tick_100ms_event_pending = 0U;
 static uint8_t app_preset_activate_event_pending = 0U;
 static uint8_t app_redraw_main_screen_event_pending = 0U;
 static uint8_t app_save_request_pending_mask = 0U;
 static uint8_t app_pending_preset_activate_index = 0U;
 
+/* Maps each save kind to its pending-mask bit. */
 static uint8_t AppRequest_SaveMaskForKind(uint8_t save_kind)
 {
     switch (save_kind)
@@ -29,6 +30,7 @@ static uint8_t AppRequest_SaveMaskForKind(uint8_t save_kind)
     }
 }
 
+/* Queues an encoder press event for deferred handling. */
 void App_QueueEncoderPressEvent(uint8_t press_mask, uint32_t tick)
 {
     AppEvent_t event;
@@ -43,6 +45,7 @@ void App_QueueEncoderPressEvent(uint8_t press_mask, uint32_t tick)
     (void)AppEvent_Push(&event);
 }
 
+/* Queues an encoder turn event for deferred handling. */
 void App_QueueEncoderTurnEvent(uint8_t encoder_source, int8_t delta, uint32_t tick)
 {
     AppEvent_t event;
@@ -57,6 +60,7 @@ void App_QueueEncoderTurnEvent(uint8_t encoder_source, int8_t delta, uint32_t ti
     (void)AppEvent_Push(&event);
 }
 
+/* Queues a bank-step request using the current tick. */
 void App_QueueBankStepEvent(int8_t delta, uint8_t step_mode)
 {
     AppEvent_t event;
@@ -71,6 +75,7 @@ void App_QueueBankStepEvent(int8_t delta, uint8_t step_mode)
     (void)AppEvent_Push(&event);
 }
 
+/* Queues a preset activation while coalescing repeated requests. */
 void App_QueuePresetActivateEvent(uint8_t preset_index)
 {
     AppEvent_t event;
@@ -87,6 +92,7 @@ void App_QueuePresetActivateEvent(uint8_t preset_index)
         app_preset_activate_event_pending = 1U;
 }
 
+/* Returns the coalesced preset activation index to the activation handler. */
 uint8_t App_TakePendingPresetActivate(uint8_t *preset_index)
 {
     if (!app_preset_activate_event_pending)
@@ -99,6 +105,7 @@ uint8_t App_TakePendingPresetActivate(uint8_t *preset_index)
     return 1U;
 }
 
+/* Queues a one-shot screensaver wake request. */
 void App_QueueScreensaverWakeEvent(void)
 {
     AppEvent_t event;
@@ -114,6 +121,7 @@ void App_QueueScreensaverWakeEvent(void)
         app_screensaver_wake_event_pending = 1U;
 }
 
+/* Queues a screensaver activity pulse while suppressing duplicates. */
 void App_QueueScreensaverActivityEvent(void)
 {
     AppEvent_t event;
@@ -129,37 +137,42 @@ void App_QueueScreensaverActivityEvent(void)
         app_screensaver_activity_event_pending = 1U;
 }
 
+/* Clears the pending screensaver wake/activity flags after dispatch. */
 void App_AcknowledgeScreensaverWakeEvent(void)
 {
     app_screensaver_wake_event_pending = 0U;
     app_screensaver_activity_event_pending = 0U;
 }
 
+/* Clears the pending screensaver activity flag after dispatch. */
 void App_AcknowledgeScreensaverActivityEvent(void)
 {
     app_screensaver_activity_event_pending = 0U;
 }
 
-void App_QueuePeriodicUiServiceEvent(void)
+/* Queues the coalesced 100 ms UI tick. */
+void App_QueueUiTick100MsEvent(void)
 {
     AppEvent_t event;
 
-    if (app_periodic_ui_service_event_pending)
+    if (app_ui_tick_100ms_event_pending)
         return;
 
-    event.type = APP_EVENT_TYPE_PERIODIC_UI_SERVICE;
+    event.type = APP_EVENT_TYPE_UI_TICK_100MS;
     event.source = APP_EVENT_SOURCE_NONE;
     event.value = 0;
     event.tick = HAL_GetTick();
     if (AppEvent_Push(&event))
-        app_periodic_ui_service_event_pending = 1U;
+        app_ui_tick_100ms_event_pending = 1U;
 }
 
-void App_AcknowledgePeriodicUiServiceEvent(void)
+/* Clears the 100 ms UI tick pending flag after dispatch. */
+void App_AcknowledgeUiTick100MsEvent(void)
 {
-    app_periodic_ui_service_event_pending = 0U;
+    app_ui_tick_100ms_event_pending = 0U;
 }
 
+/* Queues a one-shot main-screen redraw request. */
 void App_QueueRedrawMainScreenEvent(void)
 {
     AppEvent_t event;
@@ -175,11 +188,13 @@ void App_QueueRedrawMainScreenEvent(void)
         app_redraw_main_screen_event_pending = 1U;
 }
 
+/* Clears the pending main-screen redraw flag after dispatch. */
 void App_AcknowledgeRedrawMainScreenEvent(void)
 {
     app_redraw_main_screen_event_pending = 0U;
 }
 
+/* Queues a save request and coalesces duplicates by save kind. */
 void App_QueueSaveRequestEvent(uint8_t save_kind)
 {
     AppEvent_t event;
@@ -200,6 +215,7 @@ void App_QueueSaveRequestEvent(uint8_t save_kind)
         app_save_request_pending_mask |= pending_mask;
 }
 
+/* Clears the pending save request bit for one save kind. */
 void App_AcknowledgeSaveRequestEvent(uint8_t save_kind)
 {
     app_save_request_pending_mask &= (uint8_t)~AppRequest_SaveMaskForKind(save_kind);

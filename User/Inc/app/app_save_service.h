@@ -11,6 +11,7 @@ extern "C" {
 
 uint8_t AppSaveService_HandleEvent(const AppEvent_t *event);
 void AppSaveService_Service(void);
+uint8_t AppSaveService_HasPendingWork(void);
 
 #ifdef __cplusplus
 }

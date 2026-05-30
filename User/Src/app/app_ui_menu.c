@@ -6,6 +6,7 @@
 #include "display_functions.h"
 #include "runtime_config.h"
 
+/* Keeps the menu preview visible only while ENC2 is held. */
 void AppUi_ServiceMenuPreviewHold(uint8_t encoder2_switch_pressed)
 {
     static uint8_t preview_visible = 0U;
@@ -25,6 +26,7 @@ void AppUi_ServiceMenuPreviewHold(uint8_t encoder2_switch_pressed)
     Display_MenuPreviewExit();
 }
 
+/* Queues a runtime-config save when menu changes dirtied it. */
 void AppUi_MenuSaveIfDirty(void)
 {
     if (!RuntimeConfig_IsDirty())
@@ -33,6 +35,7 @@ void AppUi_MenuSaveIfDirty(void)
     App_QueueSaveRequestEvent(APP_EVENT_SAVE_KIND_RUNTIME_CONFIG);
 }
 
+/* Handles menu back navigation and the follow-up refresh/save policy. */
 uint8_t AppUi_MenuBackOutOneLevel(void)
 {
     uint8_t sub_editor_active;
@@ -57,6 +60,7 @@ uint8_t AppUi_MenuBackOutOneLevel(void)
     return 1U;
 }
 
+/* Enters the top-level menu if the live UI is not already editing. */
 uint8_t AppUi_MenuEnter(void)
 {
     if (Display_MenuIsActive() || Display_PresetEditIsActive())
@@ -67,6 +71,7 @@ uint8_t AppUi_MenuEnter(void)
     return 1U;
 }
 
+/* Enters the metronome quick-access page from live mode. */
 uint8_t AppUi_MenuEnterMetronomeQuickAccess(void)
 {
     if (Display_PresetEditIsActive())

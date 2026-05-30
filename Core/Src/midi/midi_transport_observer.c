@@ -56,6 +56,9 @@ void MidiTransport_ResetObservedState(void)
     midi_clock_external_bpm_window_pulses = 0U;
     midi_barbeat_valid = 0U;
     midi_transport_origin_tick_count = midi_transport_global_tick_count;
+    midi_transport_last_quarter_note_count = 0U;
+    midi_transport_quarter_note_event_count = 0U;
+    midi_transport_last_quarter_note_anchor_us = 0U;
     midi_clock_sync_lost = 0U;
     MidiTransport_ClearRecoveryHint();
 }

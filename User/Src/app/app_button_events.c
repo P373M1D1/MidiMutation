@@ -17,7 +17,7 @@ uint8_t AppButtonEvents_HandleEvent(const AppEvent_t *event)
     if (event == 0)
         return 0U;
 
-    if (event->type != APP_EVENT_TYPE_FOOTSWITCH_EDGE)
+    if (event->type != APP_EVENT_TYPE_BUTTON_DOWN && event->type != APP_EVENT_TYPE_BUTTON_UP)
         return 0U;
 
     AppButtonEvents_HandleFootswitchEdge(event);
@@ -35,7 +35,11 @@ static void AppButtonEvents_HandleFootswitchEdge(const AppEvent_t *event)
         return;
 
     index = APP_EVENT_SOURCE_TO_FOOTSWITCH_INDEX(event->source);
-    if (!Button_ProcessInterruptEvent(index, (uint8_t)event->value, event->tick))
+
+    if (!Button_ProcessInterruptEvent(index, (uint8_t)(event->type == APP_EVENT_TYPE_BUTTON_DOWN ? 1U : 0U), event->tick))
+        return;
+
+    if (event->type == APP_EVENT_TYPE_BUTTON_UP)
         return;
 
     AppButtonEvents_HandleFootswitchPress(index, event->tick);

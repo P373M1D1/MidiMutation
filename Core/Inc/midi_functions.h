@@ -338,6 +338,40 @@ uint8_t MidiClockIsExternalSignalPresent(void);
 uint8_t MidiClockGetBarBeat(uint8_t *bar, uint8_t *beat);
 
 /**
+ * @brief  Get the authoritative quarter-note count since the last
+ *         Start/Continue transport arm.
+ * @param  quarter_note_count  Output pointer for elapsed quarter notes.
+ * @retval 1 when transport bar/beat state is valid, 0 otherwise.
+ */
+uint8_t MidiClockGetQuarterNoteCount(uint32_t *quarter_note_count);
+
+/**
+ * @brief  Get the latest quarter-note event stamp captured at beat-pulse time.
+ *         This stamp advances exactly when the transport emits a quarter-note
+ *         beat event, so UI paths can align bar/beat rendering with beat pulse
+ *         handling.
+ * @param  event_count        Output pointer for monotonic beat-event counter.
+ * @param  quarter_note_count Output pointer for the quarter-note index
+ *                            associated with that event.
+ * @retval 1 when transport bar/beat state is valid, 0 otherwise.
+ */
+uint8_t MidiClockGetQuarterNoteRenderStamp(uint32_t *event_count,
+                                           uint32_t *quarter_note_count);
+
+/**
+ * @brief  Get the latest quarter-note event stamp with beat pulse anchor time.
+ *         The anchor is the timestamp used for beat pulse feedback scheduling,
+ *         so UI diagnostics can measure real beat-to-render delay in time.
+ * @param  event_count        Output pointer for monotonic beat-event counter.
+ * @param  quarter_note_count Output pointer for quarter-note index at event.
+ * @param  anchor_us          Output pointer for beat anchor timestamp in us.
+ * @retval 1 when transport bar/beat state is valid, 0 otherwise.
+ */
+uint8_t MidiClockGetQuarterNoteRenderStampWithAnchor(uint32_t *event_count,
+                                                     uint32_t *quarter_note_count,
+                                                     uint32_t *anchor_us);
+
+/**
  * @brief  Snapshot the continuous transport phase since the last Start or Continue.
  *         While externally synced the phase advances from the recovered clock
  *         estimator between incoming F8 pulses; otherwise it advances from the

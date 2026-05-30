@@ -92,6 +92,9 @@ static void app_metronome_request_output_stop(void);
 static void app_metronome_stop_backend_output(void);
 static void app_metronome_service_output_timeout(void);
 
+/**
+ * Initializes metronome state from the current runtime configuration.
+ */
 void AppMetronome_Init(void)
 {
     uint32_t primask = app_metronome_enter_critical();
@@ -126,6 +129,9 @@ void AppMetronome_Init(void)
     app_metronome_last_config_valid = 1U;
 }
 
+/**
+ * Advances metronome configuration and output timeout servicing.
+ */
 void AppMetronome_Service(void)
 {
     RuntimeConfigMetronome_t config = app_metronome_get_config_snapshot();
@@ -147,6 +153,9 @@ void AppMetronome_Service(void)
     }
 }
 
+/**
+ * Emits once-per-second metronome latency diagnostics.
+ */
 void AppMetronome_DiagnosticService(void)
 {
     static uint32_t last_report_tick = 0U;
@@ -196,6 +205,9 @@ void AppMetronome_DiagnosticService(void)
 }
 
 __attribute__((section(".RamFunc")))
+/**
+ * Handles the timing-counter interrupt that dispatches due click edges.
+ */
 void AppMetronome_HandleTimingCounterIrq(void)
 {
     if (((TIM2->SR & TIM_SR_CC1IF) == 0U)
@@ -207,6 +219,9 @@ void AppMetronome_HandleTimingCounterIrq(void)
 }
 
 __attribute__((section(".RamFunc")))
+/**
+ * Resets the current metronome scheduling cycle.
+ */
 void AppMetronome_ResetCycle(void)
 {
     uint32_t primask = app_metronome_enter_critical();
@@ -222,12 +237,18 @@ void AppMetronome_ResetCycle(void)
 }
 
 __attribute__((section(".RamFunc")))
+/**
+ * Reports a quarter note using the current timing counter as the anchor.
+ */
 void AppMetronome_OnQuarterNote(AppMetronomeSource_t source)
 {
     AppMetronome_OnQuarterNoteAt(source, app_metronome_now_us());
 }
 
 __attribute__((section(".RamFunc")))
+/**
+ * Reports a quarter note using an explicit anchor timestamp.
+ */
 void AppMetronome_OnQuarterNoteAt(AppMetronomeSource_t source, uint32_t anchor_us)
 {
     uint32_t primask = app_metronome_enter_critical();
@@ -237,6 +258,9 @@ void AppMetronome_OnQuarterNoteAt(AppMetronomeSource_t source, uint32_t anchor_u
 }
 
 __attribute__((section(".RamFunc")))
+/**
+ * Reports a quarter note with an explicit quarter-note count and anchor.
+ */
 void AppMetronome_OnQuarterNoteAtCount(AppMetronomeSource_t source,
                                        uint32_t anchor_us,
                                        uint32_t quarter_note_count)

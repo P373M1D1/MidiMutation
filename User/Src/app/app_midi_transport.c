@@ -3,6 +3,7 @@
 #include "app/app_state.h"
 #include "runtime_config.h"
 
+/* Returns the current bar-count setting for MIDI clock cycles. */
 uint8_t AppMidiTransport_GetBarsPerCycle(void)
 {
     const RuntimeConfigBank_t *bank = RuntimeConfig_GetBank(AppState_GetCurrentBank());

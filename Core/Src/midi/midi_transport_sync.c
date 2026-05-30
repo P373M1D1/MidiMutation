@@ -5,6 +5,7 @@
 #include "midi/midi_feedback.h"
 
 #include "app/app_metronome.h"
+#include "app/app_ui.h"
 
 #define MIDI_TIMER_WRAP_VALUE  UINT32_MAX
 
@@ -52,6 +53,10 @@ void MidiTransport_OnClockPulse(uint32_t now)
 
     quarter_note_count = (midi_transport_global_tick_count - midi_transport_origin_tick_count)
         / MIDI_CLOCK_PULSES_PER_QUARTER_NOTE;
+    midi_transport_last_quarter_note_count = quarter_note_count;
+    midi_transport_last_quarter_note_anchor_us = quarter_note_anchor_us;
+    if (midi_transport_quarter_note_event_count < UINT32_MAX)
+        midi_transport_quarter_note_event_count++;
     (void)MidiClockEstimator_GetRecoveredPulseTimestampUs(&quarter_note_anchor_us);
 
     if (!MidiTransport_IsFlashBusyFast())
@@ -59,6 +64,7 @@ void MidiTransport_OnClockPulse(uint32_t now)
     AppMetronome_OnQuarterNoteAtCount(APP_METRONOME_SOURCE_EXTERNAL,
                                       quarter_note_anchor_us,
                                       quarter_note_count);
+    AppUi_RequestBeatSynchronousStatusStripRefresh();
 }
 
 __attribute__((section(".RamFunc")))

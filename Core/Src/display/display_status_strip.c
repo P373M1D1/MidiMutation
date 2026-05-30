@@ -32,6 +32,15 @@ typedef enum
 #define BPM_DISPLAY_DIAGNOSTIC_REPORT_MS 1000U
 #define BPM_SYNCING_TEXT                "SYNCING"
 
+static uint32_t display_transport_render_counter = 0U;
+static uint32_t display_transport_last_rendered_quarter = 0U;
+static uint32_t display_transport_last_rendered_event = 0U;
+static uint32_t display_transport_last_rendered_beat_to_ui_lag_us = 0U;
+static uint8_t display_transport_last_rendered_beat_to_ui_lag_valid = 0U;
+static uint8_t display_transport_last_rendered_bar = 0U;
+static uint8_t display_transport_last_rendered_beat = 0U;
+static uint8_t display_transport_last_rendered_barbeat_valid = 0U;
+
 static void Display_DrawTransportBarBeat(const char *text);
 static void Display_DrawTransportAlert(DisplayTransportStatusMode_t mode);
 static uint16_t Display_GetBpmDeltaX10(uint16_t lhs, uint16_t rhs);
@@ -42,6 +51,7 @@ static void Display_FormatRightAlignedStatusText(char *buffer,
                                                  size_t buffer_size,
                                                  const char *text,
                                                  uint8_t padded_chars);
+static uint32_t Display_TimerDiffUs(uint32_t end_us, uint32_t start_us);
 
 static uint16_t Display_GetBpmDeltaX10(uint16_t lhs, uint16_t rhs)
 {
@@ -72,9 +82,19 @@ static uint16_t Display_SlewExternalBpmX10(uint16_t current_bpm_x10, uint16_t ta
 
 static uint8_t Display_ShouldShowSyncingHeader(void)
 {
-    return (uint8_t)(MidiTransportIsRunning()
-        && MidiClockIsExternalSignalPresent()
-        && !MidiClockIsPublicationReady());
+    MidiSyncState_t sync_state;
+
+    if (MidiClockIsSyncLost())
+        return 0U;
+
+    if (!MidiTransportIsRunning() && !MidiTransportStopLatched())
+        return 0U;
+
+    sync_state = MidiClockGetSyncState();
+    return (uint8_t)(sync_state == MIDI_SYNC_STATE_ACQUIRE
+                  || sync_state == MIDI_SYNC_STATE_TRACKING
+                  || sync_state == MIDI_SYNC_STATE_RELOCK
+                  || sync_state == MIDI_SYNC_STATE_REARM);
 }
 
 static void Display_FormatRightAlignedStatusText(char *buffer,
@@ -83,6 +103,13 @@ static void Display_FormatRightAlignedStatusText(char *buffer,
                                                  uint8_t padded_chars)
 {
     snprintf(buffer, buffer_size, "%*s", (int)padded_chars, text);
+}
+
+static uint32_t Display_TimerDiffUs(uint32_t end_us, uint32_t start_us)
+{
+    return (end_us >= start_us)
+        ? (end_us - start_us)
+        : (UINT32_MAX - start_us + end_us + 1U);
 }
 
 static void Display_UpdateTransportBarBeat(void)
@@ -96,12 +123,28 @@ static void Display_UpdateTransportBarBeat(void)
     uint8_t stop_latched;
     DisplayTransportStatusMode_t mode = DISPLAY_TRANSPORT_STATUS_NONE;
     char next_text[5];
+    uint32_t transport_quarter_count = 0U;
+    uint8_t have_transport_quarter_count = 0U;
+    uint32_t transport_quarter_event_count = 0U;
+    uint32_t stamped_quarter_count = 0U;
+    uint32_t stamped_quarter_anchor_us = 0U;
+    uint8_t have_stamped_quarter = 0U;
+    uint8_t force_refresh_from_stamp = 0U;
 
     sync_lost = MidiClockIsSyncLost();
     transport_running = MidiTransportIsRunning();
     external_signal_present = MidiClockIsExternalSignalPresent();
     stop_latched = MidiTransportStopLatched();
     have_barbeat = MidiClockGetBarBeat(&bar, &beat);
+    have_transport_quarter_count = MidiClockGetQuarterNoteCount(&transport_quarter_count);
+    have_stamped_quarter = MidiClockGetQuarterNoteRenderStampWithAnchor(&transport_quarter_event_count,
+                                                                         &stamped_quarter_count,
+                                                                         &stamped_quarter_anchor_us);
+    if (have_stamped_quarter
+     && transport_quarter_event_count != display_transport_last_rendered_event)
+    {
+        force_refresh_from_stamp = 1U;
+    }
 
     if (sync_lost)
     {
@@ -150,6 +193,7 @@ static void Display_UpdateTransportBarBeat(void)
     {
         if (display_state.transport_status_valid
          && display_state.transport_status_mode == (uint8_t)mode
+         && !force_refresh_from_stamp
          && strcmp(next_text, display_state.transport_barbeat_text) == 0)
         {
             return;
@@ -157,6 +201,44 @@ static void Display_UpdateTransportBarBeat(void)
 
         Display_DrawTransportBarBeat(next_text);
         strcpy(display_state.transport_barbeat_text, next_text);
+        if (have_stamped_quarter)
+        {
+            uint32_t now_us = TIM2->CNT;
+            uint32_t lag_us;
+
+            display_transport_last_rendered_quarter = stamped_quarter_count;
+            display_transport_last_rendered_event = transport_quarter_event_count;
+            if (stamped_quarter_anchor_us == 0U)
+            {
+                display_transport_last_rendered_beat_to_ui_lag_us = 0U;
+                display_transport_last_rendered_beat_to_ui_lag_valid = 0U;
+            }
+            else
+            {
+                if (now_us >= stamped_quarter_anchor_us)
+                    lag_us = now_us - stamped_quarter_anchor_us;
+                else
+                    lag_us = UINT32_MAX - stamped_quarter_anchor_us + now_us + 1U;
+
+                if (lag_us > 2000000U)
+                {
+                    display_transport_last_rendered_beat_to_ui_lag_us = 0U;
+                    display_transport_last_rendered_beat_to_ui_lag_valid = 0U;
+                }
+                else
+                {
+                    display_transport_last_rendered_beat_to_ui_lag_us = lag_us;
+                    display_transport_last_rendered_beat_to_ui_lag_valid = 1U;
+                }
+            }
+        }
+        else if (have_transport_quarter_count)
+            display_transport_last_rendered_quarter = transport_quarter_count;
+        display_transport_last_rendered_bar = bar;
+        display_transport_last_rendered_beat = beat;
+        display_transport_last_rendered_barbeat_valid = 1U;
+        if (display_transport_render_counter < UINT32_MAX)
+            display_transport_render_counter++;
     }
     else
     {
@@ -168,11 +250,22 @@ static void Display_UpdateTransportBarBeat(void)
 
         Display_DrawTransportAlert(mode);
         display_state.transport_barbeat_text[0] = '\0';
+        display_transport_last_rendered_barbeat_valid = 0U;
+        display_transport_last_rendered_beat_to_ui_lag_us = 0U;
+        display_transport_last_rendered_beat_to_ui_lag_valid = 0U;
     }
 
     display_state.transport_status_valid = 1U;
     display_state.transport_status_mode = (uint8_t)mode;
     display_state.transport_status_blink_visible = 1U;
+}
+
+void Display_UpdateTransportBarBeatFast(void)
+{
+    if (display_state.menu_mode_active && !display_state.menu_preview_active)
+        return;
+
+    Display_UpdateTransportBarBeat();
 }
 
 static void Display_DrawTransportBarBeat(const char *text)
@@ -356,7 +449,7 @@ void Display_UpdateBPM(uint16_t bpm)
     }
     now_ms = HAL_GetTick();
 
-    Display_UpdateTransportBarBeat();
+    Display_UpdateTransportBarBeatFast();
 
     if (show_syncing)
     {
@@ -489,6 +582,36 @@ void Display_BpmDiagnosticService(void)
     uint8_t sync_lost = MidiClockIsSyncLost();
     uint8_t hold = 0U;
     uint8_t slew_pending = 0U;
+    uint32_t transport_quarter_count = 0U;
+    uint8_t transport_quarter_valid;
+    uint32_t ui_render_counter_snapshot;
+    uint32_t ui_last_rendered_quarter_snapshot;
+    uint32_t ui_transport_quarter_gap = 0U;
+    uint32_t beat_led_quarter_snapshot = 0U;
+    uint32_t bar_counter_quarter_snapshot = 0U;
+    uint32_t beat_led_to_bar_lag_quarters = 0U;
+    uint32_t beat_led_to_bar_lag_ms = 0U;
+    uint32_t lag_reference_bpm_x10 = 0U;
+    uint32_t beat_led_to_bar_lag_us_snapshot = 0U;
+    uint32_t beat_led_to_bar_lag_ms_true = 0U;
+    uint32_t beat_led_to_bar_lag_effective_us = 0U;
+    uint32_t beat_led_to_bar_lag_effective_ms = 0U;
+    uint32_t quarter_period_us = 0U;
+    uint32_t ui_rendered_event_snapshot = 0U;
+    uint32_t latest_stamp_event_count = 0U;
+    uint32_t latest_stamp_quarter_count = 0U;
+    uint32_t latest_stamp_anchor_us = 0U;
+    uint8_t latest_stamp_valid = 0U;
+    uint32_t pending_stamp_events = 0U;
+    uint8_t transport_bar = 0U;
+    uint8_t transport_beat = 0U;
+    uint8_t transport_barbeat_valid;
+    uint8_t ui_rendered_bar_snapshot;
+    uint8_t ui_rendered_beat_snapshot;
+    uint8_t ui_rendered_barbeat_valid_snapshot;
+    uint8_t compact_locked_report = 0U;
+    int16_t bar_delta = 0;
+    int16_t beat_delta = 0;
 
     if ((now_ms - last_report_tick) < BPM_DISPLAY_DIAGNOSTIC_REPORT_MS)
         return;
@@ -496,6 +619,80 @@ void Display_BpmDiagnosticService(void)
     last_report_tick = now_ms;
     raw_valid = MidiClockGetRawExternalBpmX10(&raw_bpm_x10);
     source_valid = MidiClockGetMeasuredExternalBpmX10(&source_bpm_x10);
+    transport_quarter_valid = MidiClockGetQuarterNoteCount(&transport_quarter_count);
+    transport_barbeat_valid = MidiClockGetBarBeat(&transport_bar, &transport_beat);
+    ui_render_counter_snapshot = display_transport_render_counter;
+    ui_last_rendered_quarter_snapshot = display_transport_last_rendered_quarter;
+    ui_rendered_event_snapshot = display_transport_last_rendered_event;
+    ui_rendered_bar_snapshot = display_transport_last_rendered_bar;
+    ui_rendered_beat_snapshot = display_transport_last_rendered_beat;
+    ui_rendered_barbeat_valid_snapshot = display_transport_last_rendered_barbeat_valid;
+    beat_led_to_bar_lag_us_snapshot = (display_transport_last_rendered_beat_to_ui_lag_valid != 0U)
+        ? display_transport_last_rendered_beat_to_ui_lag_us
+        : 0U;
+    if (!ui_rendered_barbeat_valid_snapshot)
+        beat_led_to_bar_lag_us_snapshot = 0U;
+
+    latest_stamp_valid = MidiClockGetQuarterNoteRenderStampWithAnchor(&latest_stamp_event_count,
+                                                                       &latest_stamp_quarter_count,
+                                                                       &latest_stamp_anchor_us);
+    if (latest_stamp_valid && latest_stamp_event_count >= ui_rendered_event_snapshot)
+        pending_stamp_events = latest_stamp_event_count - ui_rendered_event_snapshot;
+
+    if (pending_stamp_events != 0U)
+    {
+        uint32_t now_us = TIM2->CNT;
+
+        beat_led_to_bar_lag_us_snapshot = (latest_stamp_anchor_us != 0U)
+            ? Display_TimerDiffUs(now_us, latest_stamp_anchor_us)
+            : 0U;
+        beat_led_to_bar_lag_quarters = pending_stamp_events;
+        bar_counter_quarter_snapshot = latest_stamp_quarter_count - pending_stamp_events;
+        beat_led_quarter_snapshot = latest_stamp_quarter_count;
+    }
+
+    if (beat_led_to_bar_lag_us_snapshot > 2000000U)
+        beat_led_to_bar_lag_us_snapshot = 0U;
+    if (transport_quarter_valid && transport_quarter_count >= ui_last_rendered_quarter_snapshot)
+        ui_transport_quarter_gap = transport_quarter_count - ui_last_rendered_quarter_snapshot;
+    beat_led_quarter_snapshot = transport_quarter_count;
+    bar_counter_quarter_snapshot = ui_last_rendered_quarter_snapshot;
+    beat_led_to_bar_lag_quarters = ui_transport_quarter_gap;
+    if (source_valid)
+        lag_reference_bpm_x10 = source_bpm_x10;
+    else if (raw_valid)
+        lag_reference_bpm_x10 = raw_bpm_x10;
+    else if (displayed_bpm_x10 > 0U)
+        lag_reference_bpm_x10 = displayed_bpm_x10;
+
+    if (beat_led_to_bar_lag_quarters != 0U && lag_reference_bpm_x10 != 0U)
+    {
+        /* Convert quarter-note lag to milliseconds using the best available
+         * tempo snapshot so serial captures show a direct time-domain lag. */
+        beat_led_to_bar_lag_ms = (uint32_t)((600000UL * beat_led_to_bar_lag_quarters)
+                                         / lag_reference_bpm_x10);
+    }
+    beat_led_to_bar_lag_ms_true = beat_led_to_bar_lag_us_snapshot / 1000U;
+
+    /* Effective lag to current beat includes both:
+     * 1) full quarters the UI is behind, and
+     * 2) elapsed time since the last rendered beat edge. */
+    if (lag_reference_bpm_x10 != 0U)
+    {
+        quarter_period_us = (uint32_t)(600000000UL / lag_reference_bpm_x10);
+        beat_led_to_bar_lag_effective_us = beat_led_to_bar_lag_us_snapshot
+            + (beat_led_to_bar_lag_quarters * quarter_period_us);
+    }
+    else
+    {
+        beat_led_to_bar_lag_effective_us = beat_led_to_bar_lag_us_snapshot;
+    }
+    beat_led_to_bar_lag_effective_ms = beat_led_to_bar_lag_effective_us / 1000U;
+    if (transport_barbeat_valid && ui_rendered_barbeat_valid_snapshot)
+    {
+        bar_delta = (int16_t)transport_bar - (int16_t)ui_rendered_bar_snapshot;
+        beat_delta = (int16_t)transport_beat - (int16_t)ui_rendered_beat_snapshot;
+    }
     estimator_window_pulses = MidiClockGetExternalBpmWindowPulses();
     estimator_valid = MidiClockIsEstimatorValid();
     publication_ready = MidiClockIsPublicationReady();
@@ -557,7 +754,12 @@ void Display_BpmDiagnosticService(void)
         break;
     }
 
-    if (!raw_valid && !source_valid && !(display_valid && display_external) && !sync_lost)
+    if (!raw_valid
+     && !source_valid
+     && !transport_quarter_valid
+     && !ui_rendered_barbeat_valid_snapshot
+     && !(display_valid && display_external)
+     && !sync_lost)
         return;
 
     if (display_external && display_state.bpm_display_external_update_tick != 0U)
@@ -582,13 +784,67 @@ void Display_BpmDiagnosticService(void)
         }
     }
 
-          printf("BPMDIAG raw_bpm=%u.%u raw_valid=%u source_bpm=%u.%u source_valid=%u est_window=%u history_confidence=%c est_valid=%u publication_ready=%u sync_state=%c live_lock=%c display_bpm=%u.%u display_external=%u sync_lost=%u display_age_ms=%lu delta=%u.%u hysteresis=%u.%u hold=%u slew_pending=%u\r\n",
+    if (sync_state == 'L'
+     && ui_transport_quarter_gap == 0U
+     && bar_delta == 0
+     && beat_delta == 0
+     && pending_stamp_events == 0U
+     && beat_led_to_bar_lag_effective_ms <= 50U)
+    {
+        compact_locked_report = 1U;
+    }
+
+    if (compact_locked_report)
+    {
+        /**
+         * Keep steady LOCKED diagnostics compact so serial logging does not
+         * monopolize foreground time and delay bar/beat rendering.
+         */
+        printf("BPMDIAG_BAR sync_state=%c live_lock=%c transport_qn=%lu ui_qn=%lu ui_qn_gap=%lu lag_ms=%lu lag_effective_ms=%lu transport_bar=%u transport_beat=%u ui_bar=%u ui_beat=%u ui_bar_delta=%d ui_beat_delta=%d\r\n",
+               sync_state,
+               live_lock,
+               (unsigned long)transport_quarter_count,
+               (unsigned long)ui_last_rendered_quarter_snapshot,
+               (unsigned long)ui_transport_quarter_gap,
+               (unsigned long)beat_led_to_bar_lag_ms_true,
+               (unsigned long)beat_led_to_bar_lag_effective_ms,
+               (unsigned)transport_bar,
+               (unsigned)transport_beat,
+               (unsigned)ui_rendered_bar_snapshot,
+               (unsigned)ui_rendered_beat_snapshot,
+               (int)bar_delta,
+               (int)beat_delta);
+        return;
+    }
+
+          printf("BPMDIAG raw_bpm=%u.%u raw_valid=%u source_bpm=%u.%u source_valid=%u transport_qn_valid=%u transport_qn=%lu ui_qn_rendered=%lu ui_qn_gap=%lu beat_led_qn=%lu bar_counter_qn=%lu beat_led_to_bar_lag_qn=%lu beat_led_to_bar_lag_ms=%lu beat_led_to_bar_lag_us=%lu beat_led_to_bar_lag_ms_true=%lu beat_led_to_bar_lag_effective_us=%lu beat_led_to_bar_lag_effective_ms=%lu ui_render_count=%lu transport_bar_valid=%u transport_bar=%u transport_beat=%u ui_bar_valid=%u ui_bar=%u ui_beat=%u ui_bar_delta=%d ui_beat_delta=%d est_window=%u history_confidence=%c est_valid=%u publication_ready=%u sync_state=%c live_lock=%c display_bpm=%u.%u display_external=%u sync_lost=%u display_age_ms=%lu delta=%u.%u hysteresis=%u.%u hold=%u slew_pending=%u\r\n",
            (unsigned)(raw_bpm_x10 / 10U),
            (unsigned)(raw_bpm_x10 % 10U),
            (unsigned)raw_valid,
            (unsigned)(source_bpm_x10 / 10U),
            (unsigned)(source_bpm_x10 % 10U),
            (unsigned)source_valid,
+              (unsigned)transport_quarter_valid,
+              (unsigned long)transport_quarter_count,
+              (unsigned long)ui_last_rendered_quarter_snapshot,
+              (unsigned long)ui_transport_quarter_gap,
+              (unsigned long)beat_led_quarter_snapshot,
+              (unsigned long)bar_counter_quarter_snapshot,
+              (unsigned long)beat_led_to_bar_lag_quarters,
+              (unsigned long)beat_led_to_bar_lag_ms,
+              (unsigned long)beat_led_to_bar_lag_us_snapshot,
+              (unsigned long)beat_led_to_bar_lag_ms_true,
+              (unsigned long)beat_led_to_bar_lag_effective_us,
+              (unsigned long)beat_led_to_bar_lag_effective_ms,
+              (unsigned long)ui_render_counter_snapshot,
+              (unsigned)transport_barbeat_valid,
+              (unsigned)transport_bar,
+              (unsigned)transport_beat,
+              (unsigned)ui_rendered_barbeat_valid_snapshot,
+              (unsigned)ui_rendered_bar_snapshot,
+              (unsigned)ui_rendered_beat_snapshot,
+              (int)bar_delta,
+              (int)beat_delta,
               (unsigned)estimator_window_pulses,
               transport_confidence,
               (unsigned)estimator_valid,

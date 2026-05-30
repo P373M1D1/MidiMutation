@@ -4,6 +4,7 @@
 #include "app_event.h"
 #include "app/app_requests.h"
 #include "app/app_state.h"
+#include "app/app_ui.h"
 #include "bpm_functions.h"
 #include "button_functions.h"
 #include "display_functions.h"
@@ -29,6 +30,7 @@ static void AppTempo_ApplyInternalTempoBpm(uint16_t bpm, uint8_t pulse_led);
 static void AppTempo_ApplyMirroredTempoBpm(uint16_t bpm);
 static void AppTempo_SendTapTempoCcToDevices(void);
 
+/* Handles tap-tempo input events from the central queue. */
 uint8_t AppTempo_HandleEvent(const AppEvent_t *event)
 {
     if (event == 0)
@@ -114,6 +116,7 @@ static void AppTempo_HandleTapPress(uint32_t now)
     }
 }
 
+/* Applies an internal-tempo encoder step when external sync is absent. */
 void AppTempo_ApplyEncoderStep(int8_t step)
 {
     int32_t next_bpm = (int32_t)g_bpm + (int32_t)step;
@@ -132,6 +135,7 @@ void AppTempo_ApplyEncoderStep(int8_t step)
     AppTempo_ApplyInternalTempoBpm((uint16_t)next_bpm, 0U);
 }
 
+/* Mirrors a stable external BPM back into the internal tempo state. */
 void AppTempo_ExternalClockHoldoverMirrorService(void)
 {
     uint16_t external_bpm_x10;
@@ -174,6 +178,7 @@ static void AppTempo_ApplyInternalTempoBpm(uint16_t bpm, uint8_t pulse_led)
     AppState_SetTempoBpm(bpm);
     MidiClockUseInternalTempo();
     MidiClockOutputSetTempoBpm(bpm);
+    AppUi_RequestStatusStripRefresh();
 
     if (pulse_led)
         LED_BeatPulse();
@@ -185,6 +190,7 @@ static void AppTempo_ApplyMirroredTempoBpm(uint16_t bpm)
 {
     AppState_SetTempoBpm(bpm);
     MidiClockOutputSetTempoBpm(bpm);
+    AppUi_RequestStatusStripRefresh();
 }
 
 static void AppTempo_SendTapTempoCcToDevices(void)

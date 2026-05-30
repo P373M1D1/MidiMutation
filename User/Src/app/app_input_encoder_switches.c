@@ -21,6 +21,7 @@ static void AppInputEncoderSwitches_QueueButtonPressLog(uint8_t encoder_index);
 static void AppInputEncoderSwitches_UpdateSwitchState(uint8_t event_index,
                                                       uint8_t raw_level);
 
+/* Seeds encoder-switch debounce state from the current GPIO levels. */
 void AppInputEncoderSwitches_Init(void)
 {
     uint32_t now = HAL_GetTick();
@@ -40,6 +41,7 @@ void AppInputEncoderSwitches_Init(void)
 #endif
 }
 
+/* Samples all encoder switches and advances their debounce state. */
 void AppInputEncoderSwitches_Sample(void)
 {
     uint8_t encoder1_sw_level = AppInputEncoderSwitches_ReadLevel(ENC1_SW_GPIO_Port, ENC1_SW_Pin);
@@ -51,6 +53,7 @@ void AppInputEncoderSwitches_Sample(void)
     AppInputEncoderSwitches_UpdateSwitchState(2U, encoder3_sw_level);
 }
 
+/* Flushes deferred encoder-switch diagnostics from the foreground loop. */
 void AppInputEncoderSwitches_ProcessPending(void)
 {
     uint32_t primask;
@@ -75,6 +78,7 @@ void AppInputEncoderSwitches_ProcessPending(void)
 #endif
 }
 
+/* Marks the matching encoder sampler active when a switch EXTI fires. */
 uint8_t AppInputEncoderSwitches_HandleExti(uint16_t gpio_pin)
 {
     if (gpio_pin == ENC1_SW_Pin)
@@ -98,6 +102,7 @@ uint8_t AppInputEncoderSwitches_HandleExti(uint16_t gpio_pin)
     return 0U;
 }
 
+/* Returns the debounced pressed state of encoder 2's push switch. */
 uint8_t AppInput_Encoder2SwitchIsPressed(void)
 {
     return (app_input_encoder_switch_stable_level[1] == 0U) ? 1U : 0U;

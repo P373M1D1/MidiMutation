@@ -4,6 +4,7 @@
 
 #include "app/app_button_monitor.h"
 #include "app/app_encoder_sampler.h"
+#include "app/app_expression_input.h"
 #include "app/app_footswitch_input.h"
 #include "app/app_input_encoder_switches.h"
 #include "app/app_input_sampling.h"
@@ -13,7 +14,7 @@
 
 #include <stdio.h>
 
-#define ENCODER_CHECK_SERIAL_ENABLED      1U
+#define ENCODER_CHECK_SERIAL_ENABLED      0U
 #define APP_INPUT_TAP_DEBOUNCE_MS         20U
 
 static uint8_t app_input_tap_press_latched = 0U;
@@ -25,17 +26,21 @@ static void AppInput_EncoderProcessPendingMotion(AppEncoderSamplerId_t encoder_i
                                                  uint8_t event_source);
 static void AppInput_RecordEncoderActivity(void);
 
+/* Initializes the input samplers, ADC path, and encoder switch handling. */
 void AppInput_Init(void)
 {
     AppEncoderSampler_Init();
+    AppExpressionInput_Init();
     AppInputEncoderSwitches_Init();
     AppInputSampling_Init();
 }
 
 
+/* Processes deferred input work that does not belong in interrupt context. */
 void AppInput_ProcessPending(void)
 {
     AppFootswitchInput_ProcessPending();
+    AppExpressionInput_ProcessPending();
 
     if (app_input_tap_press_latched
         && (HAL_GPIO_ReadPin(TAP_GPIO_Port, TAP_Pin) != GPIO_PIN_RESET))
@@ -55,6 +60,7 @@ void AppInput_ProcessPending(void)
     AppInputEncoderSwitches_ProcessPending();
 }
 
+/* Routes a GPIO EXTI edge to the relevant input subsystem. */
 void AppInput_HandleGpioExti(uint16_t gpio_pin)
 {
     uint32_t now;

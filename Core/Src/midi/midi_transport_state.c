@@ -12,6 +12,7 @@
 #define MIDI_SYNC_DWELL_TRACKING_TO_LOCKED_MS 180U
 #define MIDI_SYNC_DWELL_LOCKED_TO_RELOCK_MS   120U
 #define MIDI_SYNC_DWELL_RELOCK_TO_LOCKED_MS   150U
+#define MIDI_SYNC_DWELL_LOCKED_TO_REARM_MS    180U
 #define MIDI_SYNC_EVENT_QUEUE_DEPTH            8U
 #define MIDI_SYNC_ADAPTIVE_CONTROL_ENABLED      1U
 #define MIDI_SYNC_ADAPTIVE_WINDOW_MS        10000U
@@ -148,6 +149,9 @@ volatile uint8_t midi_clock_external_bpm_window_pulses = 0U;
 volatile uint8_t midi_barbeat_valid = 0U;
 volatile uint32_t midi_transport_global_tick_count = 0U;
 volatile uint32_t midi_transport_origin_tick_count = 0U;
+volatile uint32_t midi_transport_last_quarter_note_count = 0U;
+volatile uint32_t midi_transport_quarter_note_event_count = 0U;
+volatile uint32_t midi_transport_last_quarter_note_anchor_us = 0U;
 volatile uint8_t midi_clock_sync_lost = 0U;
 volatile uint8_t midi_clock_recovery_hint = (uint8_t)MIDI_CLOCK_RECOVERY_HINT_NONE;
 volatile uint8_t midi_transport_running = 0U;
@@ -826,6 +830,9 @@ static uint32_t midi_transport_transition_dwell_ms(MidiSyncState_t from,
     if (from == MIDI_SYNC_STATE_RELOCK && to == MIDI_SYNC_STATE_LOCKED)
         return MIDI_SYNC_DWELL_RELOCK_TO_LOCKED_MS;
 
+    if (from == MIDI_SYNC_STATE_LOCKED && to == MIDI_SYNC_STATE_REARM)
+        return MIDI_SYNC_DWELL_LOCKED_TO_REARM_MS;
+
     return 0U;
 }
 
@@ -1057,12 +1064,9 @@ static void midi_transport_update_sync_lifecycle(void)
         midi_sync_holdover_enter_tick_ms = 0U;
     }
 
-    if (midi_sync_state == MIDI_SYNC_STATE_REARM
-     && midi_sync_last_transition_from != MIDI_SYNC_STATE_REARM)
-    {
-        midi_sync_has_lock_history = 0U;
-        midi_sync_last_lock_tick_ms = 0U;
-    }
+    /* Keep lock history across REARM so brief source interruptions can
+     * relock via the RELOCK path instead of restarting in ACQUIRE. This
+     * preserves estimator continuity under jittery but returning clocks. */
 
     if (midi_sync_state == MIDI_SYNC_STATE_IDLE && !inputs.active)
     {
@@ -1248,16 +1252,19 @@ uint8_t MidiClockGetMeasuredExternalBpmX10(uint16_t *bpm_x10)
 {
     MidiTransport_UpdateSyncState();
 
-    if (!bpm_x10 || !MidiTransport_IsExternalClockActive() || !MidiClockIsPublicationReady())
+    if (!bpm_x10 || !MidiTransport_IsExternalClockActive())
         return 0U;
 
     if (MidiClockEstimator_GetRecoveredBpmX10(bpm_x10))
         return 1U;
 
-    if (!MidiClockEstimator_GetMeasuredBpmX10(bpm_x10))
-        return 0U;
+    if (MidiClockEstimator_GetMeasuredBpmX10(bpm_x10))
+        return 1U;
 
-    return 1U;
+    if (MidiClockEstimator_GetRawBpmX10(bpm_x10))
+        return 1U;
+
+    return 0U;
 }
 
 uint8_t MidiClockGetExternalBpmWindowPulses(void)
@@ -1296,6 +1303,63 @@ uint8_t MidiClockIsExternalSignalPresent(void)
 uint8_t MidiClockGetBarBeat(uint8_t *bar, uint8_t *beat)
 {
     return MidiTransportCycle_GetBarBeat(bar, beat);
+}
+
+uint8_t MidiClockGetQuarterNoteCount(uint32_t *quarter_note_count)
+{
+    uint32_t primask;
+    uint32_t total_tick_count;
+    uint32_t origin_tick_count;
+    uint8_t valid;
+
+    if (!quarter_note_count)
+        return 0U;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    valid = midi_barbeat_valid;
+    total_tick_count = midi_transport_global_tick_count;
+    origin_tick_count = midi_transport_origin_tick_count;
+    if (primask == 0U)
+        __enable_irq();
+
+    if (!valid)
+        return 0U;
+
+    *quarter_note_count = (total_tick_count - origin_tick_count)
+        / MIDI_CLOCK_PULSES_PER_QUARTER_NOTE;
+    return 1U;
+}
+
+uint8_t MidiClockGetQuarterNoteRenderStamp(uint32_t *event_count,
+                                           uint32_t *quarter_note_count)
+{
+    return MidiClockGetQuarterNoteRenderStampWithAnchor(event_count,
+                                                        quarter_note_count,
+                                                        0);
+}
+
+uint8_t MidiClockGetQuarterNoteRenderStampWithAnchor(uint32_t *event_count,
+                                                     uint32_t *quarter_note_count,
+                                                     uint32_t *anchor_us)
+{
+    uint32_t primask;
+    uint8_t valid;
+
+    if (!event_count || !quarter_note_count)
+        return 0U;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    valid = midi_barbeat_valid;
+    *event_count = midi_transport_quarter_note_event_count;
+    *quarter_note_count = midi_transport_last_quarter_note_count;
+    if (anchor_us)
+        *anchor_us = midi_transport_last_quarter_note_anchor_us;
+    if (primask == 0U)
+        __enable_irq();
+
+    return valid;
 }
 
 uint8_t MidiTransportGetContinuousPhase(MidiTransportPhaseSnapshot_t *phase)
@@ -1463,7 +1527,6 @@ void MidiClockDiagnosticService(void)
         return;
 
     last_report_tick = now;
-    active = MidiClockIsExternalSignalPresent();
 
     {
         uint32_t primask = __get_PRIMASK();
@@ -1496,6 +1559,20 @@ void MidiClockDiagnosticService(void)
     MidiOutput_TakeTimebendDiagnostics(&timebend_diag);
     MidiClockEstimator_GetStatus(&estimator_status);
     midi_transport_update_sync_lifecycle();
+    active = MidiClockIsExternalSignalPresent();
+
+    {
+        uint32_t primask = __get_PRIMASK();
+
+        __disable_irq();
+        running = midi_transport_running;
+        rearm_required = midi_transport_rearm_required;
+        sync_lost = midi_clock_sync_lost;
+        barbeat_valid = midi_barbeat_valid;
+        if (primask == 0U)
+            __enable_irq();
+    }
+
     sync_state = midi_sync_state;
     sync_state_text = midi_transport_sync_state_name(sync_state);
     sync_state_age_ms = now - midi_sync_state_enter_tick_ms;

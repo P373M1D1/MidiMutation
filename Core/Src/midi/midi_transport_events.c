@@ -5,6 +5,7 @@
 #include "midi/midi_feedback.h"
 
 #include "app/app_metronome.h"
+#include "app/app_ui.h"
 
 __attribute__((section(".RamFunc")))
 void MidiTransport_ResetClockTracking(void)
@@ -58,6 +59,7 @@ static void midi_transport_arm(MidiTransportEvent_t event, uint32_t now)
 
     MidiTransportCycle_Arm();
     AppMetronome_OnQuarterNoteAtCount(APP_METRONOME_SOURCE_EXTERNAL, now, 0U);
+    AppUi_RequestStatusStripRefresh();
 }
 
 __attribute__((section(".RamFunc")))

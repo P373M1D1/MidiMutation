@@ -23,7 +23,7 @@ extern "C" {
 /* Menu layout constants shared across display modules. */
 #define MENU_ROOT_ITEM_COUNT            5U
 #define MENU_VISIBLE_ROW_COUNT          4U
-#define MENU_GLOBAL_ITEM_COUNT          10U
+#define MENU_GLOBAL_ITEM_COUNT          16U
 #define MENU_METRONOME_ITEM_COUNT       4U
 #define MENU_USER_THEME_ITEM_COUNT      RUNTIME_CONFIG_USER_THEME_FIELD_COUNT
 #define MENU_BANK_EDIT_ITEM_COUNT       4U

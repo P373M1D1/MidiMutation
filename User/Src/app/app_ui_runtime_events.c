@@ -19,12 +19,12 @@ static void AppUiEvents_SendFunctionButtonCcMessages(const PresetCCSlot_t *messa
 static void AppUiEvents_HandleSpecialFunctionToggle(uint8_t state_active);
 static void AppUiEvents_HandleScreensaverWake(void);
 static void AppUiEvents_HandleScreensaverActivity(void);
-static void AppUiEvents_HandlePeriodicService(void);
+static void AppUiEvents_HandleUiTick100Ms(void);
+static void AppUiEvents_HandleMidiMonitorChanged(void);
 static void AppUiEvents_HandleRedrawActiveDisplay(void);
 static void AppUiEvents_HandleRedrawMainScreen(void);
 
-static uint32_t app_ui_last_midi_monitor_revision = 0U;
-
+/* Handles UI-facing events that were already classified by the dispatcher. */
 uint8_t AppUiEvents_HandleEvent(const AppEvent_t *event)
 {
     if (event == 0)
@@ -52,8 +52,12 @@ uint8_t AppUiEvents_HandleEvent(const AppEvent_t *event)
         AppUiEvents_HandleScreensaverActivity();
         return 1U;
 
-    case APP_EVENT_TYPE_PERIODIC_UI_SERVICE:
-        AppUiEvents_HandlePeriodicService();
+    case APP_EVENT_TYPE_UI_TICK_100MS:
+        AppUiEvents_HandleUiTick100Ms();
+        return 1U;
+
+    case APP_EVENT_TYPE_MIDI_MONITOR_CHANGED:
+        AppUiEvents_HandleMidiMonitorChanged();
         return 1U;
 
     case APP_EVENT_TYPE_REDRAW_ACTIVE_DISPLAY:
@@ -69,6 +73,7 @@ uint8_t AppUiEvents_HandleEvent(const AppEvent_t *event)
     }
 }
 
+/* Resets UI state before a preset activation is applied. */
 void AppUiEvents_PreparePresetActivation(uint8_t exit_preset_edit)
 {
     if (exit_preset_edit && Display_PresetEditIsActive())
@@ -154,26 +159,20 @@ static void AppUiEvents_HandleScreensaverActivity(void)
     Display_ScreensaverActivity();
 }
 
-static void AppUiEvents_HandlePeriodicService(void)
+static void AppUiEvents_HandleUiTick100Ms(void)
 {
-    uint32_t midi_monitor_revision;
-
-    App_AcknowledgePeriodicUiServiceEvent();
-    AppUi_RequestStatusStripRefresh();
-
-    midi_monitor_revision = MidiMonitor_GetRevision();
-    if (midi_monitor_revision != app_ui_last_midi_monitor_revision)
-    {
-        app_ui_last_midi_monitor_revision = midi_monitor_revision;
-
-        if (!Display_MenuIsActive() && !Display_PresetEditIsActive())
-            AppUi_RequestLiveContentRefresh();
-    }
+    App_AcknowledgeUiTick100MsEvent();
 
     Display_MenuMidiMonitorService();
     LED_Update();
     if (Display_ScreensaverUpdate())
         App_QueueRedrawMainScreenEvent();
+}
+
+static void AppUiEvents_HandleMidiMonitorChanged(void)
+{
+    MidiMonitor_AcknowledgeChangedEvent();
+    AppUi_RequestLiveContentRefresh();
 }
 
 static void AppUiEvents_HandleRedrawActiveDisplay(void)

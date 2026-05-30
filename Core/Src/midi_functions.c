@@ -32,6 +32,9 @@ static void Midi_MaybeSendFeedbackTaperCc(uint8_t channel,
                                           uint8_t reduce);
 static void Midi_ApplyFeedbackTaperForBypassedDevice(uint8_t device_index, uint8_t program);
 
+/**
+ * Binds the public MIDI facade to the UART used for outbound transport.
+ */
 void MidiSetOutputUart(UART_HandleTypeDef *uart_handle)
 {
     MidiOutput_SetUart(uart_handle);
@@ -42,26 +45,41 @@ static uint8_t midi_channel_is_valid(uint8_t channel)
     return (uint8_t)(channel >= MIDI_CHANNEL_FIRST && channel <= MIDI_CHANNEL_LAST);
 }
 
+/**
+ * Services deferred UART4 MIDI output scheduling in the foreground.
+ */
 void MidiOutputSchedulerService(void)
 {
     MidiOutput_ServiceScheduler();
 }
 
+/**
+ * Routes the timing-counter interrupt to the MIDI clock output backend.
+ */
 void MidiHandleTimingCounterIrq(void)
 {
     MidiOutput_HandleTimingCounterIrq();
 }
 
+/**
+ * Enables or disables outbound MIDI timebend handling.
+ */
 void MidiTimebendSetActive(uint8_t active)
 {
     MidiOutput_TimebendSetActive(active);
 }
 
+/**
+ * Injects an encoder delta into the outbound timebend path.
+ */
 void MidiTimebendInjectEncoderDelta(int8_t delta)
 {
     MidiOutput_TimebendInjectEncoderDelta(delta);
 }
 
+/**
+ * Returns true when outbound timebend is currently engaged.
+ */
 uint8_t MidiTimebendIsEngaged(void)
 {
     return MidiOutput_TimebendIsEngaged();
@@ -133,6 +151,9 @@ static void Midi_ApplyFeedbackTaperForBypassedDevice(uint8_t device_index, uint8
  *
  * The 10 ms timeout is more than enough: at 31 250 baud two bytes take ~640 µs.
  * ─────────────────────────────────────────────────────────────────────────── */
+/**
+ * Queues a MIDI Program Change for one channel.
+ */
 void MIDI_SendProgramChange(uint8_t channel, uint8_t program)
 {
     if (!midi_channel_is_valid(channel))
@@ -153,6 +174,9 @@ void MIDI_SendProgramChange(uint8_t channel, uint8_t program)
  *
  * See midi_devices.c for the CC numbers used by each pedal.
  * ─────────────────────────────────────────────────────────────────────────── */
+/**
+ * Queues a MIDI Control Change for one channel.
+ */
 void MIDI_SendCC(uint8_t channel, uint8_t cc_number, uint8_t value)
 {
     if (!midi_channel_is_valid(channel))
@@ -166,6 +190,9 @@ void MIDI_SendCC(uint8_t channel, uint8_t cc_number, uint8_t value)
     midi_output_send_bytes(msg, (uint16_t)sizeof(msg));
 }
 
+/**
+ * Sends all programmed CC values from one preset.
+ */
 void Midi_SendPresetCCs(const Preset_t *preset)
 {
     if (!preset) return;
@@ -181,6 +208,9 @@ void Midi_SendPresetCCs(const Preset_t *preset)
     }
 }
 
+/**
+ * Sends the program or bypass state for one configured device slot.
+ */
 void Midi_SendDeviceProgramSlot(uint8_t device_index, uint8_t program)
 {
     const MidiDevice_t *dev = MidiDevices_Get(device_index);
@@ -200,6 +230,9 @@ void Midi_SendDeviceProgramSlot(uint8_t device_index, uint8_t program)
         MIDI_SendCC(dev->channel, dev->engage.cc, dev->engage.value);
 }
 
+/**
+ * Sends the full preset state to every configured MIDI device.
+ */
 void Midi_LoadPreset(const Preset_t *preset)
 {
     if (!preset) return;

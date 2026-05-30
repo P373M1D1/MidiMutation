@@ -2,6 +2,7 @@
 
 #include "app_event.h"
 #include "app/app_requests.h"
+#include "app/app_timer_events.h"
 #include "app/app_state.h"
 #include "app/app_ui.h"
 #include "bpm_functions.h"
@@ -25,6 +26,7 @@ static AppSaveServiceState_t app_save_service_state = APP_SAVE_SERVICE_STATE_IDL
 static uint8_t AppSaveService_RequestMaskForKind(uint8_t save_kind);
 static uint8_t AppSaveService_CombinedRequestMask(void);
 static void AppSaveService_HandleRequestEvent(uint8_t save_kind);
+static void AppSaveService_HandleTimeoutEvent(void);
 static uint8_t AppSaveService_ShouldDeferFlashWrite(void);
 
 static uint8_t AppSaveService_ShouldDeferFlashWrite(void)
@@ -35,16 +37,26 @@ static uint8_t AppSaveService_ShouldDeferFlashWrite(void)
     return MidiClockIsExternalSignalPresent();
 }
 
+/* Collects save requests from the event queue into the deferred save service. */
 uint8_t AppSaveService_HandleEvent(const AppEvent_t *event)
 {
     if (event == 0)
         return 0U;
 
-    if (event->type != APP_EVENT_TYPE_SAVE_REQUEST)
-        return 0U;
+    switch (event->type)
+    {
+    case APP_EVENT_TYPE_SAVE_REQUEST:
+        AppSaveService_HandleRequestEvent(event->source);
+        return 1U;
 
-    AppSaveService_HandleRequestEvent(event->source);
-    return 1U;
+    case APP_EVENT_TYPE_SAVE_TIMEOUT:
+        AppSaveService_HandleTimeoutEvent();
+        AppTimerEvents_AcknowledgeSaveTimeoutEvent();
+        return 1U;
+
+    default:
+        return 0U;
+    }
 }
 
 static uint8_t AppSaveService_RequestMaskForKind(uint8_t save_kind)
@@ -77,7 +89,7 @@ static void AppSaveService_HandleRequestEvent(uint8_t save_kind)
     app_save_service_requested_mask |= AppSaveService_RequestMaskForKind(save_kind);
 }
 
-void AppSaveService_Service(void)
+static void AppSaveService_HandleTimeoutEvent(void)
 {
     uint8_t combined_mask = AppSaveService_CombinedRequestMask();
     uint8_t runtime_state_mask = AppSaveService_RequestMaskForKind(APP_EVENT_SAVE_KIND_RUNTIME_STATE);
@@ -152,4 +164,20 @@ void AppSaveService_Service(void)
         app_save_service_state = APP_SAVE_SERVICE_STATE_IDLE;
         return;
     }
+}
+
+/* Retained for compatibility; save deadlines are now driven by timer events. */
+void AppSaveService_Service(void)
+{
+}
+
+uint8_t AppSaveService_HasPendingWork(void)
+{
+    /* The state machine must also be considered pending when it has advanced
+     * past IDLE but not yet finished: after the flash write the mask is cleared
+     * but the machine is in HIDE_COMBINED_POPUP and needs one more timeout
+     * event to call Display_HideSavingPopup and return to IDLE. Without this,
+     * the popup stays on screen until something else triggers a full redraw. */
+    return ((app_save_service_requested_mask != 0U)
+            || (app_save_service_state != APP_SAVE_SERVICE_STATE_IDLE)) ? 1U : 0U;
 }

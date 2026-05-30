@@ -76,6 +76,9 @@ static const char * const button_monitor_led_labels[11] = {
     "PF9/LED10",
 };
 
+/**
+ * Initializes the LED GPIO outputs used by the firmware.
+ */
 void LED_InitBoardOutputs(void)
 {
     GPIO_InitTypeDef gpio_init = {0};
@@ -109,6 +112,9 @@ void LED_InitBoardOutputs(void)
     HAL_GPIO_Init(TAP_FEEDBACK_LED_GPIO_Port, &gpio_init);
 }
 
+/**
+ * Clears all preset/button-monitor indicator LEDs at once.
+ */
 void LED_ClearButtonMonitorIndicators(void)
 {
     HAL_GPIO_WritePin(GPIOF, BUTTON_MONITOR_LED_PINS_MASK, GPIO_PIN_RESET);
@@ -147,19 +153,11 @@ static void LED_ApplyButtonIndicatorState(void)
 
     HAL_GPIO_WritePin(GPIOF, BUTTON_MONITOR_LED_PINS_MASK, GPIO_PIN_RESET);
 
-    /* Keep the active button indicator available in all modes; in edit modes,
-     * gate it with the dim pulse for reduced perceived brightness. */
+    /* Keep the active preset indicator steady in every mode so it remains a
+     * single source of truth; only the special-function badge is dimmed. */
     if (active_button_led_pin != 0U)
     {
-        if (in_edit_mode)
-        {
-            if (dim_pulse_on)
-                pin_mask = active_button_led_pin;
-        }
-        else
-        {
-            pin_mask = active_button_led_pin;
-        }
+        pin_mask = active_button_led_pin;
     }
 
     /* Special function indicator stays visible while editing, but dimmed. */
@@ -256,6 +254,9 @@ static uint8_t LED_BeatPulseIsAllowed(void)
     return 1U;
 }
 
+/**
+ * Handles the TIM2 compare interrupt that drives beat pulse edges.
+ */
 void LED_HandleTimingCounterIrq(void)
 {
     if (((TIM2->SR & TIM_SR_CC3IF) == 0U)
@@ -283,6 +284,9 @@ void LED_HandleTimingCounterIrq(void)
     LED_DisarmBeatPulseCompare();
 }
 
+/**
+ * Returns true while any transient LED pulse or beat compare is still active.
+ */
 uint8_t LED_IsPulseActive(void)
 {
     uint32_t now;
@@ -299,11 +303,17 @@ uint8_t LED_IsPulseActive(void)
                    || LED_PulseDeadlineIsActive(midi_in_off_tick, now));
 }
 
+/**
+ * Starts a beat pulse using the current timing counter value as the anchor.
+ */
 void LED_BeatPulse(void)
 {
     LED_BeatPulseAtUs(LED_TimingNowUs());
 }
 
+/**
+ * Starts a beat pulse from an explicit microsecond timestamp.
+ */
 void LED_BeatPulseAtUs(uint32_t start_us)
 {
     uint32_t primask;
@@ -329,6 +339,9 @@ void LED_BeatPulseAtUs(uint32_t start_us)
         __enable_irq();
 }
 
+/**
+ * Emits the short flash-write indicator pulse on the board LED.
+ */
 void LED_FlashPulse(void)
 {
     if (!LED_BeatPulseIsAllowed())
@@ -342,16 +355,25 @@ void LED_FlashPulse(void)
     flash_off_tick = HAL_GetTick() + LED_PULSE_MS;
 }
 
+/**
+ * Emits a MIDI clock pulse using the current timing counter value.
+ */
 void LED_MidiClockPulse(void)
 {
     LED_MidiClockPulseAtUs(LED_TimingNowUs());
 }
 
+/**
+ * Emits a MIDI clock pulse from an explicit timing anchor.
+ */
 void LED_MidiClockPulseAtUs(uint32_t start_us)
 {
     LED_BeatPulseAtUs(start_us);
 }
 
+/**
+ * Emits the short tap-feedback pulse on the dedicated tap LED.
+ */
 void LED_TapPressPulse(void)
 {
     if (!LED_BeatPulseIsAllowed())
@@ -365,6 +387,9 @@ void LED_TapPressPulse(void)
     tap_press_off_tick = HAL_GetTick() + LED_PULSE_MS;
 }
 
+/**
+ * Emits the short MIDI-input activity pulse on the dedicated MIDI LED.
+ */
 void LED_MidiInPulse(void)
 {
     if (!LED_BeatPulseIsAllowed())
@@ -378,6 +403,9 @@ void LED_MidiInPulse(void)
     midi_in_off_tick = HAL_GetTick() + LED_PULSE_MS;
 }
 
+/**
+ * Selects the active preset indicator LED for the current bank slot.
+ */
 void LED_SetPresetIndicator(uint8_t preset_slot_in_bank)
 {
     uint8_t slot = (uint8_t)(preset_slot_in_bank % 8U);
@@ -386,6 +414,9 @@ void LED_SetPresetIndicator(uint8_t preset_slot_in_bank)
     LED_ApplyButtonIndicatorState();
 }
 
+/**
+ * Selects a specific button-monitor LED as the active indicator.
+ */
 void LED_SetActiveButtonIndicator(uint8_t button_index)
 {
     if (button_index >= (sizeof(button_monitor_led_pins) / sizeof(button_monitor_led_pins[0])))
@@ -395,12 +426,18 @@ void LED_SetActiveButtonIndicator(uint8_t button_index)
     LED_ApplyButtonIndicatorState();
 }
 
+/**
+ * Enables or disables the special-function indicator LED.
+ */
 void LED_SetSpecialFunctionIndicator(uint8_t is_active)
 {
     special_function_led_active = is_active ? 1U : 0U;
     LED_ApplyButtonIndicatorState();
 }
 
+/**
+ * Shows one button-monitor indicator LED for hardware diagnostics.
+ */
 void LED_ShowButtonMonitorIndicator(uint8_t button_index)
 {
     if (button_index >= (sizeof(button_monitor_led_pins) / sizeof(button_monitor_led_pins[0])))
@@ -413,6 +450,9 @@ void LED_ShowButtonMonitorIndicator(uint8_t button_index)
     HAL_GPIO_WritePin(GPIOF, button_monitor_led_pins[button_index], GPIO_PIN_SET);
 }
 
+/**
+ * Returns the human-readable label for a button-monitor indicator LED.
+ */
 const char *LED_GetButtonMonitorLabel(uint8_t button_index)
 {
     if (button_index >= (sizeof(button_monitor_led_labels) / sizeof(button_monitor_led_labels[0])))

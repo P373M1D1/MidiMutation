@@ -4,6 +4,7 @@
 #include "bpm_functions.h"
 #include "midi_functions.h"
 
+/* Converts an external MIDI clock pulse interval into a BPM estimate. */
 void AppMidiClock_TrackExternalPulseInterval(uint32_t interval_us)
 {
     uint64_t denominator;

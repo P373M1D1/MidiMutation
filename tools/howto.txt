@@ -4,7 +4,7 @@ open powershell
 
 So now from C:/Users/Pete/Documents/Chattest/ChatTest you can run exactly:
 
-powershell -ExecutionPolicy Bypass -File capture_serial_log.ps1 -LogDir .\logs
+powershell -LogDir .\logswershell -ExecutionPolicy Bypass -File capture_serial_log.ps1
 powershell -ExecutionPolicy Bypass -File analyze_sync_log.ps1 -LogPath serial_latest.log
 
 And if you still prefer tools scripts directly, these also work from repo root:

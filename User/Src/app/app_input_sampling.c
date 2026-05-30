@@ -14,6 +14,7 @@ static TIM_HandleTypeDef app_input_sampler_timer;
 
 static void AppInputSampling_SampleInputs(void);
 
+/* Starts the periodic TIM7 sampler used for encoder and switch sampling. */
 void AppInputSampling_Init(void)
 {
     __HAL_RCC_TIM7_CLK_ENABLE();
@@ -36,6 +37,7 @@ void AppInputSampling_Init(void)
         Error_Handler();
 }
 
+/* Services the TIM7 sampling interrupt and dispatches the sampled inputs. */
 void AppInputSampling_HandleTimerIrq(void)
 {
     if ((TIM7->SR & TIM_SR_UIF) == 0U)

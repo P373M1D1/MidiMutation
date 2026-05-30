@@ -5,6 +5,7 @@
 #include "display/display_menu_page_midi_monitor.h"
 #include "display/display_menu_pages.h"
 #include "display/display_value_helpers.h"
+#include "app/app_expression_input.h"
 #include "midi_devices.h"
 #include "presets.h"
 #include "runtime_config.h"
@@ -188,6 +189,46 @@ static void Display_ResetActiveDeviceToUnusedDefaults(RuntimeConfigDevice_t *dev
     RuntimeConfig_ResetDeviceToDefaults(display_state.menu_active_device_index);
 }
 
+static uint8_t Display_MenuCaptureExpressionCalibration(uint8_t capture_min)
+{
+    RuntimeConfigGlobal_t *global = RuntimeConfig_GetMutableGlobal();
+    uint16_t latest_raw_sample;
+
+    if (!global)
+        return 0U;
+
+    if (!AppExpressionInput_TryGetLatestRawSample(&latest_raw_sample))
+        return 0U;
+
+    if (capture_min)
+    {
+        if (latest_raw_sample >= global->expression_pedal_max_raw)
+            global->expression_pedal_max_raw = (latest_raw_sample < RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MAX)
+                ? (uint16_t)(latest_raw_sample + 1U)
+                : RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MAX;
+
+        if (latest_raw_sample >= global->expression_pedal_max_raw)
+            latest_raw_sample = (uint16_t)(global->expression_pedal_max_raw - 1U);
+
+        global->expression_pedal_min_raw = latest_raw_sample;
+    }
+    else
+    {
+        if (latest_raw_sample <= global->expression_pedal_min_raw)
+            global->expression_pedal_min_raw = (latest_raw_sample > RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MIN)
+                ? (uint16_t)(latest_raw_sample - 1U)
+                : RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MIN;
+
+        if (latest_raw_sample <= global->expression_pedal_min_raw)
+            latest_raw_sample = (uint16_t)(global->expression_pedal_min_raw + 1U);
+
+        global->expression_pedal_max_raw = latest_raw_sample;
+    }
+
+    RuntimeConfig_MarkDirty();
+    return 1U;
+}
+
 void Display_MenuEnter(void)
 {
     display_state.menu_mode_active = 1U;
@@ -354,7 +395,7 @@ void Display_MenuHome(void)
     {
         Display_ResetMenuTransientEditors();
         Display_RestoreFactorySettings();
-        display_state.menu_global_selection_index = 9U;
+        display_state.menu_global_selection_index = (uint8_t)(MENU_GLOBAL_ITEM_COUNT - 1U);
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return;
@@ -484,7 +525,7 @@ uint8_t Display_MenuBack(void)
         Display_MenuRefresh();
         return 1U;
     case DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM:
-        display_state.menu_global_selection_index = 9U;
+        display_state.menu_global_selection_index = (uint8_t)(MENU_GLOBAL_ITEM_COUNT - 1U);
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return 1U;
@@ -670,7 +711,21 @@ uint8_t Display_MenuActivate(void)
         }
         break;
     case DISPLAY_MENU_PAGE_GLOBAL:
-        if (display_state.menu_global_selection_index == 9U)
+        if (display_state.menu_global_selection_index == 13U)
+        {
+            if (Display_MenuCaptureExpressionCalibration(1U))
+                Display_MenuRefresh();
+            return 1U;
+        }
+
+        if (display_state.menu_global_selection_index == 14U)
+        {
+            if (Display_MenuCaptureExpressionCalibration(0U))
+                Display_MenuRefresh();
+            return 1U;
+        }
+
+        if (display_state.menu_global_selection_index == (uint8_t)(MENU_GLOBAL_ITEM_COUNT - 1U))
         {
             display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM;
             Display_MenuRefresh();

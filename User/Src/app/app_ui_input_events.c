@@ -23,6 +23,49 @@ static RuntimeConfigLiveEnc2Mode_t AppUiEvents_GetLiveEnc2Mode(void)
     return global->live_enc2_mode;
 }
 
+static RuntimeConfigExpressionPedalMode_t AppUiEvents_GetExpressionPedalMode(void)
+{
+    const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
+
+    if (!global)
+        return RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_DISABLED;
+
+    return global->expression_pedal_mode;
+}
+
+static void AppUiEvents_ApplyTimebendDelta(int8_t delta)
+{
+    int16_t scaled_delta = (int16_t)delta * 8;
+
+    if (scaled_delta > 127)
+        scaled_delta = 127;
+    else if (scaled_delta < -127)
+        scaled_delta = -127;
+
+    MidiTimebendInjectEncoderDelta((int8_t)scaled_delta);
+}
+
+static void AppUiEvents_QueuePresetSlotStep(uint8_t current_bank,
+                                            uint8_t active_preset_index,
+                                            int8_t delta)
+{
+    int16_t bank_base = (int16_t)(current_bank * PRESETS_PER_BANK);
+    int16_t slot_index = (int16_t)active_preset_index - bank_base;
+    int16_t next_slot = slot_index + (int16_t)delta;
+
+    if (slot_index < 0 || slot_index >= (int16_t)PRESETS_PER_BANK)
+        next_slot = 0;
+
+    while (next_slot < 0)
+        next_slot += (int16_t)PRESETS_PER_BANK;
+
+    while (next_slot >= (int16_t)PRESETS_PER_BANK)
+        next_slot -= (int16_t)PRESETS_PER_BANK;
+
+    App_QueuePresetActivateEvent((uint8_t)(bank_base + next_slot));
+}
+
+/* Routes one encoder turn event to the correct UI or tempo action. */
 void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
 {
     const Preset_t *active_preset = AppState_GetActivePreset();
@@ -97,7 +140,12 @@ void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
         }
 
         if (Display_PresetEditIsActive())
+        {
+            /* In preset edit, ENC2 still walks bank slots so users can audit
+             * neighboring presets and hear each activation without leaving edit. */
+            AppUiEvents_QueuePresetSlotStep(current_bank, active_preset_index, delta);
             return;
+        }
 
         switch (AppUiEvents_GetLiveEnc2Mode())
         {
@@ -106,40 +154,21 @@ void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
             break;
 
         case RUNTIME_CONFIG_LIVE_ENC2_MODE_TIMEBEND:
-        {
             /* Tune for one-grip operation: aim to reach full bend span within
              * roughly a 180-degree encoder sweep without requiring re-grip. */
-            int16_t scaled_delta = (int16_t)delta * 8;
-
-            if (scaled_delta > 127)
-                scaled_delta = 127;
-            else if (scaled_delta < -127)
-                scaled_delta = -127;
-
-            MidiTimebendInjectEncoderDelta((int8_t)scaled_delta);
+            AppUiEvents_ApplyTimebendDelta(delta);
             break;
-        }
 
         case RUNTIME_CONFIG_LIVE_ENC2_MODE_PRESET_BANK_SCROLL:
         default:
-        {
-            int16_t bank_base = (int16_t)(current_bank * PRESETS_PER_BANK);
-            int16_t slot_index = (int16_t)active_preset_index - bank_base;
-            int16_t next_slot = slot_index + (int16_t)delta;
-
-            if (slot_index < 0 || slot_index >= (int16_t)PRESETS_PER_BANK)
-                next_slot = 0;
-
-            while (next_slot < 0)
-                next_slot += (int16_t)PRESETS_PER_BANK;
-
-            while (next_slot >= (int16_t)PRESETS_PER_BANK)
-                next_slot -= (int16_t)PRESETS_PER_BANK;
-
-            App_QueuePresetActivateEvent((uint8_t)(bank_base + next_slot));
+            AppUiEvents_QueuePresetSlotStep(current_bank, active_preset_index, delta);
             break;
         }
-        }
+        return;
+
+    case APP_EVENT_SOURCE_EXPRESSION:
+        if (AppUiEvents_GetExpressionPedalMode() == RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_TIMEBEND)
+            AppUiEvents_ApplyTimebendDelta(delta);
         return;
 
     case APP_EVENT_SOURCE_ENC3:
@@ -187,6 +216,7 @@ void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
     }
 }
 
+/* Routes encoder press events to menu, preset, and screensaver actions. */
 void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
 {
     const Preset_t *active_preset = AppState_GetActivePreset();

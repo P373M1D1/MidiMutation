@@ -30,7 +30,6 @@
 
 static uint8_t midi_monitor_paused = 0U;
 static uint8_t midi_monitor_scroll_offset = 0U;
-static uint32_t midi_monitor_last_drawn_revision = 0U;
 static uint8_t midi_monitor_last_drawn_clock_present = 0U;
 static uint32_t midi_monitor_last_refresh_tick = 0U;
 static uint8_t midi_monitor_cache_valid = 0U;
@@ -223,7 +222,6 @@ void Display_MenuMidiMonitorEnter(void)
 {
     midi_monitor_paused = 0U;
     midi_monitor_scroll_offset = 0U;
-    midi_monitor_last_drawn_revision = 0U;
     midi_monitor_last_drawn_clock_present = 0U;
     midi_monitor_last_refresh_tick = 0U;
     Display_MenuMidiMonitorResetCache();
@@ -246,7 +244,6 @@ void Display_MenuMidiMonitorClear(void)
 {
     MidiMonitor_Clear();
     midi_monitor_scroll_offset = 0U;
-    midi_monitor_last_drawn_revision = 0U;
 
     if (Display_MenuMidiMonitorIsActive())
     {
@@ -289,21 +286,16 @@ void Display_MenuMidiMonitorScroll(int8_t delta)
 
 void Display_MenuMidiMonitorService(void)
 {
-    uint32_t revision;
     uint8_t clock_present;
     uint32_t now;
 
     if (!Display_MenuMidiMonitorIsActive())
         return;
 
-    revision = MidiMonitor_GetRevision();
     clock_present = MidiClockIsExternalSignalPresent();
 
     if (clock_present == midi_monitor_last_drawn_clock_present)
-    {
-        if (midi_monitor_paused || revision == midi_monitor_last_drawn_revision)
-            return;
-    }
+        return;
 
     now = HAL_GetTick();
     if ((now - midi_monitor_last_refresh_tick) < MIDI_MONITOR_REFRESH_MS)
@@ -405,7 +397,6 @@ void Display_DrawMenuMidiMonitor(void)
     }
 
     midi_monitor_cache_valid = 1U;
-    midi_monitor_last_drawn_revision = MidiMonitor_GetRevision();
     midi_monitor_last_drawn_clock_present = clock_present;
     midi_monitor_last_refresh_tick = HAL_GetTick();
 }

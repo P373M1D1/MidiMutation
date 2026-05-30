@@ -8,6 +8,22 @@
 extern "C" {
 #endif
 
+/**
+ * Worst-case execution time (µs) per render path in AppUi_ServiceRender.
+ * All fields are lifetime maxes, never reset. Used by LATENCYDIAG to isolate
+ * which display operation is responsible for observed foreground stalls.
+ */
+typedef struct
+{
+    uint32_t beat_max_us;       /* beat-synchronous fast bar update       */
+    uint32_t main_max_us;       /* Display_DrawMainScreen (full)           */
+    uint32_t active_max_us;     /* Display_DrawMainScreen (active-preset)  */
+    uint32_t live_max_us;       /* Display_RefreshMainScreenContent        */
+    uint32_t edit_mode_max_us;  /* Display_RefreshPresetEditMode           */
+    uint32_t edit_field_max_us; /* Display_PresetEditRefreshCurrentField   */
+    uint32_t status_max_us;     /* Display_UpdateBPM                      */
+} AppUiRenderTimings_t;
+
 const Preset_t *AppUi_GetCurrentDisplayPreset(void);
 uint8_t AppUi_PresetEditCurrentPresetIsEditable(void);
 uint8_t AppUi_PresetEditApplyDelta(int8_t delta);
@@ -21,6 +37,8 @@ void AppUi_PresetEditMarkDirty(void);
 void AppUi_RequestPresetEditModeRefresh(void);
 void AppUi_RequestPresetEditFieldRefresh(void);
 void AppUi_RequestStatusStripRefresh(void);
+void AppUi_RequestBeatSynchronousStatusStripRefresh(void);
+uint8_t AppUi_ServiceBeatSynchronousStatusStrip(void);
 void AppUi_RequestActiveDisplayRefresh(void);
 void AppUi_RequestLiveContentRefresh(void);
 void AppUi_RequestMainScreenRefresh(void);
@@ -30,6 +48,8 @@ void AppUi_MenuSaveIfDirty(void);
 uint8_t AppUi_MenuBackOutOneLevel(void);
 uint8_t AppUi_MenuEnter(void);
 uint8_t AppUi_MenuEnterMetronomeQuickAccess(void);
+/* Returns lifetime worst-case per-render-path timings. */
+void AppUi_GetRenderTimings(AppUiRenderTimings_t *timings);
 
 #ifdef __cplusplus
 }

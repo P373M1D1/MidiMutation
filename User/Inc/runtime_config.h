@@ -21,6 +21,8 @@ extern "C" {
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_UI_MAX       100U
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN      1606U /* legacy 100/255 mapped into 12-bit DAC space */
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX      4095U
+#define RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MIN       0U
+#define RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MAX       4095U
 #define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_MAX 127U
 #define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_MAX    127U
 #define RUNTIME_CONFIG_USER_THEME_COUNT               3U
@@ -38,6 +40,11 @@ typedef enum {
     RUNTIME_CONFIG_LIVE_ENC2_MODE_METRONOME,
     RUNTIME_CONFIG_LIVE_ENC2_MODE_TIMEBEND,
 } RuntimeConfigLiveEnc2Mode_t;
+
+typedef enum {
+    RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_DISABLED = 0,
+    RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_TIMEBEND,
+} RuntimeConfigExpressionPedalMode_t;
 
 typedef enum {
     RUNTIME_CONFIG_METRONOME_PITCH_LOW = 0,
@@ -161,6 +168,10 @@ typedef struct {
     uint8_t feedback_taper_threshold;
     uint8_t feedback_taper_reduce;
     RuntimeConfigLiveEnc2Mode_t live_enc2_mode;
+    RuntimeConfigExpressionPedalMode_t expression_pedal_mode;
+    uint16_t expression_pedal_min_raw;
+    uint16_t expression_pedal_max_raw;
+    uint8_t expression_pedal_invert;
 } RuntimeConfigGlobal_t;
 
 typedef struct {
@@ -172,6 +183,10 @@ typedef struct {
     Preset_t global_bypass_preset;
     Preset_t global_mute_preset;
 } RuntimeConfig_t;
+
+/* Shared flash compatibility predicate used by both runtime-config and preset
+ * loaders so they accept/reject the same combined persistent images. */
+uint8_t RuntimeConfig_PersistentConfigSizeIsSupported(uint32_t config_size);
 
 void RuntimeConfig_Init(void);
 

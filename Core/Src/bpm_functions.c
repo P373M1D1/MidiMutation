@@ -77,6 +77,9 @@ static uint8_t flash_state_read(FlashState_t *state)
  * would require fetching their code from Flash, defeating the purpose.
  */
 __attribute__((noinline, section(".RamFunc")))
+/**
+ * Stores the runtime BPM, preset, and bank selection to flash.
+ */
 void RuntimeState_Flash_Save(uint16_t bpm, uint8_t preset_idx, uint8_t bank_idx)
 {
 #if !BPM_FLASH_WRITES_ENABLED
@@ -126,6 +129,9 @@ void RuntimeState_Flash_Save(uint16_t bpm, uint8_t preset_idx, uint8_t bank_idx)
 #endif
 }
 
+/**
+ * Loads the persisted BPM value from flash.
+ */
 uint16_t BPM_Flash_Load(void)
 {
     FlashState_t state;
@@ -134,6 +140,9 @@ uint16_t BPM_Flash_Load(void)
     return BPM_DEFAULT;  /* blank Flash reads 0xFFFFFFFF */
 }
 
+/**
+ * Loads the persisted preset index from flash.
+ */
 uint8_t BPM_Flash_LoadPresetIndex(void)
 {
     FlashState_t state;
@@ -142,6 +151,9 @@ uint8_t BPM_Flash_LoadPresetIndex(void)
     return PRESET_DEFAULT;
 }
 
+/**
+ * Loads the persisted bank index from flash.
+ */
 uint8_t BPM_Flash_LoadBankIndex(void)
 {
     FlashState_t state;
@@ -150,6 +162,9 @@ uint8_t BPM_Flash_LoadBankIndex(void)
     return (PRESET_DEFAULT / PRESETS_PER_BANK);
 }
 
+/**
+ * Returns true when the persisted flash state is valid.
+ */
 uint8_t BPM_Flash_IsValid(void)
 {
     FlashState_t state;
@@ -173,6 +188,9 @@ static uint8_t BPM_QueueRuntimeStateSaveRequest(void)
 
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Schedules a deferred runtime-state save once the deadline expires.
+ */
 void BPM_Service(void)
 {
     uint32_t save_tick = AppState_GetRuntimeStateSaveTick();

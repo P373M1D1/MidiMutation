@@ -12,8 +12,8 @@ extern "C" {
 #define MIDI_CLOCK_BPM_WINDOW_PULSES    96U
 #define MIDI_CLOCK_US_PER_MS            1000U
 #define MIDI_CLOCK_LOST_TIMEOUT_MIN_MS  250U
-#define MIDI_CLOCK_LOST_TIMEOUT_PAD_MS  20U
-#define MIDI_CLOCK_LOST_TIMEOUT_PULSES  4U
+#define MIDI_CLOCK_LOST_TIMEOUT_PAD_MS  40U
+#define MIDI_CLOCK_LOST_TIMEOUT_PULSES  8U
 #define MIDI_CLOCK_DIAGNOSTICS_ENABLED  1U
 #define MIDI_CLOCK_DIAGNOSTIC_REPORT_MS 1000U
 
@@ -32,6 +32,9 @@ extern volatile uint8_t midi_clock_external_bpm_window_pulses;
 extern volatile uint8_t midi_barbeat_valid;
 extern volatile uint32_t midi_transport_global_tick_count;
 extern volatile uint32_t midi_transport_origin_tick_count;
+extern volatile uint32_t midi_transport_last_quarter_note_count;
+extern volatile uint32_t midi_transport_quarter_note_event_count;
+extern volatile uint32_t midi_transport_last_quarter_note_anchor_us;
 extern volatile uint8_t midi_clock_sync_lost;
 extern volatile uint8_t midi_clock_recovery_hint;
 extern volatile uint8_t midi_transport_running;

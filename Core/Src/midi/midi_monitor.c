@@ -1,5 +1,6 @@
 #include "midi/midi_monitor.h"
 
+#include "app_event.h"
 #include "main.h"
 
 typedef struct
@@ -25,12 +26,14 @@ static MidiMonitorEntry_t midi_monitor_entries[MIDI_MONITOR_ENTRY_CAPACITY];
 static volatile uint8_t midi_monitor_head = 0U;
 static volatile uint8_t midi_monitor_count = 0U;
 static volatile uint32_t midi_monitor_revision = 0U;
+static volatile uint8_t midi_monitor_changed_event_pending = 0U;
 static MidiMonitorParserState_t midi_monitor_uart2_parser = { 0U };
 static MidiMonitorParserState_t midi_monitor_uart4_parser = { 0U };
 
 static void MidiMonitor_ResetParser(MidiMonitorParserState_t *parser);
 static uint8_t MidiMonitor_ExpectedDataCount(uint8_t status);
 static MidiMonitorParserState_t *MidiMonitor_GetParser(uint8_t source_uart);
+static void MidiMonitor_QueueChangedEvent(void);
 static void MidiMonitor_PushEntry(uint8_t source_uart,
                                   uint8_t type,
                                   uint8_t channel,
@@ -42,6 +45,7 @@ void MidiMonitor_Init(void)
     midi_monitor_head = 0U;
     midi_monitor_count = 0U;
     midi_monitor_revision = 0U;
+    midi_monitor_changed_event_pending = 0U;
     MidiMonitor_ResetParser(&midi_monitor_uart2_parser);
     MidiMonitor_ResetParser(&midi_monitor_uart4_parser);
 }
@@ -157,6 +161,7 @@ void MidiMonitor_Clear(void)
     midi_monitor_head = 0U;
     midi_monitor_count = 0U;
     midi_monitor_revision++;
+    MidiMonitor_QueueChangedEvent();
     if (primask == 0U)
         __enable_irq();
 }
@@ -172,6 +177,16 @@ uint32_t MidiMonitor_GetRevision(void)
         __enable_irq();
 
     return revision;
+}
+
+void MidiMonitor_AcknowledgeChangedEvent(void)
+{
+    uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
+    midi_monitor_changed_event_pending = 0U;
+    if (primask == 0U)
+        __enable_irq();
 }
 
 uint8_t MidiMonitor_CopyEntries(MidiMonitorEntry_t *dest, uint8_t capacity)
@@ -348,4 +363,20 @@ static void MidiMonitor_PushEntry(uint8_t source_uart,
         midi_monitor_count++;
 
     midi_monitor_revision++;
+    MidiMonitor_QueueChangedEvent();
+}
+
+static void MidiMonitor_QueueChangedEvent(void)
+{
+    AppEvent_t event;
+
+    if (midi_monitor_changed_event_pending)
+        return;
+
+    event.type = APP_EVENT_TYPE_MIDI_MONITOR_CHANGED;
+    event.source = APP_EVENT_SOURCE_NONE;
+    event.value = 0;
+    event.tick = HAL_GetTick();
+    if (AppEvent_Push(&event))
+        midi_monitor_changed_event_pending = 1U;
 }
