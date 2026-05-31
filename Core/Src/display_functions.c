@@ -51,9 +51,9 @@
 #define MAIN_FOOTBAR_LEFT_TEXT         "SCROLL / EDIT"              // label for the left footer region during normal operation
 #define MAIN_FOOTBAR_CENTER_TEXT       "PRESET / BANK"               // label for the middle footer region during normal operation
 #define MAIN_FOOTBAR_RIGHT_TEXT        "TEMPO / MENU"               // label for the right footer region during normal operation
-#define MAIN_FOOTBAR_EDIT_LEFT_TEXT    "SELECT / ENTER"                    // label for the left footer region while preset edit mode is active
-#define MAIN_FOOTBAR_EDIT_CENTER_TEXT  "LEARN"                      // label for the middle footer region while preset edit mode is active
-#define MAIN_FOOTBAR_EDIT_RIGHT_TEXT   "VALUE / EXIT"              // label for the right footer region while preset edit mode is active
+#define MAIN_FOOTBAR_EDIT_LEFT_TEXT    "SELECT / BACK"                    // label for the left footer region while preset edit mode is active
+#define MAIN_FOOTBAR_EDIT_CENTER_TEXT  "PRESET / LEARN"                      // label for the middle footer region while preset edit mode is active
+#define MAIN_FOOTBAR_EDIT_RIGHT_TEXT   "VALUE / ENTER"              // label for the right footer region while preset edit mode is active
 #define MAIN_FOOTBAR_MENU_LEFT_TEXT    "NAV / BACK"               // label for the left footer region while menu mode is active
 #define MAIN_FOOTBAR_MENU_CENTER_TEXT  "HOME"                     // label for the middle footer region while menu mode is active
 #define MAIN_FOOTBAR_MENU_RIGHT_TEXT   "VALUE / ENTER"            // label for the right footer region while menu mode is active
