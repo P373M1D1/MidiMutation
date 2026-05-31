@@ -141,6 +141,10 @@ uint8_t Display_MenuPreviewIsActive(void);
 void Display_MenuPreviewEnter(const Preset_t *p, uint16_t bpm);
 /** Hides the menu preview overlay. */
 void Display_MenuPreviewExit(void);
+/** Returns true when the gallery fullscreen page is active. */
+uint8_t Display_MenuGalleryIsActive(void);
+/** Scrolls the gallery by delta steps (wraps around); redraws the image. */
+void Display_MenuGalleryScroll(int8_t delta);
 /** Returns true when a submenu is active. */
 uint8_t Display_MenuSubEditorIsActive(void);
 /** Returns true when the user-theme editor is active. */

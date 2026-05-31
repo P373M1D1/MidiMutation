@@ -134,6 +134,13 @@ void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
          * or menu-home actions, never value editing. */
         if (Display_MenuIsActive())
         {
+            if (Display_MenuGalleryIsActive())
+            {
+                /* In gallery mode ENC2 scrolls through compiled images. */
+                Display_MenuGalleryScroll(delta);
+                return;
+            }
+
             if (Display_MenuUserThemeEditIsActive())
                 Display_MenuAdjustUserThemeHue(delta);
             return;

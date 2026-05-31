@@ -63,6 +63,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Custom application sources
     Core/Src/display_compose.c
+    Core/Src/gallery_images.c
     Core/Src/display/display_backlight.c
     Core/Src/display/display_compose_helpers.c
     Core/Src/display/display_palette_registry.c
@@ -81,6 +82,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/display/display_menu_page_metronome.c
     Core/Src/display/display_menu_page_midi_monitor.c
     Core/Src/display/display_menu_page_user_theme.c
+    Core/Src/display/display_menu_page_gallery.c
     Core/Src/display/display_menu_page_banks.c
     Core/Src/display/display_menu_page_function_button_text.c
     Core/Src/display/display_menu_page_function_button_compare.c

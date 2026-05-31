@@ -3,6 +3,7 @@
 #include "display_functions.h"
 #include "display/display_internal.h"
 #include "display/display_menu_page_global.h"
+#include "gallery_images.h"
 #include "display/display_menu_redraw_utils.h"
 #include "display/display_menu_row_render.h"
 #include "display/display_theme.h"
@@ -27,6 +28,7 @@ static const char * const menu_global_labels[MENU_GLOBAL_ITEM_COUNT] = {
     "Threshold",
     "Reduce",
     "Expression",
+    "Gallery",
     "Factory Reset",
 };
 
@@ -96,6 +98,10 @@ void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buff
         (void)snprintf(buffer, buffer_size, "%s", "Open");
         break;
     case 10U:
+        /* Gallery is a navigation entry; value column shows image count. */
+        (void)snprintf(buffer, buffer_size, "%u img", (unsigned)gallery_image_count);
+        break;
+    case 11U:
         buffer[0] = '\0';
         break;
     default:
