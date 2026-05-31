@@ -789,6 +789,8 @@ uint8_t Display_MenuActivate(void)
             display_state.menu_expression_selection_index = 0U;
             display_state.menu_expression_field_index = 0U;
             display_state.menu_expression_learn_armed = 0U;
+            display_state.menu_text_edit_field = (uint8_t)DISPLAY_MENU_TEXT_FIELD_NONE;
+            display_state.menu_text_edit_cursor_index = 0U;
             display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_EXPRESSION;
             Display_MenuRefresh();
             return 1U;

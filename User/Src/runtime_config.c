@@ -1,6 +1,7 @@
 #include "runtime_config.h"
 #include "persistent_store_layout.h"
 
+#include "midi/clock_engine.h"
 #include "midi_functions.h"
 
 #include <stdio.h>
@@ -556,7 +557,7 @@ static void RuntimeConfig_InitGlobalPresetsForLegacySnapshot(void)
 
 static uint8_t RuntimeConfig_ShouldDeferMetronomePersistence(void)
 {
-    return MidiClockIsExternalSignalPresent();
+    return ClockEngine_IsExternalSignalPresent();
 }
 
 static void RuntimeConfig_SyncPersistedMetronome(void)

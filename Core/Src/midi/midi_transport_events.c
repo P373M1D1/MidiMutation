@@ -1,4 +1,6 @@
+#define MIDI_TRANSPORT_INTERNAL_ACCESS 1
 #include "midi/midi_transport_internal.h"
+#undef MIDI_TRANSPORT_INTERNAL_ACCESS
 
 #include "midi/midi_clock_estimator.h"
 #include "midi/midi_clock_internal.h"

@@ -72,6 +72,11 @@ void AppRuntime_ServiceForeground(void)
     MidiTimebendSetActive(timebend_live_enabled);
     AppRuntime_ServiceTimebendPopup(global);
 
+    /* Drain deferred TIM2 compare work outside IRQ context so timing ISR paths
+     * remain minimal while metronome/LED behavior still updates at loop speed. */
+    AppMetronome_ServiceDeferredTimingWork();
+    LED_ServiceDeferredTimingWork();
+
     AppRuntime_ScheduleTimerEvents();
     queue_was_drained = AppRuntime_PumpEvents();
     (void)AppUi_ServiceBeatSynchronousStatusStrip();

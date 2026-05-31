@@ -32,6 +32,7 @@ static volatile uint16_t app_metronome_last_click_pitch_hz = 0U;
 static volatile uint8_t app_metronome_output_active = 0U;
 static volatile uint8_t app_metronome_output_stop_requested = 0U;
 static volatile uint32_t app_metronome_output_stop_due_us = 0U;
+static volatile uint8_t app_metronome_compare_pending = 0U;
 static volatile uint32_t app_metronome_click_latency_sum_us = 0U;
 static volatile uint32_t app_metronome_click_latency_max_us = 0U;
 static volatile uint16_t app_metronome_click_latency_count = 0U;
@@ -136,6 +137,7 @@ void AppMetronome_Service(void)
 {
     RuntimeConfigMetronome_t config = app_metronome_get_config_snapshot();
 
+    AppMetronome_ServiceDeferredTimingWork();
     app_metronome_sync_config_snapshot(&config);
     app_metronome_service_output_timeout();
 
@@ -210,11 +212,36 @@ __attribute__((section(".RamFunc")))
  */
 void AppMetronome_HandleTimingCounterIrq(void)
 {
+    AppMetronome_FlagTimingCounterIrq();
+    AppMetronome_ServiceDeferredTimingWork();
+}
+
+__attribute__((section(".RamFunc")))
+void AppMetronome_FlagTimingCounterIrq(void)
+{
     if (((TIM2->SR & TIM_SR_CC1IF) == 0U)
      || ((TIM2->DIER & TIM_DIER_CC1IE) == 0U))
+    {
         return;
+    }
 
     TIM2->SR = ~TIM_SR_CC1IF;
+    app_metronome_compare_pending = 1U;
+}
+
+void AppMetronome_ServiceDeferredTimingWork(void)
+{
+    uint32_t primask;
+    uint8_t compare_pending;
+
+    primask = app_metronome_enter_critical();
+    compare_pending = app_metronome_compare_pending;
+    app_metronome_compare_pending = 0U;
+    app_metronome_exit_critical(primask);
+
+    if (!compare_pending)
+        return;
+
     app_metronome_dispatch_due_clicks(app_metronome_now_us());
 }
 

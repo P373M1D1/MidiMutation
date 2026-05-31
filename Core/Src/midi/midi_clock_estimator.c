@@ -16,7 +16,9 @@ This file also includes diagnostic code for reporting the internal state of the 
 
 #include "midi/midi_clock_estimator.h"
 
+#define MIDI_TRANSPORT_INTERNAL_ACCESS 1
 #include "midi/midi_transport_internal.h"
+#undef MIDI_TRANSPORT_INTERNAL_ACCESS
 
 #define MIDI_CLOCK_US_PER_MINUTE_X10  600000000ULL
 #define MIDI_CLOCK_BPM_X10_MIN        200U
@@ -26,11 +28,11 @@ This file also includes diagnostic code for reporting the internal state of the 
 #define MIDI_CLOCK_BPM_WINDOW_SHRINK_BPS      100U
 #define MIDI_CLOCK_BPM_WINDOW_EXPAND_BPS      25U
 #define MIDI_CLOCK_BPM_WINDOW_HOLD_PULSES     24U
-#define MIDI_CLOCK_PLL_LOCK_ERROR_FILTER_DIVISOR_DEFAULT      16U
+#define MIDI_CLOCK_PLL_LOCK_ERROR_FILTER_DIVISOR_DEFAULT       8U
 #define MIDI_CLOCK_PLL_LOCK_ENTER_THRESHOLD_DIVISOR_DEFAULT    5U
 #define MIDI_CLOCK_PLL_LOCK_EXIT_THRESHOLD_DIVISOR_DEFAULT     3U
 #define MIDI_CLOCK_PLL_LOCK_THRESHOLD_MIN_US         250U
-#define MIDI_CLOCK_PLL_LOCK_STABLE_PULSES_DEFAULT             12U
+#define MIDI_CLOCK_PLL_LOCK_STABLE_PULSES_DEFAULT              8U
 #define MIDI_CLOCK_PLL_TRACK_PHASE_GAIN_DIVISOR_DEFAULT        8U
 #define MIDI_CLOCK_PLL_ACQUIRE_PHASE_GAIN_DIVISOR_DEFAULT      2U
 #define MIDI_CLOCK_PLL_TRACK_FREQUENCY_GAIN_DIVISOR_DEFAULT   64U
@@ -41,9 +43,9 @@ This file also includes diagnostic code for reporting the internal state of the 
 #define MIDI_CLOCK_RECOVERED_PHASE_CLAMP_MIN_US      250U
 #define MIDI_CLOCK_CONFIDENCE_TRACKING_MIN_PULSES       6U
 #define MIDI_CLOCK_CONFIDENCE_TRACKING_MIN_WINDOW_PULSES 4U
-#define MIDI_CLOCK_CONFIDENCE_STABLE_MIN_PULSES        12U
+#define MIDI_CLOCK_CONFIDENCE_STABLE_MIN_PULSES         8U
 #define MIDI_CLOCK_CONFIDENCE_STABLE_MIN_WINDOW_PULSES   8U
-#define MIDI_CLOCK_PUBLICATION_READY_MIN_PULSES       12U
+#define MIDI_CLOCK_PUBLICATION_READY_MIN_PULSES        8U
 #define MIDI_CLOCK_ADAPT_LEVEL_MAX                              4U
 
 static uint32_t midi_clock_pulse_intervals_us[MIDI_CLOCK_BPM_WINDOW_PULSES];
@@ -360,11 +362,16 @@ static void midi_clock_estimator_apply_adaptive_tuning_locked(void)
         8U,
         32U);
 
-    level_scale = (uint16_t)tracking_level * 4U;
-    lock_error_filter_divisor = midi_clock_estimator_clamp_u8(
-        (uint8_t)(MIDI_CLOCK_PLL_LOCK_ERROR_FILTER_DIVISOR_DEFAULT + level_scale),
-        8U,
-        64U);
+    /**
+     * Lock detection filter speed must not scale with tracking bandwidth level.
+     * TRACK_NARROW narrowing of gain divisors governs steady-state jitter rejection,
+     * but the EWMA filter for lock *entry/exit detection* must stay responsive so
+     * that every subsequent relock after a stop/start cycle converges at the same
+     * speed.  Coupling it to tracking_level caused the adaptive system to undo the
+     * reduced default filter divisor after just two TRACK_NARROW steps, making the
+     * 3rd+ relock progressively slower.
+     */
+    lock_error_filter_divisor = MIDI_CLOCK_PLL_LOCK_ERROR_FILTER_DIVISOR_DEFAULT;
 
     frequency_clamp_divisor = (int16_t)MIDI_CLOCK_PLL_FREQUENCY_CLAMP_DIVISOR_DEFAULT
         + (int16_t)((uint16_t)tracking_level * 4U)

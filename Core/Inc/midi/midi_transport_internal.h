@@ -1,6 +1,16 @@
 #ifndef MIDI_TRANSPORT_INTERNAL_H
 #define MIDI_TRANSPORT_INTERNAL_H
 
+/* Internal-only transport header.
+ *
+ * To prevent dual-truth regressions, this header requires an explicit opt-in
+ * macro from approved core timing modules. Non-core consumers should read
+ * timing/sync state through ClockEngine APIs.
+ */
+#if !defined(MIDI_TRANSPORT_INTERNAL_ACCESS)
+#error "midi_transport_internal.h is internal-only. Use clock_engine.h from non-core modules."
+#endif
+
 #include <stdint.h>
 
 #include "midi_functions.h"
@@ -84,6 +94,7 @@ void MidiTransport_NoteClockDuringRecoveryWait(uint32_t now);
 uint8_t MidiTransport_IsRecoveryClockActive(void);
 void MidiTransport_NoteDiagnosticInterval(uint32_t interval_us);
 void MidiTransport_UpdateSyncState(void);
+void MidiTransport_ServiceSyncLifecycle(void);
 uint8_t MidiTransport_IsExternalClockActive(void);
 
 #ifdef __cplusplus

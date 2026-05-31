@@ -8,6 +8,7 @@
 #include "bpm_functions.h"
 #include "display_functions.h"
 #include "led_functions.h"
+#include "midi/clock_engine.h"
 #include "midi_functions.h"
 #include "presets.h"
 #include "runtime_config.h"
@@ -34,7 +35,7 @@ static uint8_t AppSaveService_ShouldDeferFlashWrite(void)
     /* External clock presence already includes the transport-running case and
      * a short post-pulse timeout window, which makes it the right low-cost
      * guard for "do not start flash work during live sync". */
-    return MidiClockIsExternalSignalPresent();
+    return ClockEngine_IsExternalSignalPresent();
 }
 
 /* Collects save requests from the event queue into the deferred save service. */

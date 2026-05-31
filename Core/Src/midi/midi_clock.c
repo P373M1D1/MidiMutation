@@ -14,7 +14,9 @@ all live in midi_clock_estimator.c, which feeds recovered tempo and phase inform
 #include "midi/midi_clock_internal.h"
 #include "midi/midi_feedback.h"
 #include "midi/midi_output.h"
+#define MIDI_TRANSPORT_INTERNAL_ACCESS 1
 #include "midi/midi_transport_internal.h"
+#undef MIDI_TRANSPORT_INTERNAL_ACCESS
 
 #include "app/app_metronome.h"
 
@@ -40,7 +42,7 @@ static volatile uint8_t midi_clock_realtime_output_enabled = 1U;
 #define MIDI_CLOCK_OUTPUT_TIMER_TICK_HZ    100000U
 #define MIDI_CLOCK_OUTPUT_COUNTS_PER_MINUTE (MIDI_CLOCK_OUTPUT_TIMER_TICK_HZ * 60U)
 #define MIDI_CLOCK_OUTPUT_TIMER_PRESCALER_DIVISOR 960U
-#define MIDI_CLOCK_OUTPUT_IRQ_PREEMPT_PRIORITY 2U
+#define MIDI_CLOCK_OUTPUT_IRQ_PREEMPT_PRIORITY 0U
 #define MIDI_CLOCK_OUTPUT_IRQ_SUBPRIORITY  0U
 
 static void midi_clock_output_apply_pulse_counts(uint32_t pulse_counts);
@@ -210,15 +212,22 @@ void MidiClock_HandoffExternalPhaseToInternal(uint32_t now_us)
     uint32_t total_tick_count;
     uint32_t origin_tick_count;
     uint32_t primask;
+    MidiClockEstimatorStatus_t estimator_status;
 
     primask = __get_PRIMASK();
     __disable_irq();
     last_pulse_us = midi_clock_last_captured_pulse_us;
-    (void)MidiClockEstimator_GetRecoveredPulseTimestampUs(&last_pulse_us);
     total_tick_count = midi_transport_global_tick_count;
     origin_tick_count = midi_transport_origin_tick_count;
     if (primask == 0U)
         __enable_irq();
+
+    MidiClockEstimator_GetStatus(&estimator_status);
+    if (estimator_status.live_lock == MIDI_CLOCK_LOCK_QUALITY_LOCKED
+     && estimator_status.publication_ready)
+    {
+        (void)MidiClockEstimator_GetRecoveredPulseTimestampUs(&last_pulse_us);
+    }
 
     MidiClock_AlignInternalPhaseToExternal(now_us,
                                            last_pulse_us,

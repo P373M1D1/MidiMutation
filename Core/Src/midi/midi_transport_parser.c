@@ -1,4 +1,6 @@
+#define MIDI_TRANSPORT_INTERNAL_ACCESS 1
 #include "midi/midi_transport_internal.h"
+#undef MIDI_TRANSPORT_INTERNAL_ACCESS
 
 #define MIDI_STATUS_BIT              0x80U
 #define MIDI_TIMECODE_QUARTER_FRAME  0xF1U

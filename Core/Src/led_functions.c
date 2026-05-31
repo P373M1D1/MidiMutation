@@ -20,6 +20,7 @@ static volatile uint32_t midi_in_off_tick = 0U; /* PF15      – MIDI in start  
 static volatile uint8_t beat_pulse_compare_active = 0U;
 static volatile uint32_t beat_pulse_compare_on_us = 0U;
 static volatile uint32_t beat_pulse_compare_off_us = 0U;
+static volatile uint8_t led_timing_compare_pending = 0U;
 static uint16_t active_button_led_pin = 0U; /* one active selection LED across preset/random/mute */
 static uint8_t special_function_led_active = 0U; /* sticky state for button 10 mode */
 
@@ -257,15 +258,14 @@ static uint8_t LED_BeatPulseIsAllowed(void)
 /**
  * Handles the TIM2 compare interrupt that drives beat pulse edges.
  */
-void LED_HandleTimingCounterIrq(void)
+void LED_ServiceDeferredTimingWork(void)
 {
-    if (((TIM2->SR & TIM_SR_CC3IF) == 0U)
-     || ((TIM2->DIER & TIM_DIER_CC3IE) == 0U))
+    if (led_timing_compare_pending == 0U)
     {
         return;
     }
 
-    TIM2->SR = ~TIM_SR_CC3IF;
+    led_timing_compare_pending = 0U;
 
     if (!LED_BeatPulseIsAllowed())
     {
@@ -282,6 +282,25 @@ void LED_HandleTimingCounterIrq(void)
     }
 
     LED_DisarmBeatPulseCompare();
+}
+
+void LED_HandleTimingCounterIrq(void)
+{
+    LED_FlagTimingCounterIrq();
+    LED_ServiceDeferredTimingWork();
+}
+
+__attribute__((section(".RamFunc")))
+void LED_FlagTimingCounterIrq(void)
+{
+    if (((TIM2->SR & TIM_SR_CC3IF) == 0U)
+     || ((TIM2->DIER & TIM_DIER_CC3IE) == 0U))
+    {
+        return;
+    }
+
+    TIM2->SR = ~TIM_SR_CC3IF;
+    led_timing_compare_pending = 1U;
 }
 
 /**
@@ -488,6 +507,8 @@ void LED_Update(void)
         HAL_GPIO_WritePin(TAP_FEEDBACK_LED_GPIO_Port, TAP_FEEDBACK_LED_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_RESET);
     }
+
+    LED_ServiceDeferredTimingWork();
 
     LED_UpdateExpiredOutputs(now);
 

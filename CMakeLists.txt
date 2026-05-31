@@ -98,6 +98,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/midi/midi_clock_estimator.c
     Core/Src/midi/midi_input.c
     Core/Src/midi/midi_monitor.c
+    Core/Src/midi/clock_engine.c
     Core/Src/midi/midi_clock.c
     Core/Src/midi/midi_transport_cycle.c
     Core/Src/midi/midi_transport_events.c

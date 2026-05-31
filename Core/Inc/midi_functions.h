@@ -182,11 +182,15 @@ uint8_t MidiClockHandleInternalPulse(void);
 
 /**
  * @brief  Return 1 while external MIDI transport is considered running.
+ * @note   Architecture rule: non-transport modules should read timing state
+ *         through ClockEngine snapshot/query APIs. This direct getter is a
+ *         legacy surface retained for transport/clock internals.
  */
 uint8_t MidiTransportIsRunning(void);
 
 /**
  * @brief  Return 1 when external MIDI sync disappeared without a Stop event.
+ * @note   Prefer ClockEngine_IsSyncLost() outside transport/clock internals.
  */
 uint8_t MidiClockIsSyncLost(void);
 
@@ -213,6 +217,7 @@ MidiClockLockQuality_t MidiClockGetLockQuality(void);
 
 /**
  * @brief  Return the authoritative synchronization lifecycle state.
+ * @note   Prefer ClockEngine_GetSyncState() outside transport/clock internals.
  */
 MidiSyncState_t MidiClockGetSyncState(void);
 
@@ -236,6 +241,7 @@ uint32_t MidiClockGetLastLockAgeMs(void);
 /**
  * @brief  Return 1 once the external clock tempo is considered safe for
  *         downstream musical consumers to trust.
+ * @note   Prefer ClockEngine_IsPublicationReady() outside transport internals.
  */
 uint8_t MidiClockIsPublicationReady(void);
 
@@ -324,6 +330,8 @@ MidiClockRecoveryHint_t MidiClockGetRecoveryHint(void);
  * @brief  Return 1 when external MIDI clock pulses are currently present.
  *         Unlike MidiTransportIsRunning(), this does not require a Start or
  *         Continue transport event.
+ * @note   Prefer ClockEngine_IsExternalSignalPresent() outside transport
+ *         internals to keep a single read surface.
  */
 uint8_t MidiClockIsExternalSignalPresent(void);
 

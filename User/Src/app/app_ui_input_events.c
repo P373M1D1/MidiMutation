@@ -340,31 +340,7 @@ void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
         return;
     }
 
-    if ((press_mask & 0x04U) && Display_PresetEditIsActive())
-    {
-        if (Display_PresetInitConfirmIsActive())
-        {
-            Display_PresetInitConfirmExit();
-            return;
-        }
-
-        AppUi_PresetEditBackOutOneLevel();
-        return;
-    }
-
-    if ((press_mask & 0x04U) && !Display_PresetEditIsActive())
-    {
-        AppUi_MenuEnter();
-        return;
-    }
-
-    if ((press_mask & 0x01U) && !Display_PresetEditIsActive())
-    {
-        /* Live mode still uses the left press to enter preset edit so the UI
-         * remains reachable without first opening the menu shell. */
-        AppUi_PresetEditEnter();
-    }
-    else if ((press_mask & 0x01U) && Display_PresetEditIsActive() && !Display_PresetNameEditIsActive())
+    if ((press_mask & 0x04U) && Display_PresetEditIsActive() && !Display_PresetNameEditIsActive())
     {
         if (Display_PresetInitConfirmIsActive())
             return;
@@ -387,5 +363,31 @@ void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
                 Display_PresetInitConfirmEnter();
             }
         }
+        return;
+    }
+
+    if ((press_mask & 0x01U) && Display_PresetEditIsActive())
+    {
+        if (Display_PresetInitConfirmIsActive())
+        {
+            Display_PresetInitConfirmExit();
+            return;
+        }
+
+        AppUi_PresetEditBackOutOneLevel();
+        return;
+    }
+
+    if ((press_mask & 0x04U) && !Display_PresetEditIsActive())
+    {
+        AppUi_MenuEnter();
+        return;
+    }
+
+    if ((press_mask & 0x01U) && !Display_PresetEditIsActive())
+    {
+        /* Live mode still uses the left press to enter preset edit so the UI
+         * remains reachable without first opening the menu shell. */
+        AppUi_PresetEditEnter();
     }
 }

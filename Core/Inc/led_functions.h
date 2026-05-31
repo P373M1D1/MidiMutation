@@ -89,6 +89,8 @@ const char *LED_GetButtonMonitorLabel(uint8_t button_index);
  */
 void LED_TickUpdate(uint32_t now);
 void LED_HandleTimingCounterIrq(void);
+void LED_FlagTimingCounterIrq(void);
+void LED_ServiceDeferredTimingWork(void);
 
 /**
  * @brief  Return whether any transient visible feedback pulse is still active.

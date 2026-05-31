@@ -5,6 +5,7 @@
 #include "display/display_compose_helpers.h"
 #include "display/display_internal.h"
 #include "display/display_layout.h"
+#include "midi/clock_engine.h"
 #include "midi_functions.h"
 #include "runtime_config.h"
 
@@ -30,6 +31,7 @@ typedef enum
 
 #define BPM_DISPLAY_DIAGNOSTICS_ENABLED    1U
 #define BPM_DISPLAY_DIAGNOSTIC_REPORT_MS 1000U
+#define BPM_DISPLAY_DIAG_VERBOSE_LOCKED     1U
 #define BPM_SYNCING_TEXT                "SYNCING"
 
 static uint32_t display_transport_render_counter = 0U;
@@ -84,17 +86,20 @@ static uint8_t Display_ShouldShowSyncingHeader(void)
 {
     MidiSyncState_t sync_state;
 
-    if (MidiClockIsSyncLost())
+    if (ClockEngine_IsSyncLost())
         return 0U;
 
-    if (!MidiTransportIsRunning() && !MidiTransportStopLatched())
+    if (!ClockEngine_IsRunning() && !MidiTransportStopLatched())
         return 0U;
 
-    sync_state = MidiClockGetSyncState();
+    sync_state = ClockEngine_GetSyncState();
+    /**
+     * Keep SYNC text only for active acquisition phases.
+     * RELOCK/REARM can still provide a usable external tempo source and
+     * showing SYNC there can appear stuck after stop/play cycles.
+     */
     return (uint8_t)(sync_state == MIDI_SYNC_STATE_ACQUIRE
-                  || sync_state == MIDI_SYNC_STATE_TRACKING
-                  || sync_state == MIDI_SYNC_STATE_RELOCK
-                  || sync_state == MIDI_SYNC_STATE_REARM);
+                  || sync_state == MIDI_SYNC_STATE_TRACKING);
 }
 
 static void Display_FormatRightAlignedStatusText(char *buffer,
@@ -131,9 +136,9 @@ static void Display_UpdateTransportBarBeat(void)
     uint8_t have_stamped_quarter = 0U;
     uint8_t force_refresh_from_stamp = 0U;
 
-    sync_lost = MidiClockIsSyncLost();
-    transport_running = MidiTransportIsRunning();
-    external_signal_present = MidiClockIsExternalSignalPresent();
+    sync_lost = ClockEngine_IsSyncLost();
+    transport_running = ClockEngine_IsRunning();
+    external_signal_present = ClockEngine_IsExternalSignalPresent();
     stop_latched = MidiTransportStopLatched();
     have_barbeat = MidiClockGetBarBeat(&bar, &beat);
     have_transport_quarter_count = MidiClockGetQuarterNoteCount(&transport_quarter_count);
@@ -440,7 +445,7 @@ void Display_UpdateBPM(uint16_t bpm)
         return;
 
     display_bpm_x10 = (uint16_t)(bpm * 10U);
-    sync_lost = MidiClockIsSyncLost();
+    sync_lost = ClockEngine_IsSyncLost();
     show_syncing = Display_ShouldShowSyncingHeader();
     if (!show_syncing && !sync_lost && MidiClockGetMeasuredExternalBpmX10(&measured_bpm_x10))
     {
@@ -579,7 +584,11 @@ void Display_BpmDiagnosticService(void)
     uint8_t source_valid;
     uint8_t display_valid = display_state.bpm_display_valid;
     uint8_t display_external = display_state.bpm_display_external;
-    uint8_t sync_lost = MidiClockIsSyncLost();
+    uint8_t display_syncing = display_state.bpm_display_syncing;
+    uint8_t transport_running = ClockEngine_IsRunning();
+    uint8_t stop_latched = ClockEngine_IsStopLatched();
+    uint8_t header_should_sync = 0U;
+    uint8_t sync_lost = ClockEngine_IsSyncLost();
     uint8_t hold = 0U;
     uint8_t slew_pending = 0U;
     uint32_t transport_quarter_count = 0U;
@@ -693,10 +702,10 @@ void Display_BpmDiagnosticService(void)
         bar_delta = (int16_t)transport_bar - (int16_t)ui_rendered_bar_snapshot;
         beat_delta = (int16_t)transport_beat - (int16_t)ui_rendered_beat_snapshot;
     }
-    estimator_window_pulses = MidiClockGetExternalBpmWindowPulses();
-    estimator_valid = MidiClockIsEstimatorValid();
-    publication_ready = MidiClockIsPublicationReady();
-    switch (MidiClockGetSyncState())
+    estimator_window_pulses = ClockEngine_GetEstimatorWindowPulses();
+    estimator_valid = ClockEngine_IsEstimatorValid();
+    publication_ready = ClockEngine_IsPublicationReady();
+    switch (ClockEngine_GetSyncState())
     {
     case MIDI_SYNC_STATE_LOCKED:
         sync_state = 'L';
@@ -726,7 +735,7 @@ void Display_BpmDiagnosticService(void)
         sync_state = '-';
         break;
     }
-    switch (MidiClockGetTransportConfidence())
+    switch (ClockEngine_GetTransportConfidence())
     {
     case MIDI_CLOCK_TRANSPORT_CONFIDENCE_STABLE:
         transport_confidence = 'S';
@@ -741,7 +750,7 @@ void Display_BpmDiagnosticService(void)
         transport_confidence = '-';
         break;
     }
-    switch (MidiClockGetLockQuality())
+    switch (ClockEngine_GetLockQuality())
     {
     case MIDI_CLOCK_LOCK_QUALITY_LOCKED:
         live_lock = 'L';
@@ -753,6 +762,8 @@ void Display_BpmDiagnosticService(void)
         live_lock = '-';
         break;
     }
+
+    header_should_sync = Display_ShouldShowSyncingHeader();
 
     if (!raw_valid
      && !source_valid
@@ -784,14 +795,17 @@ void Display_BpmDiagnosticService(void)
         }
     }
 
-    if (sync_state == 'L'
-     && ui_transport_quarter_gap == 0U
-     && bar_delta == 0
-     && beat_delta == 0
-     && pending_stamp_events == 0U
-     && beat_led_to_bar_lag_effective_ms <= 50U)
+    if (!BPM_DISPLAY_DIAG_VERBOSE_LOCKED)
     {
-        compact_locked_report = 1U;
+        if (sync_state == 'L'
+         && ui_transport_quarter_gap == 0U
+         && bar_delta == 0
+         && beat_delta == 0
+         && pending_stamp_events == 0U
+         && beat_led_to_bar_lag_effective_ms <= 50U)
+        {
+            compact_locked_report = 1U;
+        }
     }
 
     if (compact_locked_report)
@@ -800,9 +814,14 @@ void Display_BpmDiagnosticService(void)
          * Keep steady LOCKED diagnostics compact so serial logging does not
          * monopolize foreground time and delay bar/beat rendering.
          */
-        printf("BPMDIAG_BAR sync_state=%c live_lock=%c transport_qn=%lu ui_qn=%lu ui_qn_gap=%lu lag_ms=%lu lag_effective_ms=%lu transport_bar=%u transport_beat=%u ui_bar=%u ui_beat=%u ui_bar_delta=%d ui_beat_delta=%d\r\n",
+         printf("BPMDIAG_V2_BAR sync_state=%c live_lock=%c transport_run=%u stop_latched=%u sync_lost=%u header_should_sync=%u header_syncing=%u transport_qn=%lu ui_qn=%lu ui_qn_gap=%lu lag_ms=%lu lag_effective_ms=%lu transport_bar=%u transport_beat=%u ui_bar=%u ui_beat=%u ui_bar_delta=%d ui_beat_delta=%d\r\n",
                sync_state,
                live_lock,
+             (unsigned)transport_running,
+             (unsigned)stop_latched,
+             (unsigned)sync_lost,
+             (unsigned)header_should_sync,
+             (unsigned)display_syncing,
                (unsigned long)transport_quarter_count,
                (unsigned long)ui_last_rendered_quarter_snapshot,
                (unsigned long)ui_transport_quarter_gap,
@@ -817,7 +836,7 @@ void Display_BpmDiagnosticService(void)
         return;
     }
 
-          printf("BPMDIAG raw_bpm=%u.%u raw_valid=%u source_bpm=%u.%u source_valid=%u transport_qn_valid=%u transport_qn=%lu ui_qn_rendered=%lu ui_qn_gap=%lu beat_led_qn=%lu bar_counter_qn=%lu beat_led_to_bar_lag_qn=%lu beat_led_to_bar_lag_ms=%lu beat_led_to_bar_lag_us=%lu beat_led_to_bar_lag_ms_true=%lu beat_led_to_bar_lag_effective_us=%lu beat_led_to_bar_lag_effective_ms=%lu ui_render_count=%lu transport_bar_valid=%u transport_bar=%u transport_beat=%u ui_bar_valid=%u ui_bar=%u ui_beat=%u ui_bar_delta=%d ui_beat_delta=%d est_window=%u history_confidence=%c est_valid=%u publication_ready=%u sync_state=%c live_lock=%c display_bpm=%u.%u display_external=%u sync_lost=%u display_age_ms=%lu delta=%u.%u hysteresis=%u.%u hold=%u slew_pending=%u\r\n",
+          printf("BPMDIAG_V2 raw_bpm=%u.%u raw_valid=%u source_bpm=%u.%u source_valid=%u transport_qn_valid=%u transport_qn=%lu ui_qn_rendered=%lu ui_qn_gap=%lu beat_led_qn=%lu bar_counter_qn=%lu beat_led_to_bar_lag_qn=%lu beat_led_to_bar_lag_ms=%lu beat_led_to_bar_lag_us=%lu beat_led_to_bar_lag_ms_true=%lu beat_led_to_bar_lag_effective_us=%lu beat_led_to_bar_lag_effective_ms=%lu ui_render_count=%lu transport_bar_valid=%u transport_bar=%u transport_beat=%u ui_bar_valid=%u ui_bar=%u ui_beat=%u ui_bar_delta=%d ui_beat_delta=%d est_window=%u history_confidence=%c est_valid=%u publication_ready=%u sync_state=%c live_lock=%c transport_run=%u stop_latched=%u header_should_sync=%u header_syncing=%u display_bpm=%u.%u display_external=%u sync_lost=%u display_age_ms=%lu delta=%u.%u hysteresis=%u.%u hold=%u slew_pending=%u\r\n",
            (unsigned)(raw_bpm_x10 / 10U),
            (unsigned)(raw_bpm_x10 % 10U),
            (unsigned)raw_valid,
@@ -851,6 +870,10 @@ void Display_BpmDiagnosticService(void)
               (unsigned)publication_ready,
               sync_state,
               live_lock,
+              (unsigned)transport_running,
+              (unsigned)stop_latched,
+              (unsigned)header_should_sync,
+              (unsigned)display_syncing,
            (unsigned)(displayed_bpm_x10 / 10U),
            (unsigned)(displayed_bpm_x10 % 10U),
            (unsigned)display_external,
@@ -863,4 +886,9 @@ void Display_BpmDiagnosticService(void)
            (unsigned)hold,
            (unsigned)slew_pending);
 #endif
+}
+
+uint8_t Display_IsBpmHeaderSyncing(void)
+{
+    return display_state.bpm_display_syncing;
 }

@@ -40,6 +40,8 @@ void AppMetronome_Init(void);
 void AppMetronome_Service(void);
 void AppMetronome_DiagnosticService(void);
 void AppMetronome_HandleTimingCounterIrq(void);
+void AppMetronome_FlagTimingCounterIrq(void);
+void AppMetronome_ServiceDeferredTimingWork(void);
 void AppMetronome_ResetCycle(void);
 void AppMetronome_OnQuarterNote(AppMetronomeSource_t source);
 void AppMetronome_OnQuarterNoteAt(AppMetronomeSource_t source, uint32_t anchor_us);

@@ -111,3 +111,125 @@ This repository is a real-time MIDI firmware project.
 4. Build after changes and report:
    - compile status
    - timing-path risk assessment
+
+---
+
+## Absolute Clock Stability Contract
+
+PRIMARY GOAL: ABSOLUTE MIDI CLOCK STABILITY
+
+The internal MIDI clock must:
+- have minimal jitter
+- maintain deterministic phase progression
+- keep stable downbeat alignment under all system load conditions
+- never be influenced by UI, LEDs, presets, or event load
+
+Clock stability takes priority over:
+- UI responsiveness
+- LED updates
+- preset switching
+- Timebend effects
+- save operations
+- debug logging
+
+### System Priority Model (Strict)
+
+Tier 0 (hard real-time, never delay or block):
+- MIDI clock generation
+- phase accumulator updates
+- TIM2/TIM6 ISR timing logic
+
+Tier 0 constraints:
+- Must execute in constant time
+- Must not depend on application/UI/menu state
+- Must not call application logic
+- Must not access UI, LED, preset, or save systems
+
+Tier 1 (soft real-time, 5-10 ms tolerance):
+- preset switching
+- Timebend activation/deactivation
+- LED updates
+- UI updates
+- menu navigation
+
+Tier 1 may be delayed slightly but must never affect clock timing.
+
+Tier 2 (non-critical):
+- flash saving
+- diagnostics logging
+- debug output
+- UI animations
+
+Tier 2 must be deferred under load.
+
+### Clock Engine Architecture Rule (Absolute)
+
+There is exactly one timing authority: Clock Engine.
+
+Only Clock Engine may:
+- update timebase
+- maintain phase accumulator
+- compute MIDI tick timing
+- generate downbeat flags
+
+ISR contract:
+- TIM2/TIM6 ISR must only call `ClockEngine_ISR_Update()` (or equivalent single timing-core entry point)
+- No other logic is allowed in clock ISR context
+
+### Clock Output Snapshot Model
+
+All non-clock subsystems must consume a derived clock snapshot, for example:
+
+`typedef struct { uint32_t phase; uint32_t tick; bool downbeat; } clock_snapshot_t;`
+
+UI, LED, MIDI output formatting, and Timebend must be derived from snapshots and must never feed back into timing generation.
+
+### Forbidden Behavior
+
+Do not:
+- update LEDs inside clock ISR paths
+- update UI inside clock ISR paths
+- run Timebend logic inside clock ISR paths
+- modify preset state inside clock logic
+- use event queues to drive clock timing
+- block ISR for anything except timing-core update
+
+Do not allow UI/menu/preset state to influence clock generation.
+
+### LED/UI Rule
+
+LEDs and UI are purely derived systems.
+
+They must:
+- reflect clock snapshots and runtime state
+- never influence timing
+
+Downbeat LED rule:
+- must follow clock phase only
+- must not interrupt or delay timing events
+
+### Timebend Rule
+
+Timebend is an overlay system:
+- does not replace preset state
+- does not influence clock generation
+- does not alter phase timing
+
+Timebend only modifies interpretation/output after clock generation.
+
+### Event System Rule
+
+Event queues:
+- may drop non-critical events under load
+- must never be used for clock timing
+- must not influence ISR timing behavior
+
+Clock path must bypass all event queues.
+
+### Acceptance Criteria
+
+- MIDI clock remains stable under maximum system load
+- LED and bar counter follow downbeat correctly
+- UI latency does not affect timing
+- Timebend does not influence clock generation
+- ISR execution remains minimal and deterministic

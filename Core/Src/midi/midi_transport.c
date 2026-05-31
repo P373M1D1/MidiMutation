@@ -1,5 +1,7 @@
 #include "midi_functions.h"
+#define MIDI_TRANSPORT_INTERNAL_ACCESS 1
 #include "midi/midi_transport_internal.h"
+#undef MIDI_TRANSPORT_INTERNAL_ACCESS
 
 /* External MIDI clock/transport dispatch surface.
  *
@@ -11,23 +13,6 @@
 #define MIDI_REALTIME_START                0xFAU
 #define MIDI_REALTIME_CONTINUE             0xFBU
 #define MIDI_REALTIME_STOP                 0xFCU
-
-__attribute__((section(".RamFunc")))
-static void MidiTransport_TryResumeFromRecoveryClock(uint32_t now)
-{
-    if (!midi_transport_rearm_required || !midi_clock_sync_lost)
-        return;
-
-    /* When sync was lost due to timeout, let a returned clock stream
-     * re-arm transport immediately without requiring a new Start/Continue. */
-    MidiTransport_ResetClockTracking();
-    MidiTransportCycle_Arm();
-    midi_transport_rearm_required = 0U;
-    midi_transport_running = 1U;
-    midi_transport_stop_latched = 0U;
-    midi_transport_event = MIDI_TRANSPORT_EVENT_CONTINUE;
-    MidiTransport_OnClockPulse(now);
-}
 
 __attribute__((section(".RamFunc")))
 uint8_t MidiTransport_HandleRealtimeByteFast(uint8_t byte, uint32_t now)
@@ -49,8 +34,10 @@ uint8_t MidiTransport_HandleRealtimeByteFast(uint8_t byte, uint32_t now)
     case MIDI_REALTIME_CLOCK:
         if (midi_transport_rearm_required)
         {
+            /* Returned clock during recovery wait is observed for diagnostics
+             * and CLOCK IN indication only. Transport phase continuity cannot
+             * be trusted without explicit START/CONTINUE re-anchor. */
             MidiTransport_NoteClockDuringRecoveryWait(now);
-            MidiTransport_TryResumeFromRecoveryClock(now);
             return 1U;
         }
         MidiTransport_OnClockPulse(now);
@@ -89,8 +76,9 @@ void MidiReceive(uint8_t byte)
 
     if (midi_transport_rearm_required)
     {
+        /* Keep observing returned pulses but do not re-arm bar progression
+         * until an explicit START/CONTINUE arrives. */
         MidiTransport_NoteClockDuringRecoveryWait(TIM2->CNT);
-        MidiTransport_TryResumeFromRecoveryClock(TIM2->CNT);
         return;
     }
 

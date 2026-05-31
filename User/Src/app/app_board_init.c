@@ -14,10 +14,10 @@
 #define APP_BOARD_MIDI_OUTPUT_TX_GPIO_PORT GPIOD
 #define APP_BOARD_MIDI_OUTPUT_TX_PIN GPIO_PIN_1
 #define APP_BOARD_MIDI_OUTPUT_TX_AF GPIO_AF11_UART4
-#define APP_BOARD_MIDI_OUTPUT_UART_IRQ_PREEMPT_PRIORITY 1U
+#define APP_BOARD_MIDI_OUTPUT_UART_IRQ_PREEMPT_PRIORITY 2U
 #define APP_BOARD_MIDI_OUTPUT_UART_IRQ_SUBPRIORITY 0U
 
-#define APP_BOARD_TIMING_COUNTER_IRQ_PREEMPT_PRIORITY 2U
+#define APP_BOARD_TIMING_COUNTER_IRQ_PREEMPT_PRIORITY 1U
 #define APP_BOARD_TIMING_COUNTER_IRQ_SUBPRIORITY 0U
 
 #define APP_BOARD_RELAY1_GPIO_PORT GPIOG
@@ -173,8 +173,8 @@ void AppBoard_HandleTimingCounterIrq(void)
     }
 
     MidiHandleTimingCounterIrq();
-    LED_HandleTimingCounterIrq();
-    AppMetronome_HandleTimingCounterIrq();
+    LED_FlagTimingCounterIrq();
+    AppMetronome_FlagTimingCounterIrq();
 }
 
 __attribute__((section(".RamFunc")))

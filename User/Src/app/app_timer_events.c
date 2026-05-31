@@ -14,6 +14,7 @@
 #include "button_functions.h"
 #include "display_functions.h"
 #include "led_functions.h"
+#include "midi/clock_engine.h"
 #include "midi_functions.h"
 
 #include <stdio.h>
@@ -71,6 +72,7 @@ uint8_t AppTimerEvents_HandleEvent(const AppEvent_t *event)
 
 static void AppTimerEvents_Handle10MsTick(void)
 {
+    ClockEngine_Service10ms();
     MidiInput_ServiceRealtimeRx();
     AppTempo_ExternalClockHoldoverMirrorService();
     MidiOutputSchedulerService();
@@ -191,7 +193,7 @@ static void AppTimerEvents_Handle100MsTick(void)
         break;
     case 4U:
         {
-            MidiSyncState_t sync_state = MidiClockGetSyncState();
+            MidiSyncState_t sync_state = ClockEngine_GetSyncState();
             uint8_t emit_clkdiag = 0U;
 
             if (!app_timer_events_clkdiag_state_valid

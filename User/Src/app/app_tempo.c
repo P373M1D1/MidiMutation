@@ -9,6 +9,7 @@
 #include "button_functions.h"
 #include "display_functions.h"
 #include "led_functions.h"
+#include "midi/clock_engine.h"
 #include "midi_devices.h"
 #include "midi_functions.h"
 #include "stm32f4xx_hal.h"
@@ -61,7 +62,7 @@ static void AppTempo_HandleTapPress(uint32_t now)
         return;
     }
 
-    if (MidiClockIsExternalSignalPresent())
+    if (ClockEngine_IsExternalSignalPresent())
         return;
 
     if (app_tempo_tap_count > 0U)
@@ -121,7 +122,7 @@ void AppTempo_ApplyEncoderStep(int8_t step)
 {
     int32_t next_bpm = (int32_t)g_bpm + (int32_t)step;
 
-    if (MidiClockIsExternalSignalPresent())
+    if (ClockEngine_IsExternalSignalPresent())
         return;
 
     if (next_bpm < (int32_t)BPM_MIN)

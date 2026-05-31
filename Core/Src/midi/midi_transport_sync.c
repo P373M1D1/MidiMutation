@@ -1,4 +1,6 @@
+#define MIDI_TRANSPORT_INTERNAL_ACCESS 1
 #include "midi/midi_transport_internal.h"
+#undef MIDI_TRANSPORT_INTERNAL_ACCESS
 
 #include "midi/midi_clock_estimator.h"
 #include "midi/midi_clock_internal.h"
@@ -23,6 +25,7 @@ void MidiTransport_OnClockPulse(uint32_t now)
 {
     uint32_t quarter_note_anchor_us = now;
     uint32_t quarter_note_count;
+    MidiClockEstimatorStatus_t estimator_status;
 
     if (midi_clock_sync_lost)
     {
@@ -57,7 +60,15 @@ void MidiTransport_OnClockPulse(uint32_t now)
     midi_transport_last_quarter_note_anchor_us = quarter_note_anchor_us;
     if (midi_transport_quarter_note_event_count < UINT32_MAX)
         midi_transport_quarter_note_event_count++;
-    (void)MidiClockEstimator_GetRecoveredPulseTimestampUs(&quarter_note_anchor_us);
+    /* During ACQUIRE/TRACKING the recovered pulse timestamp can move as the
+     * estimator settles, which makes beat feedback appear double-triggered or
+     * jittery. Use recovered anchor only once lock/publication are ready. */
+    MidiClockEstimator_GetStatus(&estimator_status);
+    if (estimator_status.live_lock == MIDI_CLOCK_LOCK_QUALITY_LOCKED
+     && estimator_status.publication_ready)
+    {
+        (void)MidiClockEstimator_GetRecoveredPulseTimestampUs(&quarter_note_anchor_us);
+    }
 
     if (!MidiTransport_IsFlashBusyFast())
         MidiFeedback_PulseExternalClockBeatAt(quarter_note_anchor_us);

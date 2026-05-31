@@ -1,4 +1,6 @@
+#define MIDI_TRANSPORT_INTERNAL_ACCESS 1
 #include "midi/midi_transport_internal.h"
+#undef MIDI_TRANSPORT_INTERNAL_ACCESS
 
 #include "midi/midi_clock_estimator.h"
 #include "midi/midi_clock_internal.h"
@@ -1124,17 +1126,19 @@ uint8_t MidiTransport_IsExternalClockActive(void)
     return (uint8_t)((TIM2->CNT - last_pulse_us) <= midi_clock_external_activity_timeout_us);
 }
 
-uint8_t MidiTransportIsRunning(void)
+void MidiTransport_ServiceSyncLifecycle(void)
 {
     MidiTransport_UpdateSyncState();
     midi_transport_update_sync_lifecycle();
+}
+
+uint8_t MidiTransportIsRunning(void)
+{
     return midi_transport_running;
 }
 
 uint8_t MidiClockIsSyncLost(void)
 {
-    MidiTransport_UpdateSyncState();
-    midi_transport_update_sync_lifecycle();
     return midi_clock_sync_lost;
 }
 
@@ -1142,8 +1146,6 @@ uint8_t MidiClockIsEstimatorValid(void)
 {
     MidiClockEstimatorStatus_t status;
 
-    MidiTransport_UpdateSyncState();
-    midi_transport_update_sync_lifecycle();
     MidiClockEstimator_GetStatus(&status);
     return status.estimator_valid;
 }
@@ -1152,8 +1154,6 @@ MidiClockTransportConfidence_t MidiClockGetTransportConfidence(void)
 {
     MidiClockEstimatorStatus_t status;
 
-    MidiTransport_UpdateSyncState();
-    midi_transport_update_sync_lifecycle();
     MidiClockEstimator_GetStatus(&status);
     return status.history_confidence;
 }
@@ -1162,16 +1162,12 @@ MidiClockLockQuality_t MidiClockGetLockQuality(void)
 {
     MidiClockEstimatorStatus_t status;
 
-    MidiTransport_UpdateSyncState();
-    midi_transport_update_sync_lifecycle();
     MidiClockEstimator_GetStatus(&status);
     return status.live_lock;
 }
 
 MidiSyncState_t MidiClockGetSyncState(void)
 {
-    MidiTransport_UpdateSyncState();
-    midi_transport_update_sync_lifecycle();
     return midi_sync_state;
 }
 
@@ -1179,8 +1175,6 @@ uint32_t MidiClockGetSyncStateAgeMs(void)
 {
     uint32_t now_ms;
 
-    MidiTransport_UpdateSyncState();
-    midi_transport_update_sync_lifecycle();
     now_ms = HAL_GetTick();
     return now_ms - midi_sync_state_enter_tick_ms;
 }
@@ -1189,8 +1183,6 @@ uint32_t MidiClockGetHoldoverAgeMs(void)
 {
     uint32_t now_ms;
 
-    MidiTransport_UpdateSyncState();
-    midi_transport_update_sync_lifecycle();
     if (midi_sync_state != MIDI_SYNC_STATE_HOLDOVER || midi_sync_holdover_enter_tick_ms == 0U)
         return 0U;
 
@@ -1202,8 +1194,6 @@ uint32_t MidiClockGetLastLockAgeMs(void)
 {
     uint32_t now_ms;
 
-    MidiTransport_UpdateSyncState();
-    midi_transport_update_sync_lifecycle();
     if (midi_sync_last_lock_tick_ms == 0U)
         return 0U;
 
@@ -1234,8 +1224,6 @@ uint8_t MidiClockGetExternalBpm(uint16_t *bpm)
 
 uint8_t MidiClockGetExternalBpmX10(uint16_t *bpm_x10)
 {
-    MidiTransport_UpdateSyncState();
-
     if (!bpm_x10 || !MidiTransport_IsExternalClockActive() || !MidiClockIsPublicationReady())
         return 0U;
 
@@ -1250,15 +1238,22 @@ uint8_t MidiClockGetExternalBpmX10(uint16_t *bpm_x10)
 
 uint8_t MidiClockGetMeasuredExternalBpmX10(uint16_t *bpm_x10)
 {
-    MidiTransport_UpdateSyncState();
-
     if (!bpm_x10 || !MidiTransport_IsExternalClockActive())
         return 0U;
 
-    if (MidiClockEstimator_GetRecoveredBpmX10(bpm_x10))
+    /**
+     * Prefer the window-averaged measured BPM for display.
+     * It reacts immediately to tempo changes because the estimator
+     * automatically shrinks the averaging window on detected motion.
+     * The PLL-recovered BPM has frequency tracking gain 1/64, so it
+     * lags a 1 BPM change by ~70 pulses (~1.5s at 110 BPM) — too slow
+     * for a responsive display.  Fall back to PLL then raw if the
+     * window average is not yet valid.
+     */
+    if (MidiClockEstimator_GetMeasuredBpmX10(bpm_x10))
         return 1U;
 
-    if (MidiClockEstimator_GetMeasuredBpmX10(bpm_x10))
+    if (MidiClockEstimator_GetRecoveredBpmX10(bpm_x10))
         return 1U;
 
     if (MidiClockEstimator_GetRawBpmX10(bpm_x10))
@@ -1271,15 +1266,12 @@ uint8_t MidiClockGetExternalBpmWindowPulses(void)
 {
     MidiClockEstimatorStatus_t status;
 
-    MidiTransport_UpdateSyncState();
     MidiClockEstimator_GetStatus(&status);
     return status.window_pulses;
 }
 
 uint8_t MidiClockGetRawExternalBpmX10(uint16_t *bpm_x10)
 {
-    MidiTransport_UpdateSyncState();
-
     if (!bpm_x10 || !MidiClockEstimator_GetRawBpmX10(bpm_x10) || !MidiTransport_IsExternalClockActive())
         return 0U;
 
@@ -1296,7 +1288,6 @@ MidiClockRecoveryHint_t MidiClockGetRecoveryHint(void)
 
 uint8_t MidiClockIsExternalSignalPresent(void)
 {
-    MidiTransport_UpdateSyncState();
     return MidiTransport_IsExternalClockActive();
 }
 
@@ -1377,8 +1368,6 @@ uint8_t MidiTransportGetContinuousPhase(MidiTransportPhaseSnapshot_t *phase)
 
     if (!phase)
         return 0U;
-
-    MidiTransport_UpdateSyncState();
 
     primask = __get_PRIMASK();
     __disable_irq();
@@ -1575,19 +1564,27 @@ void MidiClockDiagnosticService(void)
 
     sync_state = midi_sync_state;
     sync_state_text = midi_transport_sync_state_name(sync_state);
-    sync_state_age_ms = now - midi_sync_state_enter_tick_ms;
+    sync_state_age_ms = (now >= midi_sync_state_enter_tick_ms)
+        ? (now - midi_sync_state_enter_tick_ms)
+        : 0U;
     holdover_age_ms = (midi_sync_holdover_enter_tick_ms == 0U)
         ? 0U
-        : (now - midi_sync_holdover_enter_tick_ms);
+        : ((now >= midi_sync_holdover_enter_tick_ms)
+            ? (now - midi_sync_holdover_enter_tick_ms)
+            : 0U);
     last_lock_age_ms = (midi_sync_last_lock_tick_ms == 0U)
         ? 0U
-        : (now - midi_sync_last_lock_tick_ms);
+        : ((now >= midi_sync_last_lock_tick_ms)
+            ? (now - midi_sync_last_lock_tick_ms)
+            : 0U);
     last_transition_from_text = midi_transport_sync_state_name(midi_sync_last_transition_from);
     last_transition_to_text = midi_transport_sync_state_name(midi_sync_last_transition_to);
     transition_reason_text = midi_transport_transition_reason_name(midi_sync_last_transition_reason);
     transition_age_ms = (midi_sync_last_transition_tick_ms == 0U)
         ? 0U
-        : (now - midi_sync_last_transition_tick_ms);
+        : ((now >= midi_sync_last_transition_tick_ms)
+            ? (now - midi_sync_last_transition_tick_ms)
+            : 0U);
     transition_phase_error_us = midi_sync_last_transition_phase_error_us;
     transition_window_pulses = midi_sync_last_transition_window_pulses;
     transition_observed_pulses = midi_sync_last_transition_observed_pulses;

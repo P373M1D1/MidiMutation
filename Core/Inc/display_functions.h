@@ -55,6 +55,8 @@ void Display_RefreshMainScreenContent(const Preset_t *p, uint16_t bpm);
 void Display_UpdateBPM(uint16_t bpm);
 /** Updates only the transport bar/beat area used on beat-edge refresh paths. */
 void Display_UpdateTransportBarBeatFast(void);
+/** Returns true when the BPM header is currently showing SYNC. */
+uint8_t Display_IsBpmHeaderSyncing(void);
 /** Emits the BPM diagnostic line. */
 void Display_BpmDiagnosticService(void);
 /** Resets the main-info scroll position. */

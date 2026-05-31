@@ -26,6 +26,7 @@
 #include "app/app_input_irq.h"
 #include "app/app_metronome.h"
 #include "led_functions.h"
+#include "midi/clock_engine.h"
 #include "midi_functions.h"
 /* USER CODE END Includes */
 
@@ -234,7 +235,7 @@ void TIM2_IRQHandler(void)
 __attribute__((section(".RamFunc")))
 void TIM6_DAC_IRQHandler(void)
 {
-  MidiClockOutputIrqHandler();
+  ClockEngine_ISR_OnInternalPulse(TIM2->CNT);
 }
 
 void TIM7_IRQHandler(void)

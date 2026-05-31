@@ -2,6 +2,7 @@
 
 #include "app/app_state.h"
 #include "display_functions.h"
+#include "midi/clock_engine.h"
 #include "midi_functions.h"
 #include "stm32f4xx_hal.h"
 
@@ -144,8 +145,13 @@ uint8_t AppUi_ServiceBeatSynchronousStatusStrip(void)
     t_start = TIM2->CNT;
     /* LOCKED beat-edge refresh now updates only the transport bar lane so
      * downbeat visibility is not delayed by broader BPM/status text work. */
-    if (MidiClockGetSyncState() == MIDI_SYNC_STATE_LOCKED)
-        Display_UpdateTransportBarBeatFast();
+    if (ClockEngine_GetSyncState() == MIDI_SYNC_STATE_LOCKED)
+    {
+        if (Display_IsBpmHeaderSyncing())
+            Display_UpdateBPM(AppState_GetTempoBpm());
+        else
+            Display_UpdateTransportBarBeatFast();
+    }
     else
         Display_UpdateBPM(AppState_GetTempoBpm());
 

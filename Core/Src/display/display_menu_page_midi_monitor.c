@@ -6,6 +6,7 @@
 #include "display_functions.h"
 #include "display/display_internal.h"
 #include "display/display_layout.h"
+#include "midi/clock_engine.h"
 #include "midi/midi_monitor.h"
 #include "midi_functions.h"
 #include "st7796.h"
@@ -292,7 +293,7 @@ void Display_MenuMidiMonitorService(void)
     if (!Display_MenuMidiMonitorIsActive())
         return;
 
-    clock_present = MidiClockIsExternalSignalPresent();
+    clock_present = ClockEngine_IsExternalSignalPresent();
 
     if (clock_present == midi_monitor_last_drawn_clock_present)
         return;
@@ -308,7 +309,7 @@ void Display_DrawMenuMidiMonitor(void)
 {
     MidiMonitorEntry_t entries[MIDI_MONITOR_ENTRY_CAPACITY];
     uint8_t entry_count = MidiMonitor_CopyEntries(entries, MIDI_MONITOR_ENTRY_CAPACITY);
-    uint8_t clock_present = MidiClockIsExternalSignalPresent();
+    uint8_t clock_present = ClockEngine_IsExternalSignalPresent();
     uint8_t max_scroll = Display_MenuMidiMonitorGetMaxScroll(entry_count);
     uint8_t first_visible_index = 0U;
     uint8_t newest_visible_index = 0U;

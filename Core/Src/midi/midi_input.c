@@ -8,12 +8,15 @@ realtime events. The module also integrates with the transport handling code to 
 */
 
 #include "midi_functions.h"
+#include "midi/clock_engine.h"
 #include "midi/midi_monitor.h"
+#define MIDI_TRANSPORT_INTERNAL_ACCESS 1
 #include "midi/midi_transport_internal.h"
+#undef MIDI_TRANSPORT_INTERNAL_ACCESS
 
 void Error_Handler(void);
 
-#define MIDI_UART_IRQ_PREEMPT_PRIORITY 2U
+#define MIDI_UART_IRQ_PREEMPT_PRIORITY 1U
 #define MIDI_UART_IRQ_SUBPRIORITY     1U
 #define MIDI_THRU_BUFFER_SIZE         64U
 #define MIDI_REALTIME_QUEUE_SIZE      64U
@@ -114,7 +117,7 @@ void USART2_IRQHandler(void)
                 if (byte == MIDI_REALTIME_STATUS_FIRST)
                     midi_clock_last_captured_pulse_us = now_us;
 
-                if (!MidiTransport_HandleRealtimeByteFast(byte, now_us))
+                if (!ClockEngine_ISR_OnExternalRealtime(byte, now_us))
                     MidiInput_QueueRealtimeByte(byte, now_us);
 
                 if (!flash_busy)
@@ -148,7 +151,7 @@ void MidiInput_ServiceRealtimeRx(void)
             midi_realtime_interval_latency_max_us = latency_us;
         if (midi_realtime_interval_latency_sample_count < UINT16_MAX)
             midi_realtime_interval_latency_sample_count++;
-        (void)MidiTransport_HandleRealtimeByteFast(event.byte, event.timestamp_us);
+        (void)ClockEngine_ISR_OnExternalRealtime(event.byte, event.timestamp_us);
     }
 }
 
