@@ -62,17 +62,33 @@ void MidiHandleTimingCounterIrq(void)
 }
 
 /**
- * Enables or disables outbound MIDI timebend handling.
+ * Enables or disables timebend requests from ENC2.
  */
-void MidiTimebendSetActive(uint8_t active)
+void MidiTimebendSetEncoderEnabled(uint8_t enabled)
 {
-    MidiOutput_TimebendSetActive(active);
+    MidiOutput_TimebendSetEncoderEnabled(enabled);
 }
 
 /**
- * Injects an encoder delta into the outbound timebend path.
+ * Enables or disables timebend requests from the expression pedal.
  */
-void MidiTimebendInjectEncoderDelta(int8_t delta)
+void MidiTimebendSetExpressionEnabled(uint8_t enabled)
+{
+    MidiOutput_TimebendSetExpressionEnabled(enabled);
+}
+
+/**
+ * Forwards an ENC2 timebend request delta into the shared outbound engine.
+ */
+void MidiTimebendRequestFromEncoder(int8_t delta)
+{
+    MidiOutput_TimebendInjectEncoderDelta(delta);
+}
+
+/**
+ * Forwards an expression-pedal timebend request delta into the shared outbound engine.
+ */
+void MidiTimebendRequestFromExpression(int8_t delta)
 {
     MidiOutput_TimebendInjectEncoderDelta(delta);
 }

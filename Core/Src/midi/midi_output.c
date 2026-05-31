@@ -44,6 +44,8 @@ static volatile uint8_t midi_output_message_head = 0U;
 static volatile uint8_t midi_output_message_tail = 0U;
 static volatile uint32_t midi_output_last_clock_us = 0U;
 static volatile uint32_t midi_output_clock_interval_us = 0U;
+static volatile uint8_t midi_output_timebend_encoder_enabled = 0U;
+static volatile uint8_t midi_output_timebend_expression_enabled = 0U;
 static volatile uint8_t midi_output_timebend_active = 0U;
 static volatile int32_t midi_output_timebend_phase_offset_us_q16 = 0;
 static volatile int32_t midi_output_timebend_velocity_us_per_s_q16 = 0;
@@ -119,6 +121,7 @@ __attribute__((section(".RamFunc")))
 static uint32_t MidiOutput_TimebendCrossingBacklogLocked(void);
 __attribute__((section(".RamFunc")))
 static uint8_t MidiOutput_TimebendDueDepthLocked(void);
+static void MidiOutput_TimebendApplySourceEnableLocked(void);
 
 void MidiOutput_SetUart(UART_HandleTypeDef *uart_handle)
 {
@@ -131,6 +134,8 @@ void MidiOutput_SetUart(UART_HandleTypeDef *uart_handle)
     midi_output_message_tail = 0U;
     midi_output_last_clock_us = 0U;
     midi_output_clock_interval_us = 0U;
+    midi_output_timebend_encoder_enabled = 0U;
+    midi_output_timebend_expression_enabled = 0U;
     midi_output_clock_diag_peak_depth = 0U;
 
     primask = MidiOutput_EnterCritical();
@@ -337,38 +342,20 @@ void MidiOutput_ResetRealtimePacingGuard(void)
     MidiOutput_ExitCritical(primask);
 }
 
-void MidiOutput_TimebendSetActive(uint8_t active)
+void MidiOutput_TimebendSetEncoderEnabled(uint8_t enabled)
 {
     uint32_t primask = MidiOutput_EnterCritical();
-    uint8_t next_active = active ? 1U : 0U;
-    uint32_t now;
+    midi_output_timebend_encoder_enabled = enabled ? 1U : 0U;
+    MidiOutput_TimebendApplySourceEnableLocked();
 
-    if (next_active == midi_output_timebend_active)
-    {
-        MidiOutput_ExitCritical(primask);
-        return;
-    }
+    MidiOutput_ExitCritical(primask);
+}
 
-    midi_output_timebend_active = next_active;
-    if (!midi_output_timebend_active)
-    {
-        MidiOutput_TimebendResetLocked();
-    }
-    else
-    {
-        now = TIM2->CNT;
-        midi_output_timebend_last_update_us = now;
-        midi_output_timebend_last_phase_sample_us = (midi_output_last_clock_us != 0U)
-            ? midi_output_last_clock_us
-            : now;
-        midi_output_timebend_last_truth_pulse_us = midi_output_last_clock_us;
-        if ((midi_output_timebend_truth_interval_us == 0U) && (midi_output_clock_interval_us != 0U))
-            midi_output_timebend_truth_interval_us = midi_output_clock_interval_us;
-        midi_output_timebend_phase_out_q24 = 0ULL;
-        midi_output_timebend_next_edge_q24 = MIDI_TIMEBEND_PHASE_STEP_Q24;
-        midi_output_timebend_next_due_us = 0U;
-        midi_output_timebend_due_pending = 0U;
-    }
+void MidiOutput_TimebendSetExpressionEnabled(uint8_t enabled)
+{
+    uint32_t primask = MidiOutput_EnterCritical();
+    midi_output_timebend_expression_enabled = enabled ? 1U : 0U;
+    MidiOutput_TimebendApplySourceEnableLocked();
 
     MidiOutput_ExitCritical(primask);
 }
@@ -961,6 +948,36 @@ __attribute__((section(".RamFunc")))
 static uint8_t MidiOutput_TimebendDueDepthLocked(void)
 {
     return midi_output_timebend_due_pending ? 1U : 0U;
+}
+
+static void MidiOutput_TimebendApplySourceEnableLocked(void)
+{
+    uint8_t next_active = (uint8_t)((midi_output_timebend_encoder_enabled != 0U)
+                                  || (midi_output_timebend_expression_enabled != 0U));
+    uint32_t now;
+
+    if (next_active == midi_output_timebend_active)
+        return;
+
+    midi_output_timebend_active = next_active;
+    if (!midi_output_timebend_active)
+    {
+        MidiOutput_TimebendResetLocked();
+        return;
+    }
+
+    now = TIM2->CNT;
+    midi_output_timebend_last_update_us = now;
+    midi_output_timebend_last_phase_sample_us = (midi_output_last_clock_us != 0U)
+        ? midi_output_last_clock_us
+        : now;
+    midi_output_timebend_last_truth_pulse_us = midi_output_last_clock_us;
+    if ((midi_output_timebend_truth_interval_us == 0U) && (midi_output_clock_interval_us != 0U))
+        midi_output_timebend_truth_interval_us = midi_output_clock_interval_us;
+    midi_output_timebend_phase_out_q24 = 0ULL;
+    midi_output_timebend_next_edge_q24 = MIDI_TIMEBEND_PHASE_STEP_Q24;
+    midi_output_timebend_next_due_us = 0U;
+    midi_output_timebend_due_pending = 0U;
 }
 
 __attribute__((section(".RamFunc")))

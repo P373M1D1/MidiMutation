@@ -397,8 +397,10 @@ uint8_t MidiTransportGetContinuousPhase(MidiTransportPhaseSnapshot_t *phase);
  */
 void MidiOutputSchedulerService(void);
 void MidiHandleTimingCounterIrq(void);
-void MidiTimebendSetActive(uint8_t active);
-void MidiTimebendInjectEncoderDelta(int8_t delta);
+void MidiTimebendSetEncoderEnabled(uint8_t enabled);
+void MidiTimebendSetExpressionEnabled(uint8_t enabled);
+void MidiTimebendRequestFromEncoder(int8_t delta);
+void MidiTimebendRequestFromExpression(int8_t delta);
 uint8_t MidiTimebendIsEngaged(void);
 
 /**

@@ -52,7 +52,8 @@ static uint32_t AppRuntime_TimerDiffUs(uint32_t end, uint32_t start);
 void AppRuntime_ServiceForeground(void)
 {
     const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
-    uint8_t timebend_live_enabled = 0U;
+    uint8_t encoder_timebend_enabled = 0U;
+    uint8_t expression_timebend_enabled = 0U;
     uint8_t feedback_active;
     uint8_t queue_was_drained;
 
@@ -65,11 +66,12 @@ void AppRuntime_ServiceForeground(void)
 
     if (global)
     {
-        timebend_live_enabled = (uint8_t)((global->live_enc2_mode == RUNTIME_CONFIG_LIVE_ENC2_MODE_TIMEBEND)
-                                        || (global->expression_pedal_mode == RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_TIMEBEND));
+        encoder_timebend_enabled = (uint8_t)(global->live_enc2_mode == RUNTIME_CONFIG_LIVE_ENC2_MODE_TIMEBEND);
+        expression_timebend_enabled = (uint8_t)(global->expression_pedal_mode == RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_TIMEBEND);
     }
 
-    MidiTimebendSetActive(timebend_live_enabled);
+    MidiTimebendSetEncoderEnabled(encoder_timebend_enabled);
+    MidiTimebendSetExpressionEnabled(expression_timebend_enabled);
     AppRuntime_ServiceTimebendPopup(global);
 
     /* Drain deferred TIM2 compare work outside IRQ context so timing ISR paths
@@ -195,14 +197,12 @@ static void AppRuntime_ScheduleTimerEvents(void)
     }
 }
 
-/* Shows or hides the live timebend overlay based on the current mode/state. */
+/* Shows or hides the live timebend overlay from runtime engagement state. */
 static void AppRuntime_ServiceTimebendPopup(const RuntimeConfigGlobal_t *global)
 {
     uint8_t should_show = 0U;
 
     if (global
-        && ((global->live_enc2_mode == RUNTIME_CONFIG_LIVE_ENC2_MODE_TIMEBEND)
-         || (global->expression_pedal_mode == RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_TIMEBEND))
         && MidiTimebendIsEngaged()
         && !Display_MenuIsActive()
         && !Display_PresetEditIsActive())

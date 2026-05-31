@@ -84,7 +84,7 @@
 #define MAIN_EMPTY_RIGHT_INFO_TEXT     "                "   // blank filler used to clear an unused right-side row
 #define MAIN_SAVING_POPUP_TEXT         " SAVING "          // temporary overlay shown while preset edits are being committed to flash
 #define MAIN_SAVING_POPUP_ROW_INDEX    1U                   // center the saving overlay on the middle info row
-#define MAIN_TIMEBEND_POPUP_TEXT       " TIMEBEND ACTIVE " // live overlay shown when ENC2 controls outbound timebend
+#define MAIN_TIMEBEND_POPUP_TEXT       " TIMEBEND ACTIVE " // live overlay shown when outbound timebend is engaged
 #define MAIN_TIMEBEND_POPUP_ROW_INDEX  1U                   // center the timebend overlay on the middle info row
 #define MAIN_LEARNING_POPUP_TEXT       " LEARNING "        // transient overlay shown while preset-edit learn capture is active
 #define MAIN_LEARNING_POPUP_ROW_INDEX  1U                   // center the learning overlay on the middle info row

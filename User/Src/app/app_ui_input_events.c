@@ -33,7 +33,7 @@ static RuntimeConfigExpressionPedalMode_t AppUiEvents_GetExpressionPedalMode(voi
     return global->expression_pedal_mode;
 }
 
-static void AppUiEvents_ApplyTimebendDelta(int8_t delta)
+static int8_t AppUiEvents_ScaleTimebendDelta(int8_t delta)
 {
     int16_t scaled_delta = (int16_t)delta * 8;
 
@@ -42,7 +42,7 @@ static void AppUiEvents_ApplyTimebendDelta(int8_t delta)
     else if (scaled_delta < -127)
         scaled_delta = -127;
 
-    MidiTimebendInjectEncoderDelta((int8_t)scaled_delta);
+    return (int8_t)scaled_delta;
 }
 
 static void AppUiEvents_QueuePresetSlotStep(uint8_t current_bank,
@@ -163,7 +163,7 @@ void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
         case RUNTIME_CONFIG_LIVE_ENC2_MODE_TIMEBEND:
             /* Tune for one-grip operation: aim to reach full bend span within
              * roughly a 180-degree encoder sweep without requiring re-grip. */
-            AppUiEvents_ApplyTimebendDelta(delta);
+            MidiTimebendRequestFromEncoder(AppUiEvents_ScaleTimebendDelta(delta));
             break;
 
         case RUNTIME_CONFIG_LIVE_ENC2_MODE_PRESET_BANK_SCROLL:
@@ -175,7 +175,7 @@ void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
 
     case APP_EVENT_SOURCE_EXPRESSION:
         if (AppUiEvents_GetExpressionPedalMode() == RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_TIMEBEND)
-            AppUiEvents_ApplyTimebendDelta(delta);
+            MidiTimebendRequestFromExpression(AppUiEvents_ScaleTimebendDelta(delta));
         return;
 
     case APP_EVENT_SOURCE_ENC3:
