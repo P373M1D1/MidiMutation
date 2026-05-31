@@ -4,6 +4,7 @@
 #include "app/app_state.h"
 #include "main.h"
 #include "runtime_config.h"
+#include "midi/clock_engine.h"
 
 #include <stdio.h>
 
@@ -132,10 +133,15 @@ void AppMetronome_Init(void)
 
 /**
  * Advances metronome configuration and output timeout servicing.
+ * Uses ClockEngine_GetTick() to obtain state, profile, and beat data from one
+ * coherent snapshot, eliminating any divergence from multiple separate reads.
+ * If the behavior profile does not allow metronome output (e.g. DETECTING),
+ * pending compares are disarmed and output is silenced.
  */
 void AppMetronome_Service(void)
 {
     RuntimeConfigMetronome_t config = app_metronome_get_config_snapshot();
+    ClockEngineTick_t tick = ClockEngine_GetTick();
 
     AppMetronome_ServiceDeferredTimingWork();
     app_metronome_sync_config_snapshot(&config);
@@ -144,7 +150,8 @@ void AppMetronome_Service(void)
     if (!app_metronome_enabled
      || app_metronome_output == APP_METRONOME_OUTPUT_NONE
      || !AppMetronome_IsOutputAvailable(app_metronome_output)
-     || config.volume == 0U)
+     || config.volume == 0U
+     || !tick.profile.allow_metronome_output)
     {
         uint32_t primask = app_metronome_enter_critical();
 

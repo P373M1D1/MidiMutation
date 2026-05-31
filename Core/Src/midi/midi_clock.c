@@ -85,6 +85,12 @@ void MidiClockOutputIrqHandler(void)
         TIM6->SR = ~TIM_SR_UIF;
         if (MidiClockHandleInternalPulse() && !midi_clock_external_signal_present_fast())
         {
+            /**
+             * Internal beat feedback is only emitted while no active external
+             * signal is present. If external clock pulses are seen without
+             * transport running (e.g. hot-plug without START/CONTINUE), beat
+             * output stays suppressed until transport is explicitly armed.
+             */
             uint32_t now = TIM2->CNT;
 
             if (!midi_clock_flash_busy())

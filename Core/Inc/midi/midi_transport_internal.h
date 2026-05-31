@@ -13,7 +13,15 @@
 
 #include <stdint.h>
 
+#ifndef MIDI_LEGACY_CLOCK_READ_API_ALLOWED
+#define MIDI_LEGACY_CLOCK_READ_API_ALLOWED 1
+#define MIDI_LEGACY_CLOCK_READ_API_ALLOWED_LOCAL 1
+#endif
 #include "midi_functions.h"
+#ifdef MIDI_LEGACY_CLOCK_READ_API_ALLOWED_LOCAL
+#undef MIDI_LEGACY_CLOCK_READ_API_ALLOWED_LOCAL
+#undef MIDI_LEGACY_CLOCK_READ_API_ALLOWED
+#endif
 
 #ifdef __cplusplus
 extern "C" {

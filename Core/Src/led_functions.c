@@ -2,6 +2,7 @@
 #include "display_functions.h"
 #include "main.h"          /* LD1_Pin / LD1_GPIO_Port, LD2_Pin / LD2_GPIO_Port */
 #include "stm32f4xx_hal.h"
+#include "midi/clock_engine.h"
 
 #define LED_PULSE_MS  50U  /* pulse width for all LED blinks */
 #define LED_PULSE_US ((uint32_t)LED_PULSE_MS * 1000UL)
@@ -485,12 +486,44 @@ void LED_TickUpdate(uint32_t now)
     LED_UpdateExpiredOutputs(now);
 }
 
+/**
+ * Called from the foreground 10 ms service cadence.
+ * Applies clock-governance beat-pulse gating derived from ClockEngine snapshot.
+ * Runs in non-ISR context: safe to call ClockEngine_GetBehaviorProfile().
+ * If the current clock state does not allow beat pulses (e.g. DETECTING), any
+ * pending compare is disarmed so stale beat compares from the previous state
+ * cannot fire after a governance transition.
+ */
+/**
+ * Called from the foreground 10 ms service cadence.
+ * Applies clock-governance beat-pulse gating using a single ClockEngineTick_t
+ * so that state, profile, and beat data are all read from the same coherent
+ * snapshot. Avoids any divergence from calling GetState/GetBehaviorProfile
+ * separately on different snapshots.
+ */
+static void LED_ApplyBeatPulseGovernance(void)
+{
+    ClockEngineTick_t tick = ClockEngine_GetTick();
+
+    if (!tick.profile.allow_led_beat_pulse)
+    {
+        uint32_t primask = __get_PRIMASK();
+
+        __disable_irq();
+        LED_DisarmBeatPulseCompare();
+        if (primask == 0U)
+            __enable_irq();
+    }
+}
+
 void LED_Update(void)
 {
     uint32_t now = HAL_GetTick();
     uint8_t in_edit_mode = LED_UsePresetEditDimming();
     uint8_t dim_pulse_on = in_edit_mode ? LED_PresetEditDimPulseIsOn(now) : 1U;
     uint8_t beat_pulse_active = (uint8_t)(beat_pulse_compare_active || (beat_pulse_compare_on_us != 0U));
+
+    LED_ApplyBeatPulseGovernance();
 
     if (!LED_BeatPulseIsAllowed())
     {

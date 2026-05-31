@@ -426,6 +426,19 @@ void Midi_LoadPreset(const Preset_t *preset);
  */
 void Midi_SendPresetCCs(const Preset_t *preset);
 
+#if defined(CLOCK_TRUTH_ENFORCE_SINGLE_READ_API) && !defined(MIDI_LEGACY_CLOCK_READ_API_ALLOWED)
+#if defined(__GNUC__)
+#pragma GCC poison MidiTransportIsRunning
+#pragma GCC poison MidiClockIsSyncLost
+#pragma GCC poison MidiClockIsEstimatorValid
+#pragma GCC poison MidiClockGetTransportConfidence
+#pragma GCC poison MidiClockGetLockQuality
+#pragma GCC poison MidiClockGetSyncState
+#pragma GCC poison MidiClockIsPublicationReady
+#pragma GCC poison MidiClockIsExternalSignalPresent
+#endif
+#endif
+
 #ifdef __cplusplus
 }
 #endif

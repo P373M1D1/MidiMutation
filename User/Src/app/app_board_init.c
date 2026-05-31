@@ -173,8 +173,14 @@ void AppBoard_HandleTimingCounterIrq(void)
     }
 
     MidiHandleTimingCounterIrq();
-    LED_FlagTimingCounterIrq();
-    AppMetronome_FlagTimingCounterIrq();
+
+    /**
+     * Dispatch due compare edges immediately in IRQ context so beat LED and
+     * metronome timing are not quantized by the 10 ms foreground service.
+     * These handlers are lightweight and operate on pre-queued compare state.
+     */
+    LED_HandleTimingCounterIrq();
+    AppMetronome_HandleTimingCounterIrq();
 }
 
 __attribute__((section(".RamFunc")))
