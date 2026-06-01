@@ -33,6 +33,11 @@ typedef struct
 	uint32_t crossing_backlog_peak;
 	uint8_t uart_clock_depth;
 	uint8_t uart_clock_peak_depth;
+	uint8_t uart_message_depth;
+	uint8_t uart_message_peak_depth;
+	uint32_t message_enqueue_attempts;
+	uint32_t message_enqueue_successes;
+	uint32_t message_enqueue_failures;
 	uint32_t phase_nonmono_count;
 } MidiOutputTimebendDiagnostics_t;
 

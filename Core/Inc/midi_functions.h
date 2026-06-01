@@ -103,6 +103,16 @@ typedef struct
     uint16_t interval_latency_sample_count;
 } MidiInputRealtimeRxDiagnostics_t;
 
+typedef struct
+{
+    uint8_t preset_retry_pending;
+    uint8_t preset_retry_attempts_remaining;
+    uint32_t preset_retry_successes;
+    uint32_t preset_retry_failures;
+    uint32_t tap_tempo_drop_count;
+    uint32_t feedback_taper_drop_count;
+} MidiProducerDiagnostics_t;
+
 /**
  * @brief  Initialise MIDI input on USART2 and enable its soft-thru output.
  *         RX bytes are echoed on USART2 TX while the parser still filters
@@ -121,16 +131,18 @@ void MidiSetOutputUart(UART_HandleTypeDef *uart_handle);
  * @brief  Send a Program Change message on the shared MIDI output.
  * @param  channel  MIDI channel, 1–16.
  * @param  program  Program number, 0–127.
+ * @retval 1 when the message was enqueued, 0 when queue backpressure blocked it.
  */
-void MIDI_SendProgramChange(uint8_t channel, uint8_t program);
+uint8_t MIDI_SendProgramChange(uint8_t channel, uint8_t program);
 
 /**
  * @brief  Send a Control Change (CC) message on the shared MIDI output.
  * @param  channel    MIDI channel, 1–16.
  * @param  cc_number  Controller number, 0–127.
  * @param  value      Controller value, 0–127.
+ * @retval 1 when the message was enqueued, 0 when queue backpressure blocked it.
  */
-void MIDI_SendCC(uint8_t channel, uint8_t cc_number, uint8_t value);
+uint8_t MIDI_SendCC(uint8_t channel, uint8_t cc_number, uint8_t value);
 
 /**
  * @brief  Apply one preset program slot to a device.
@@ -396,6 +408,8 @@ uint8_t MidiTransportGetContinuousPhase(MidiTransportPhaseSnapshot_t *phase);
  *         outgoing MIDI clock bytes.
  */
 void MidiOutputSchedulerService(void);
+void MidiProducerService(void);
+void MidiProducer_NoteTapTempoDrop(void);
 void MidiHandleTimingCounterIrq(void);
 void MidiTimebendSetEncoderEnabled(uint8_t enabled);
 void MidiTimebendSetExpressionEnabled(uint8_t enabled);
@@ -408,6 +422,7 @@ uint8_t MidiTimebendIsEngaged(void);
  *         Intended for loopback testing with UART4 MIDI OUT patched into MIDI IN.
  */
 void MidiClockDiagnosticService(void);
+void MidiProducer_TakeDiagnostics(MidiProducerDiagnostics_t *diagnostics);
 
 /**
  * @brief  Return and clear the last latched transport event.

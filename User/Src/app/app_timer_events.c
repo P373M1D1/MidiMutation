@@ -76,6 +76,7 @@ static void AppTimerEvents_Handle10MsTick(void)
     MidiInput_ServiceRealtimeRx();
     AppTempo_ExternalClockHoldoverMirrorService();
     MidiOutputSchedulerService();
+    MidiProducerService();
     AppMetronome_Service();
     LED_Update();
     AppInput_ProcessPending();

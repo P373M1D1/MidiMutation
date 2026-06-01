@@ -3,7 +3,6 @@
 
 #define MIDI_OUTPUT_CLOCK_QUEUE_SIZE 16U
 #define MIDI_OUTPUT_MESSAGE_QUEUE_SIZE 128U
-#define MIDI_OUTPUT_TX_TIMEOUT_MS 10U
 #define MIDI_OUTPUT_BYTE_TIME_US 320U
 #define MIDI_OUTPUT_POST_CLOCK_GUARD_US 80U
 #define MIDI_OUTPUT_PRE_CLOCK_GUARD_US 80U
@@ -75,6 +74,10 @@ static volatile uint32_t midi_output_timebend_diag_missed_emit_count = 0U;
 static volatile uint32_t midi_output_timebend_diag_crossing_backlog_peak = 0U;
 static volatile uint32_t midi_output_timebend_diag_phase_nonmono_count = 0U;
 static volatile uint8_t midi_output_clock_diag_peak_depth = 0U;
+static volatile uint8_t midi_output_message_diag_peak_depth = 0U;
+static volatile uint32_t midi_output_message_diag_enqueue_attempts = 0U;
+static volatile uint32_t midi_output_message_diag_enqueue_successes = 0U;
+static volatile uint32_t midi_output_message_diag_enqueue_failures = 0U;
 
 __attribute__((always_inline))
 static inline uint32_t MidiOutput_EnterCritical(void)
@@ -101,6 +104,8 @@ static uint8_t MidiOutput_MessageCanStartNow(void);
 static uint8_t MidiOutput_RingFreeSpace(uint8_t head, uint8_t tail, uint8_t size);
 __attribute__((section(".RamFunc")))
 static uint8_t MidiOutput_ClockDepthLocked(void);
+__attribute__((section(".RamFunc")))
+static uint8_t MidiOutput_MessageDepthLocked(void);
 __attribute__((section(".RamFunc")))
 static uint32_t MidiOutput_TimerDiff(uint32_t now, uint32_t last);
 __attribute__((section(".RamFunc")))
@@ -137,6 +142,10 @@ void MidiOutput_SetUart(UART_HandleTypeDef *uart_handle)
     midi_output_timebend_encoder_enabled = 0U;
     midi_output_timebend_expression_enabled = 0U;
     midi_output_clock_diag_peak_depth = 0U;
+    midi_output_message_diag_peak_depth = 0U;
+    midi_output_message_diag_enqueue_attempts = 0U;
+    midi_output_message_diag_enqueue_successes = 0U;
+    midi_output_message_diag_enqueue_failures = 0U;
 
     primask = MidiOutput_EnterCritical();
     MidiOutput_TimebendResetLocked();
@@ -233,7 +242,9 @@ void UART4_IRQHandler(void)
 
 uint8_t MidiOutput_QueueMessageBytes(const uint8_t *bytes, uint16_t length)
 {
-    uint32_t start_tick;
+    uint32_t primask;
+    uint8_t free_space;
+    uint8_t message_depth;
 
     if (!bytes || length == 0U || length >= MIDI_OUTPUT_MESSAGE_QUEUE_SIZE
         || !midi_output_uart || midi_output_uart->Instance == NULL)
@@ -244,35 +255,38 @@ uint8_t MidiOutput_QueueMessageBytes(const uint8_t *bytes, uint16_t length)
     if (__get_IPSR() != 0U)
         return 0U;
 
-    start_tick = HAL_GetTick();
-    do
+    primask = MidiOutput_EnterCritical();
+
+    if (midi_output_message_diag_enqueue_attempts < UINT32_MAX)
+        midi_output_message_diag_enqueue_attempts++;
+
+    free_space = MidiOutput_RingFreeSpace(midi_output_message_head,
+                                          midi_output_message_tail,
+                                          MIDI_OUTPUT_MESSAGE_QUEUE_SIZE);
+    if (free_space < length)
     {
-        uint32_t primask = __get_PRIMASK();
-        uint8_t free_space;
-
-        primask = MidiOutput_EnterCritical();
-        free_space = MidiOutput_RingFreeSpace(midi_output_message_head,
-                                              midi_output_message_tail,
-                                              MIDI_OUTPUT_MESSAGE_QUEUE_SIZE);
-        if (free_space >= length)
-        {
-            for (uint16_t index = 0U; index < length; index++)
-            {
-                midi_output_message_buffer[midi_output_message_head] = bytes[index];
-                midi_output_message_head = (uint8_t)((midi_output_message_head + 1U) % MIDI_OUTPUT_MESSAGE_QUEUE_SIZE);
-            }
-
-            MidiOutput_KickTx();
-            MidiOutput_ExitCritical(primask);
-            return 1U;
-        }
-
+        if (midi_output_message_diag_enqueue_failures < UINT32_MAX)
+            midi_output_message_diag_enqueue_failures++;
         MidiOutput_ExitCritical(primask);
+        return 0U;
     }
 
-    while ((HAL_GetTick() - start_tick) < MIDI_OUTPUT_TX_TIMEOUT_MS);
+    for (uint16_t index = 0U; index < length; index++)
+    {
+        midi_output_message_buffer[midi_output_message_head] = bytes[index];
+        midi_output_message_head = (uint8_t)((midi_output_message_head + 1U) % MIDI_OUTPUT_MESSAGE_QUEUE_SIZE);
+    }
 
-    return 0U;
+    message_depth = MidiOutput_MessageDepthLocked();
+    if (message_depth > midi_output_message_diag_peak_depth)
+        midi_output_message_diag_peak_depth = message_depth;
+    if (midi_output_message_diag_enqueue_successes < UINT32_MAX)
+        midi_output_message_diag_enqueue_successes++;
+
+    MidiOutput_KickTx();
+    MidiOutput_ExitCritical(primask);
+
+    return 1U;
 }
 
 __attribute__((section(".RamFunc")))
@@ -438,6 +452,7 @@ void MidiOutput_TakeTimebendDiagnostics(MidiOutputTimebendDiagnostics_t *diagnos
 {
     uint32_t primask;
     uint8_t clock_depth;
+    uint8_t message_depth;
 
     if (!diagnostics)
         return;
@@ -472,8 +487,14 @@ void MidiOutput_TakeTimebendDiagnostics(MidiOutputTimebendDiagnostics_t *diagnos
     diagnostics->crossing_backlog_now = MidiOutput_TimebendCrossingBacklogLocked();
     diagnostics->crossing_backlog_peak = midi_output_timebend_diag_crossing_backlog_peak;
     clock_depth = MidiOutput_ClockDepthLocked();
+    message_depth = MidiOutput_MessageDepthLocked();
     diagnostics->uart_clock_depth = clock_depth;
     diagnostics->uart_clock_peak_depth = midi_output_clock_diag_peak_depth;
+    diagnostics->uart_message_depth = message_depth;
+    diagnostics->uart_message_peak_depth = midi_output_message_diag_peak_depth;
+    diagnostics->message_enqueue_attempts = midi_output_message_diag_enqueue_attempts;
+    diagnostics->message_enqueue_successes = midi_output_message_diag_enqueue_successes;
+    diagnostics->message_enqueue_failures = midi_output_message_diag_enqueue_failures;
     diagnostics->phase_nonmono_count = midi_output_timebend_diag_phase_nonmono_count;
 
     midi_output_timebend_due_peak_depth = diagnostics->due_depth;
@@ -493,6 +514,10 @@ void MidiOutput_TakeTimebendDiagnostics(MidiOutputTimebendDiagnostics_t *diagnos
     midi_output_timebend_diag_crossing_backlog_peak = diagnostics->crossing_backlog_now;
     midi_output_timebend_diag_phase_nonmono_count = 0U;
     midi_output_clock_diag_peak_depth = clock_depth;
+    midi_output_message_diag_peak_depth = message_depth;
+    midi_output_message_diag_enqueue_attempts = 0U;
+    midi_output_message_diag_enqueue_successes = 0U;
+    midi_output_message_diag_enqueue_failures = 0U;
 
     MidiOutput_ExitCritical(primask);
 }
@@ -948,6 +973,14 @@ __attribute__((section(".RamFunc")))
 static uint8_t MidiOutput_TimebendDueDepthLocked(void)
 {
     return midi_output_timebend_due_pending ? 1U : 0U;
+}
+
+__attribute__((section(".RamFunc")))
+static uint8_t MidiOutput_MessageDepthLocked(void)
+{
+    return (midi_output_message_head >= midi_output_message_tail)
+        ? (uint8_t)(midi_output_message_head - midi_output_message_tail)
+        : (uint8_t)(MIDI_OUTPUT_MESSAGE_QUEUE_SIZE - midi_output_message_tail + midi_output_message_head);
 }
 
 static void MidiOutput_TimebendApplySourceEnableLocked(void)

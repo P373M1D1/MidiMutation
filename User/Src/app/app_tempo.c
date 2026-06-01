@@ -206,6 +206,7 @@ static void AppTempo_SendTapTempoCcToDevices(void)
         if (device->tap_tempo.cc == PRESET_CC_NUMBER_UNUSED)
             continue;
 
-        MIDI_SendCC(device->channel, device->tap_tempo.cc, device->tap_tempo.value);
+        if (!MIDI_SendCC(device->channel, device->tap_tempo.cc, device->tap_tempo.value))
+            MidiProducer_NoteTapTempoDrop();
     }
 }

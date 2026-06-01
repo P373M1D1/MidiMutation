@@ -12,17 +12,55 @@
 #define BPM_DEFAULT       120U          /* used when Flash is blank      */
 #define PRESET_DEFAULT    0U            /* preset index used when no valid preset was restored from flash */
 
+typedef enum {
+	RUNTIME_STATE_FLASH_FAIL_NONE = 0,
+	RUNTIME_STATE_FLASH_FAIL_TIMEOUT,
+	RUNTIME_STATE_FLASH_FAIL_HW_ERROR,
+	RUNTIME_STATE_FLASH_FAIL_VERIFY_MISMATCH,
+	RUNTIME_STATE_FLASH_FAIL_INVALID_PHASE,
+} RuntimeStateFlashFailReason_t;
+
+typedef struct {
+	uint8_t busy;
+	uint8_t last_success;
+	uint8_t phase;
+	RuntimeStateFlashFailReason_t last_fail_reason;
+	uint32_t phase_age_ms;
+	uint32_t timeout_failures;
+	uint32_t verify_failures;
+} RuntimeStateFlashDiagnostics_t;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /**
- * @brief  Erase Flash sector 11 and write BPM + preset index + bank index.
+ * @brief  Request asynchronous persistence of BPM + preset index + bank index.
  * @param  bpm          BPM value to persist (expected range BPM_MIN..BPM_MAX).
  * @param  preset_idx   Preset index to persist.
  * @param  bank_idx     Bank index to persist.
  */
 void    RuntimeState_Flash_Save(uint16_t bpm, uint8_t preset_idx, uint8_t bank_idx);
+
+/**
+ * @brief  Advance one step of the deferred flash-save state machine.
+ */
+void RuntimeState_Flash_SaveService(void);
+
+/**
+ * @brief  Return true while a deferred runtime-state flash save is in flight.
+ */
+uint8_t RuntimeState_Flash_SaveIsBusy(void);
+
+/**
+ * @brief  Return 1 when the most recently completed save finished successfully.
+ */
+uint8_t RuntimeState_Flash_SaveDidSucceed(void);
+
+/**
+ * @brief  Snapshot runtime-state flash-save diagnostics.
+ */
+void RuntimeState_Flash_GetDiagnostics(RuntimeStateFlashDiagnostics_t *diagnostics);
 
 /**
  * @brief  Read BPM from Flash sector 11.

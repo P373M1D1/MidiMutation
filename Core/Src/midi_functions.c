@@ -23,14 +23,25 @@
 #define MIDI_DATA_MASK                     0x7FU
 #define MIDI_PROGRAM_CHANGE_STATUS         0xC0U
 #define MIDI_CONTROL_CHANGE_STATUS         0xB0U
+#define MIDI_PRESET_RETRY_MAX_ATTEMPTS     3U
 
 static uint8_t midi_channel_is_valid(uint8_t channel);
-static void midi_output_send_bytes(const uint8_t *bytes, uint16_t length);
+static uint8_t midi_output_send_bytes(const uint8_t *bytes, uint16_t length);
 static void Midi_MaybeSendFeedbackTaperCc(uint8_t channel,
                                           uint8_t cc_number,
                                           uint8_t threshold,
                                           uint8_t reduce);
 static void Midi_ApplyFeedbackTaperForBypassedDevice(uint8_t device_index, uint8_t program);
+static uint8_t Midi_SendPresetCCsInternal(const Preset_t *preset);
+static uint8_t Midi_SendDeviceProgramSlotInternal(uint8_t device_index, uint8_t program);
+static uint8_t Midi_LoadPresetInternal(const Preset_t *preset, uint8_t allow_retry_schedule);
+
+static const Preset_t *midi_pending_retry_preset = NULL;
+static uint8_t midi_pending_retry_attempts_remaining = 0U;
+static uint32_t midi_producer_preset_retry_successes = 0U;
+static uint32_t midi_producer_preset_retry_failures = 0U;
+static uint32_t midi_producer_tap_tempo_drop_count = 0U;
+static uint32_t midi_producer_feedback_taper_drop_count = 0U;
 
 /**
  * Binds the public MIDI facade to the UART used for outbound transport.
@@ -53,12 +64,59 @@ void MidiOutputSchedulerService(void)
     MidiOutput_ServiceScheduler();
 }
 
+void MidiProducerService(void)
+{
+    if (!midi_pending_retry_preset || midi_pending_retry_attempts_remaining == 0U)
+        return;
+
+    if (Midi_LoadPresetInternal(midi_pending_retry_preset, 0U))
+    {
+        midi_pending_retry_preset = NULL;
+        midi_pending_retry_attempts_remaining = 0U;
+        if (midi_producer_preset_retry_successes < UINT32_MAX)
+            midi_producer_preset_retry_successes++;
+        return;
+    }
+
+    midi_pending_retry_attempts_remaining--;
+    if (midi_pending_retry_attempts_remaining == 0U)
+    {
+        midi_pending_retry_preset = NULL;
+        if (midi_producer_preset_retry_failures < UINT32_MAX)
+            midi_producer_preset_retry_failures++;
+    }
+}
+
+void MidiProducer_NoteTapTempoDrop(void)
+{
+    if (midi_producer_tap_tempo_drop_count < UINT32_MAX)
+        midi_producer_tap_tempo_drop_count++;
+}
+
 /**
  * Routes the timing-counter interrupt to the MIDI clock output backend.
  */
 void MidiHandleTimingCounterIrq(void)
 {
     MidiOutput_HandleTimingCounterIrq();
+}
+
+void MidiProducer_TakeDiagnostics(MidiProducerDiagnostics_t *diagnostics)
+{
+    if (!diagnostics)
+        return;
+
+    diagnostics->preset_retry_pending = (midi_pending_retry_preset != NULL) ? 1U : 0U;
+    diagnostics->preset_retry_attempts_remaining = midi_pending_retry_attempts_remaining;
+    diagnostics->preset_retry_successes = midi_producer_preset_retry_successes;
+    diagnostics->preset_retry_failures = midi_producer_preset_retry_failures;
+    diagnostics->tap_tempo_drop_count = midi_producer_tap_tempo_drop_count;
+    diagnostics->feedback_taper_drop_count = midi_producer_feedback_taper_drop_count;
+
+    midi_producer_preset_retry_successes = 0U;
+    midi_producer_preset_retry_failures = 0U;
+    midi_producer_tap_tempo_drop_count = 0U;
+    midi_producer_feedback_taper_drop_count = 0U;
 }
 
 /**
@@ -101,9 +159,9 @@ uint8_t MidiTimebendIsEngaged(void)
     return MidiOutput_TimebendIsEngaged();
 }
 
-static void midi_output_send_bytes(const uint8_t *bytes, uint16_t length)
+static uint8_t midi_output_send_bytes(const uint8_t *bytes, uint16_t length)
 {
-    (void)MidiOutput_QueueMessageBytes(bytes, length);
+    return MidiOutput_QueueMessageBytes(bytes, length);
 }
 
 static void Midi_MaybeSendFeedbackTaperCc(uint8_t channel,
@@ -131,7 +189,11 @@ static void Midi_MaybeSendFeedbackTaperCc(uint8_t channel,
     if (tapered_value == current_value)
         return;
 
-    MIDI_SendCC(channel, cc_number, tapered_value);
+    if (!MIDI_SendCC(channel, cc_number, tapered_value)
+     && midi_producer_feedback_taper_drop_count < UINT32_MAX)
+    {
+        midi_producer_feedback_taper_drop_count++;
+    }
 }
 
 static void Midi_ApplyFeedbackTaperForBypassedDevice(uint8_t device_index, uint8_t program)
@@ -165,21 +227,21 @@ static void Midi_ApplyFeedbackTaperForBypassedDevice(uint8_t device_index, uint8
  *   Byte 0:  0xC0 | (channel-1)   — status byte, upper nibble 0xC = Program Change
  *   Byte 1:  program & 0x7F       — program number (7-bit, 0–127)
  *
- * The 10 ms timeout is more than enough: at 31 250 baud two bytes take ~640 µs.
+ * Enqueue is non-blocking: returns immediately if the output queue is full.
  * ─────────────────────────────────────────────────────────────────────────── */
 /**
  * Queues a MIDI Program Change for one channel.
  */
-void MIDI_SendProgramChange(uint8_t channel, uint8_t program)
+uint8_t MIDI_SendProgramChange(uint8_t channel, uint8_t program)
 {
     if (!midi_channel_is_valid(channel))
-        return;
+        return 0U;
 
     uint8_t msg[2] = {
         (uint8_t)(MIDI_PROGRAM_CHANGE_STATUS | ((channel - MIDI_CHANNEL_FIRST) & MIDI_CHANNEL_STATUS_MASK)),  /* channel 1-16 → nibble 0-15 */
         (uint8_t)(program & MIDI_DATA_MASK),                                                 /* mask to 7-bit MIDI data range */
     };
-    midi_output_send_bytes(msg, (uint16_t)sizeof(msg));
+    return midi_output_send_bytes(msg, (uint16_t)sizeof(msg));
 }
 
 /* ── MIDI_SendCC ─────────────────────────────────────────────────────────────
@@ -189,29 +251,33 @@ void MIDI_SendProgramChange(uint8_t channel, uint8_t program)
  *   Byte 2:  value & 0x7F         — controller value  (e.g. 127 = on, 0 = off)
  *
  * See midi_devices.c for the CC numbers used by each pedal.
+ * Enqueue is non-blocking: returns immediately if the output queue is full.
  * ─────────────────────────────────────────────────────────────────────────── */
 /**
  * Queues a MIDI Control Change for one channel.
  */
-void MIDI_SendCC(uint8_t channel, uint8_t cc_number, uint8_t value)
+uint8_t MIDI_SendCC(uint8_t channel, uint8_t cc_number, uint8_t value)
 {
     if (!midi_channel_is_valid(channel))
-        return;
+        return 0U;
 
     uint8_t msg[3] = {
         (uint8_t)(MIDI_CONTROL_CHANGE_STATUS | ((channel - MIDI_CHANNEL_FIRST) & MIDI_CHANNEL_STATUS_MASK)),
         (uint8_t)(cc_number & MIDI_DATA_MASK),
         (uint8_t)(value & MIDI_DATA_MASK),
     };
-    midi_output_send_bytes(msg, (uint16_t)sizeof(msg));
+    return midi_output_send_bytes(msg, (uint16_t)sizeof(msg));
 }
 
 /**
  * Sends all programmed CC values from one preset.
  */
-void Midi_SendPresetCCs(const Preset_t *preset)
+static uint8_t Midi_SendPresetCCsInternal(const Preset_t *preset)
 {
-    if (!preset) return;
+    uint8_t all_sent = 1U;
+
+    if (!preset)
+        return 0U;
 
     for (uint8_t i = 0U; i < PRESET_CC_SLOT_COUNT; i++)
     {
@@ -220,38 +286,57 @@ void Midi_SendPresetCCs(const Preset_t *preset)
         if (cc->channel == PRESET_CC_CHANNEL_UNUSED || cc->cc_number == PRESET_CC_NUMBER_UNUSED || cc->value == PRESET_CC_VALUE_UNUSED)
             continue;
 
-        MIDI_SendCC(cc->channel, cc->cc_number, cc->value);
+        if (!MIDI_SendCC(cc->channel, cc->cc_number, cc->value))
+            all_sent = 0U;
     }
+
+    return all_sent;
+}
+
+void Midi_SendPresetCCs(const Preset_t *preset)
+{
+    (void)Midi_SendPresetCCsInternal(preset);
 }
 
 /**
  * Sends the program or bypass state for one configured device slot.
  */
-void Midi_SendDeviceProgramSlot(uint8_t device_index, uint8_t program)
+static uint8_t Midi_SendDeviceProgramSlotInternal(uint8_t device_index, uint8_t program)
 {
     const MidiDevice_t *dev = MidiDevices_Get(device_index);
+    uint8_t all_sent = 1U;
 
     if (!dev)
-        return;
+        return 0U;
 
     if (program == PRESET_PROGRAM_NONE)
     {
         if (dev->bypass.cc != PRESET_CC_NUMBER_UNUSED)
-            MIDI_SendCC(dev->channel, dev->bypass.cc, dev->bypass.value);
-        return;
+            all_sent = MIDI_SendCC(dev->channel, dev->bypass.cc, dev->bypass.value);
+        return all_sent;
     }
 
-    MIDI_SendProgramChange(dev->channel, program);
+    all_sent = MIDI_SendProgramChange(dev->channel, program);
     if (dev->engage.cc != PRESET_CC_NUMBER_UNUSED)
-        MIDI_SendCC(dev->channel, dev->engage.cc, dev->engage.value);
+        all_sent = (uint8_t)(MIDI_SendCC(dev->channel, dev->engage.cc, dev->engage.value) && all_sent);
+
+    return all_sent;
+}
+
+void Midi_SendDeviceProgramSlot(uint8_t device_index, uint8_t program)
+{
+    (void)Midi_SendDeviceProgramSlotInternal(device_index, program);
 }
 
 /**
  * Sends the full preset state to every configured MIDI device.
  */
-void Midi_LoadPreset(const Preset_t *preset)
+static uint8_t Midi_LoadPresetInternal(const Preset_t *preset, uint8_t allow_retry_schedule)
 {
-    if (!preset) return;
+    uint8_t all_sent = 1U;
+
+    if (!preset)
+        return 0U;
 
     /* Program changes are sent first so devices switch base patches before any
      * follow-up CCs try to tweak parameters on the newly selected preset. */
@@ -259,9 +344,24 @@ void Midi_LoadPreset(const Preset_t *preset)
     {
         uint8_t program = preset->prg[i].program;
 
-        Midi_SendDeviceProgramSlot(i, program);
+        if (!Midi_SendDeviceProgramSlotInternal(i, program))
+            all_sent = 0U;
         Midi_ApplyFeedbackTaperForBypassedDevice(i, program);
     }
 
-    Midi_SendPresetCCs(preset);
+    if (!Midi_SendPresetCCsInternal(preset))
+        all_sent = 0U;
+
+    if (!all_sent && allow_retry_schedule)
+    {
+        midi_pending_retry_preset = preset;
+        midi_pending_retry_attempts_remaining = MIDI_PRESET_RETRY_MAX_ATTEMPTS;
+    }
+
+    return all_sent;
+}
+
+void Midi_LoadPreset(const Preset_t *preset)
+{
+    (void)Midi_LoadPresetInternal(preset, 1U);
 }

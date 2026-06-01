@@ -1425,6 +1425,7 @@ void MidiClockDiagnosticService(void)
     MidiSyncTransitionEvent_t sync_event;
     MidiInputRealtimeRxDiagnostics_t realtime_rx_diag;
     MidiOutputTimebendDiagnostics_t timebend_diag;
+    MidiProducerDiagnostics_t producer_diag;
     uint32_t now = HAL_GetTick();
     uint32_t sum_us;
     uint32_t min_us;
@@ -1546,6 +1547,7 @@ void MidiClockDiagnosticService(void)
 
     MidiInput_TakeRealtimeRxDiagnostics(&realtime_rx_diag);
     MidiOutput_TakeTimebendDiagnostics(&timebend_diag);
+    MidiProducer_TakeDiagnostics(&producer_diag);
     MidiClockEstimator_GetStatus(&estimator_status);
     midi_transport_update_sync_lifecycle();
     active = MidiClockIsExternalSignalPresent();
@@ -1829,5 +1831,20 @@ void MidiClockDiagnosticService(void)
            (unsigned)timebend_diag.uart_clock_depth,
            (unsigned)timebend_diag.uart_clock_peak_depth,
            (unsigned long)timebend_diag.phase_nonmono_count);
+
+        printf("MIDIQDIAG msg_q_now=%u msg_q_peak=%u msg_enqueue_attempts=%lu msg_enqueue_success=%lu msg_enqueue_fail=%lu\r\n",
+               (unsigned)timebend_diag.uart_message_depth,
+               (unsigned)timebend_diag.uart_message_peak_depth,
+               (unsigned long)timebend_diag.message_enqueue_attempts,
+               (unsigned long)timebend_diag.message_enqueue_successes,
+               (unsigned long)timebend_diag.message_enqueue_failures);
+
+         printf("MIDIPRODDIAG preset_retry_pending=%u preset_retry_left=%u preset_retry_success=%lu preset_retry_fail=%lu tap_drop=%lu feedback_drop=%lu\r\n",
+             (unsigned)producer_diag.preset_retry_pending,
+             (unsigned)producer_diag.preset_retry_attempts_remaining,
+             (unsigned long)producer_diag.preset_retry_successes,
+             (unsigned long)producer_diag.preset_retry_failures,
+             (unsigned long)producer_diag.tap_tempo_drop_count,
+             (unsigned long)producer_diag.feedback_taper_drop_count);
 #endif
 }

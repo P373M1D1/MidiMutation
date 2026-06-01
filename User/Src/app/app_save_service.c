@@ -152,10 +152,31 @@ static void AppSaveService_HandleTimeoutEvent(void)
             return;
 
 #if BPM_FLASH_WRITES_ENABLED
-        RuntimeState_Flash_Save(AppState_GetTempoBpm(),
-                                AppState_GetActivePresetIndex(),
-                                AppState_GetCurrentBank());
-        LED_FlashPulse();
+        if (!RuntimeState_Flash_SaveIsBusy())
+        {
+            RuntimeState_Flash_Save(AppState_GetTempoBpm(),
+                                    AppState_GetActivePresetIndex(),
+                                    AppState_GetCurrentBank());
+        }
+
+        RuntimeState_Flash_SaveService();
+        if (RuntimeState_Flash_SaveIsBusy())
+            return;
+
+        if (RuntimeState_Flash_SaveDidSucceed())
+            LED_FlashPulse();
+        else
+        {
+            RuntimeStateFlashDiagnostics_t diagnostics;
+
+            RuntimeState_Flash_GetDiagnostics(&diagnostics);
+            printf("SAVEDIAG runtime_state_save_failed reason=%u phase=%u phase_age_ms=%lu timeout_fails=%lu verify_fails=%lu\r\n",
+                   (unsigned)diagnostics.last_fail_reason,
+                   (unsigned)diagnostics.phase,
+                   (unsigned long)diagnostics.phase_age_ms,
+                   (unsigned long)diagnostics.timeout_failures,
+                   (unsigned long)diagnostics.verify_failures);
+        }
 #endif
         app_save_service_requested_mask &= (uint8_t)~runtime_state_mask;
         app_save_service_state = APP_SAVE_SERVICE_STATE_IDLE;
