@@ -24,6 +24,7 @@ typedef struct
 	uint32_t late_avg_us;
 	uint32_t late_max_us;
 	uint32_t late_sample_count;
+	uint32_t scheduling_jitter_est_us;
 	uint32_t emit_interval_avg_us;
 	uint32_t emit_interval_min_us;
 	uint32_t emit_interval_max_us;
@@ -41,6 +42,19 @@ typedef struct
 	uint32_t phase_nonmono_count;
 } MidiOutputTimebendDiagnostics_t;
 
+typedef struct
+{
+	uint8_t active;
+	uint8_t due_depth;
+	uint8_t uart_clock_depth;
+	uint8_t uart_message_depth;
+	uint32_t crossing_backlog_now;
+	uint32_t crossing_backlog_peak;
+	uint32_t dropped_count;
+	uint32_t missed_emit_count;
+	uint32_t scheduling_jitter_est_us;
+} MidiOutputTimebendBacklogSnapshot_t;
+
 void MidiOutput_SetUart(UART_HandleTypeDef *uart_handle);
 void MidiOutput_ServiceScheduler(void);
 void MidiOutput_HandleTxIrq(void);
@@ -53,6 +67,7 @@ void MidiOutput_TimebendSetExpressionEnabled(uint8_t enabled);
 void MidiOutput_TimebendInjectEncoderDelta(int8_t delta);
 uint8_t MidiOutput_TimebendIsEngaged(void);
 void MidiOutput_TakeTimebendDiagnostics(MidiOutputTimebendDiagnostics_t *diagnostics);
+void MidiOutput_GetTimebendBacklogSnapshot(MidiOutputTimebendBacklogSnapshot_t *snapshot);
 
 #ifdef __cplusplus
 }

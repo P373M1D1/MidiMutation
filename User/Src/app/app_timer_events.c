@@ -23,6 +23,7 @@ static void AppTimerEvents_Handle10MsTick(void);
 static void AppTimerEvents_Handle100MsTick(void);
 static void AppTimerEvents_Handle1000MsTick(void);
 static void AppTimerEvents_QueueSaveTimeoutEvent(uint32_t now);
+static void AppTimerEvents_ServiceTimebendBacklogVisibility(uint8_t diagnostics_guard_active);
 
 #define APP_TIMER_EVENTS_DIAG_GUARD_TICK_MS 100U
 #define APP_TIMER_EVENTS_DIAG_GUARD_COOLDOWN_MS 3000U
@@ -30,6 +31,10 @@ static void AppTimerEvents_QueueSaveTimeoutEvent(uint32_t now);
 #define APP_TIMER_EVENTS_DIAG_GUARD_OVER_5000US_DELTA 1U
 #define APP_TIMER_EVENTS_DIAG_GUARD_OVER_1000US_DELTA 3U
 #define APP_TIMER_EVENTS_DIAG_GUARD_EXTEND_LOG_MIN_DECAY_TICKS 5U
+#define APP_TIMER_EVENTS_TB_PRESSURE_ENTER_TICKS 2U
+#define APP_TIMER_EVENTS_TB_PRESSURE_EXIT_TICKS 3U
+#define APP_TIMER_EVENTS_TB_PRESSURE_LOG_PERIOD_TICKS 10U
+#define APP_TIMER_EVENTS_TB_JITTER_PRESSURE_US 700U
 
 #define APP_TIMER_EVENTS_DIAG_GUARD_COOLDOWN_TICKS \
     (APP_TIMER_EVENTS_DIAG_GUARD_COOLDOWN_MS / APP_TIMER_EVENTS_DIAG_GUARD_TICK_MS)
@@ -44,6 +49,12 @@ static uint32_t app_timer_events_diag_guard_last_dispatch_samples = 0U;
 static uint32_t app_timer_events_diag_guard_last_over_1000us = 0U;
 static uint32_t app_timer_events_diag_guard_last_over_5000us = 0U;
 static uint32_t app_timer_events_diag_guard_last_budget_hits = 0U;
+static uint8_t app_timer_events_tb_pressure_active = 0U;
+static uint8_t app_timer_events_tb_pressure_ticks = 0U;
+static uint8_t app_timer_events_tb_clear_ticks = 0U;
+static uint8_t app_timer_events_tb_pressure_log_decimator = 0U;
+static uint32_t app_timer_events_tb_last_dropped_count = 0U;
+static uint32_t app_timer_events_tb_last_missed_emit_count = 0U;
 
 /* Handles coarse periodic timer events published by the runtime scheduler. */
 uint8_t AppTimerEvents_HandleEvent(const AppEvent_t *event)
@@ -180,6 +191,8 @@ static void AppTimerEvents_Handle100MsTick(void)
         printf("DIAG_GUARD EXIT\r\n");
     }
 
+    AppTimerEvents_ServiceTimebendBacklogVisibility(diagnostics_guard_active);
+
     /* Spread heavy UART diagnostic prints across the 1s window so one loop
      * iteration does not block for multiple long printf calls back-to-back. */
     switch (app_timer_events_diagnostic_slot)
@@ -240,6 +253,113 @@ static void AppTimerEvents_Handle100MsTick(void)
     app_timer_events_diagnostic_slot++;
     if (app_timer_events_diagnostic_slot >= 10U)
         app_timer_events_diagnostic_slot = 0U;
+}
+
+static void AppTimerEvents_ServiceTimebendBacklogVisibility(uint8_t diagnostics_guard_active)
+{
+    MidiTimebendBacklogSnapshot_t snapshot = {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
+    uint32_t dropped_delta;
+    uint32_t missed_delta;
+    uint8_t pressure_now;
+
+    MidiTimebendGetBacklogSnapshot(&snapshot);
+
+    if (snapshot.dropped_count >= app_timer_events_tb_last_dropped_count)
+        dropped_delta = snapshot.dropped_count - app_timer_events_tb_last_dropped_count;
+    else
+        dropped_delta = snapshot.dropped_count;
+
+    if (snapshot.missed_emit_count >= app_timer_events_tb_last_missed_emit_count)
+        missed_delta = snapshot.missed_emit_count - app_timer_events_tb_last_missed_emit_count;
+    else
+        missed_delta = snapshot.missed_emit_count;
+
+    app_timer_events_tb_last_dropped_count = snapshot.dropped_count;
+    app_timer_events_tb_last_missed_emit_count = snapshot.missed_emit_count;
+
+    pressure_now = (uint8_t)((snapshot.crossing_backlog_now > 0U)
+        || (snapshot.due_depth > 0U)
+        || (dropped_delta > 0U)
+        || (missed_delta > 0U)
+        || (snapshot.scheduling_jitter_est_us >= APP_TIMER_EVENTS_TB_JITTER_PRESSURE_US));
+
+    if (pressure_now)
+    {
+        app_timer_events_tb_clear_ticks = 0U;
+        if (app_timer_events_tb_pressure_ticks < UINT8_MAX)
+            app_timer_events_tb_pressure_ticks++;
+
+        if (!app_timer_events_tb_pressure_active
+         && app_timer_events_tb_pressure_ticks >= APP_TIMER_EVENTS_TB_PRESSURE_ENTER_TICKS)
+        {
+            app_timer_events_tb_pressure_active = 1U;
+            app_timer_events_tb_pressure_log_decimator = APP_TIMER_EVENTS_TB_PRESSURE_LOG_PERIOD_TICKS;
+                 printf("TBPRESS ENTER active=%u due=%u back_now=%lu back_peak=%lu clk_q=%u msg_q=%u drop_d=%lu miss_d=%lu jit_est_us=%lu guard=%u\r\n",
+                   (unsigned)snapshot.active,
+                   (unsigned)snapshot.due_depth,
+                   (unsigned long)snapshot.crossing_backlog_now,
+                   (unsigned long)snapshot.crossing_backlog_peak,
+                   (unsigned)snapshot.uart_clock_depth,
+                   (unsigned)snapshot.uart_message_depth,
+                   (unsigned long)dropped_delta,
+                   (unsigned long)missed_delta,
+                     (unsigned long)snapshot.scheduling_jitter_est_us,
+                   (unsigned)diagnostics_guard_active);
+            return;
+        }
+
+        if (app_timer_events_tb_pressure_active)
+        {
+            if (app_timer_events_tb_pressure_log_decimator > 0U)
+                app_timer_events_tb_pressure_log_decimator--;
+
+            if ((dropped_delta > 0U)
+             || (missed_delta > 0U)
+             || (app_timer_events_tb_pressure_log_decimator == 0U))
+            {
+                app_timer_events_tb_pressure_log_decimator = APP_TIMER_EVENTS_TB_PRESSURE_LOG_PERIOD_TICKS;
+                  printf("TBPRESS UPDATE active=%u due=%u back_now=%lu back_peak=%lu clk_q=%u msg_q=%u drop_d=%lu miss_d=%lu jit_est_us=%lu guard=%u\r\n",
+                       (unsigned)snapshot.active,
+                       (unsigned)snapshot.due_depth,
+                       (unsigned long)snapshot.crossing_backlog_now,
+                       (unsigned long)snapshot.crossing_backlog_peak,
+                       (unsigned)snapshot.uart_clock_depth,
+                       (unsigned)snapshot.uart_message_depth,
+                       (unsigned long)dropped_delta,
+                       (unsigned long)missed_delta,
+                      (unsigned long)snapshot.scheduling_jitter_est_us,
+                       (unsigned)diagnostics_guard_active);
+            }
+        }
+
+        return;
+    }
+
+    app_timer_events_tb_pressure_ticks = 0U;
+    if (!app_timer_events_tb_pressure_active)
+    {
+        app_timer_events_tb_clear_ticks = 0U;
+        return;
+    }
+
+    if (app_timer_events_tb_clear_ticks < UINT8_MAX)
+        app_timer_events_tb_clear_ticks++;
+
+    if (app_timer_events_tb_clear_ticks >= APP_TIMER_EVENTS_TB_PRESSURE_EXIT_TICKS)
+    {
+        app_timer_events_tb_pressure_active = 0U;
+        app_timer_events_tb_clear_ticks = 0U;
+        app_timer_events_tb_pressure_log_decimator = 0U;
+         printf("TBPRESS EXIT active=%u due=%u back_now=%lu back_peak=%lu clk_q=%u msg_q=%u jit_est_us=%lu guard=%u\r\n",
+               (unsigned)snapshot.active,
+               (unsigned)snapshot.due_depth,
+               (unsigned long)snapshot.crossing_backlog_now,
+               (unsigned long)snapshot.crossing_backlog_peak,
+               (unsigned)snapshot.uart_clock_depth,
+               (unsigned)snapshot.uart_message_depth,
+             (unsigned long)snapshot.scheduling_jitter_est_us,
+               (unsigned)diagnostics_guard_active);
+    }
 }
 
 void AppTimerEvents_AcknowledgeSaveTimeoutEvent(void)

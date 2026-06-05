@@ -25,7 +25,7 @@ typedef struct {
 extern const GalleryImage_t gallery_images[];
 
 /** Number of entries in gallery_images[]. */
-extern const uint8_t gallery_image_count; /* 1 image(s) */
+extern const uint8_t gallery_image_count; /* 0 image(s) */
 
 #ifdef __cplusplus
 }

@@ -1,0 +1,13 @@
+{
+  "min_locked_samples": 1,
+  "max_locked_interval_pkpk_us": 5500,
+  "max_locked_backlog_now_final": 1,
+  "require_tbpress_signals": false,
+  "max_tbpress_events_while_active": 40,
+  "stress_backlog_trigger": 4,
+  "stress_jitter_trigger_us": 700,
+  "require_drop_on_stress": false,
+  "max_jitter_settle_us": 700,
+  "jitter_exit_decay_ratio": 0.90,
+  "min_tbpress_windows_for_jitter_check": 1
+}

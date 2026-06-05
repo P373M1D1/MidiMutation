@@ -17,9 +17,7 @@ Requires Pillow:
     pip install Pillow
 """
 
-import os
 import sys
-import struct
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -38,6 +36,9 @@ DISPLAY_H = 300
 
 # Files in the gallery folder with these extensions are treated as images.
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".tiff"}
+
+# Firmware flash limit from linker script / target memory map.
+FLASH_LIMIT_BYTES = 896 * 1024
 
 
 def rgb888_to_rgb565(r: int, g: int, b: int) -> int:
@@ -94,14 +95,49 @@ def c_identifier(name: str) -> str:
 
 
 def collect_images():
-    """Return a sorted list of image paths from the gallery folder."""
+    """Return a sorted list of image paths from gallery/ recursively."""
     if not GALLERY_DIR.is_dir():
         return []
-    paths = []
-    for entry in sorted(GALLERY_DIR.iterdir()):
-        if entry.is_file() and entry.suffix.lower() in IMAGE_EXTENSIONS:
-            paths.append(entry)
+
+    paths = [
+        p
+        for p in GALLERY_DIR.rglob("*")
+        if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+    ]
+
+    # Stable ordering: folder path then filename, case-insensitive.
+    paths.sort(key=lambda p: str(p.relative_to(GALLERY_DIR)).lower())
     return paths
+
+
+def parse_max_images_arg() -> int | None:
+    """Parse an optional --max-images N argument."""
+    args = sys.argv[1:]
+
+    if not args:
+        return None
+
+    if len(args) == 2 and args[0] == "--max-images":
+        try:
+            value = int(args[1])
+        except ValueError:
+            print("ERROR: --max-images requires an integer value")
+            sys.exit(2)
+
+        if value <= 0:
+            print("ERROR: --max-images must be > 0")
+            sys.exit(2)
+
+        return value
+
+    print("ERROR: unsupported arguments")
+    print("Usage: python tools/gen_gallery.py [--max-images N]")
+    sys.exit(2)
+
+
+def estimate_gallery_flash_bytes(image_count: int) -> int:
+    """Estimate the generated gallery source payload in bytes."""
+    return image_count * DISPLAY_W * DISPLAY_H * 2
 
 
 def write_header(image_names: list[str]):
@@ -195,7 +231,13 @@ def main():
     print(f"  Target size    : {DISPLAY_W}×{DISPLAY_H} RGB565")
     print()
 
+    max_images = parse_max_images_arg()
+
     image_paths = collect_images()
+
+    if max_images is not None and len(image_paths) > max_images:
+        print(f"  Limiting to first {max_images} image(s) due to --max-images")
+        image_paths = image_paths[:max_images]
 
     if not image_paths:
         print("  No images found in gallery/ – writing empty registry.")
@@ -206,16 +248,25 @@ def main():
 
     images = []
     for path in image_paths:
-        print(f"  Converting: {path.name}")
+        relative = path.relative_to(GALLERY_DIR)
+        print(f"  Converting: {relative}")
         ident   = c_identifier(path.stem)
         pixels  = image_to_rgb565_array(path)
-        display = path.stem.replace("_", " ")
+        display = str(relative.with_suffix("")).replace("_", " ")
         images.append((ident, pixels, display))
 
     print()
     write_header([name for _, _, name in images])
     write_source(images)
+
+    estimated = estimate_gallery_flash_bytes(len(images))
     print(f"\nDone.  {len(images)} image(s) compiled into firmware.")
+    print(f"Estimated gallery payload: {estimated} bytes")
+
+    if estimated > FLASH_LIMIT_BYTES:
+        print("WARNING: gallery payload exceeds total FLASH budget and will not link.")
+    elif estimated > (FLASH_LIMIT_BYTES // 2):
+        print("WARNING: gallery payload is large; firmware may exceed FLASH after rebuild.")
 
 
 if __name__ == "__main__":

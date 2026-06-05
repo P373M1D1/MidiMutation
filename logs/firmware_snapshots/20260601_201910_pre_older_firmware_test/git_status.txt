@@ -1,0 +1,28 @@
+ M CMakeLists.txt
+ M Core/Inc/display/display_internal.h
+ M Core/Inc/display/display_layout.h
+ M Core/Inc/gallery_images.h
+ M Core/Inc/main.h
+ M Core/Src/display/display_menu_controller.c
+ M Core/Src/display/display_menu_page_gallery.c
+ M Core/Src/display/display_menu_pages.c
+ M Core/Src/display_functions.c
+ M Core/Src/gallery_images.c
+ M User/Src/app/app_expression_input.c
+ M User/Src/app/app_timer_events.c
+ M gallery/README.md
+ D "gallery/WhatsApp Image 2026-05-31 at 16.51.01.jpeg"
+ M pinout.md
+ M tools/gen_gallery.py
+?? User/Inc/app/app_builtin_sd.h
+?? User/Inc/app/app_builtin_sd_fs.h
+?? User/Inc/app/app_builtin_sd_jpeg.h
+?? User/Inc/app/app_user_sd.h
+?? User/Src/app/app_builtin_sd.c
+?? User/Src/app/app_builtin_sd_fs.c
+?? User/Src/app/app_builtin_sd_jpeg.c
+?? User/Src/app/app_user_sd.c
+?? User/third_party/
+?? firmware_rollback.md
+?? logs/firmware_snapshots/
+?? tools/firmware_snapshot.sh

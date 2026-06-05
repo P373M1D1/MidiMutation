@@ -4,7 +4,9 @@
 
 void MidiFeedback_PulseTransportAnchorAt(uint32_t timestamp_us)
 {
-    LED_MidiClockPulseAtUs(timestamp_us);
+    (void)timestamp_us;
+    /* Transport START/CONTINUE should not inject a synthetic beat blink.
+     * Beat LED cadence must come only from real quarter-note events. */
     LED_MidiInPulse();
 }
 

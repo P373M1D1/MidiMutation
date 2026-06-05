@@ -1,0 +1,6 @@
+timestamp=20260601_201910
+name=pre_older_firmware_test
+head_sha=80367ef85758094135be659c659868a0b0a06220
+branch=fallback/2026-05-09-loopback-monitor-only
+elf=ChatTest.elf
+map=ChatTest.map

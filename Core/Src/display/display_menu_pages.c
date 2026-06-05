@@ -318,17 +318,6 @@ static void Display_DrawMenuRoot(void)
     }
 }
 
-static void Display_DrawMenuBankInitConfirm(void)
-{
-    char confirm_text[24];
-
-    (void)snprintf(confirm_text,
-                   sizeof(confirm_text),
-                   MENU_BANK_INIT_CONFIRM_FORMAT,
-                   (uint8_t)(display_state.menu_active_bank_index + 1U));
-    Display_DrawMenuConfirmPrompt(confirm_text);
-}
-
 static void Display_DrawMenuDeviceInitConfirm(void)
 {
     char confirm_text[20];
@@ -337,6 +326,17 @@ static void Display_DrawMenuDeviceInitConfirm(void)
                    sizeof(confirm_text),
                    MENU_DEVICE_INIT_CONFIRM_FORMAT,
                    (uint8_t)(display_state.menu_active_device_index + 1U));
+    Display_DrawMenuConfirmPrompt(confirm_text);
+}
+
+static void Display_DrawMenuBankInitConfirm(void)
+{
+    char confirm_text[24];
+
+    (void)snprintf(confirm_text,
+                   sizeof(confirm_text),
+                   MENU_BANK_INIT_CONFIRM_FORMAT,
+                   (uint8_t)(display_state.menu_active_bank_index + 1U));
     Display_DrawMenuConfirmPrompt(confirm_text);
 }
 
@@ -401,15 +401,15 @@ uint8_t Display_MenuPageUsesFreeformBody(DisplayMenuPage_t page)
      * selectable row list, so redraw code must bypass row-based assumptions. */
     return (page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM
          || page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM
-            || page == DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM
-            || page == DISPLAY_MENU_PAGE_MIDI_MONITOR
-            || page == DISPLAY_MENU_PAGE_GALLERY) ? 1U : 0U;
+         || page == DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM
+         || page == DISPLAY_MENU_PAGE_MIDI_MONITOR
+         || page == DISPLAY_MENU_PAGE_GALLERY) ? 1U : 0U;
 }
 
 uint8_t Display_MenuHeaderChanged(DisplayMenuPage_t previous_page, DisplayMenuPage_t current_page)
 {
-        char previous_text[16];
-        char current_text[16];
+    char previous_text[16];
+    char current_text[16];
     const char *previous_header = Display_GetMenuHeaderTextForPage(previous_page, previous_text, sizeof(previous_text));
     const char *current_header = Display_GetMenuHeaderTextForPage(current_page, current_text, sizeof(current_text));
 

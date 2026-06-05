@@ -32,7 +32,9 @@
 #define MIDI_TIMEBEND_MAX_VELOCITY_US_PER_S 240000L
 #define MIDI_TIMEBEND_PHASE_STEP_Q24 (1ULL << 24)
 #define MIDI_TIMEBEND_TRUTH_TIMEOUT_MULTIPLIER 3U
-#define MIDI_TIMEBEND_MAX_CROSSINGS_PER_PASS 64U
+#define MIDI_TIMEBEND_MAX_CROSSINGS_PER_IRQ_PASS 1U
+#define MIDI_TIMEBEND_MAX_CROSSINGS_PER_FOREGROUND_PASS 4U
+#define MIDI_TIMEBEND_SCHED_JITTER_FILTER_SHIFT 2U
 
 static UART_HandleTypeDef *midi_output_uart = NULL;
 static uint8_t midi_output_clock_buffer[MIDI_OUTPUT_CLOCK_QUEUE_SIZE];
@@ -73,6 +75,9 @@ static volatile uint32_t midi_output_timebend_diag_emit_interval_sample_count = 
 static volatile uint32_t midi_output_timebend_diag_missed_emit_count = 0U;
 static volatile uint32_t midi_output_timebend_diag_crossing_backlog_peak = 0U;
 static volatile uint32_t midi_output_timebend_diag_phase_nonmono_count = 0U;
+static volatile uint32_t midi_output_timebend_diag_sched_jitter_est_us = 0U;
+static volatile uint32_t midi_output_timebend_diag_sched_last_late_us = 0U;
+static volatile uint8_t midi_output_timebend_diag_sched_seeded = 0U;
 static volatile uint8_t midi_output_clock_diag_peak_depth = 0U;
 static volatile uint8_t midi_output_message_diag_peak_depth = 0U;
 static volatile uint32_t midi_output_message_diag_enqueue_attempts = 0U;
@@ -121,7 +126,10 @@ static void MidiOutput_TimebendArmCompareLocked(void);
 __attribute__((section(".RamFunc")))
 static void MidiOutput_TimebendAdvancePhaseLocked(uint32_t now_us);
 __attribute__((section(".RamFunc")))
-static void MidiOutput_TimebendEmitCrossingsLocked(uint32_t now_us);
+static void MidiOutput_TimebendEmitCrossingsLocked(uint32_t now_us,
+                                                   uint32_t crossing_budget);
+__attribute__((section(".RamFunc")))
+static void MidiOutput_TimebendUpdateSchedJitterEstimateLocked(uint32_t late_us);
 __attribute__((section(".RamFunc")))
 static uint32_t MidiOutput_TimebendCrossingBacklogLocked(void);
 __attribute__((section(".RamFunc")))
@@ -314,7 +322,8 @@ uint8_t MidiOutput_QueueRealtimeByte(uint8_t byte)
 
         MidiOutput_TimebendUpdateModelLocked(now);
         MidiOutput_TimebendAdvancePhaseLocked(now);
-        MidiOutput_TimebendEmitCrossingsLocked(now);
+        MidiOutput_TimebendEmitCrossingsLocked(now,
+                                               MIDI_TIMEBEND_MAX_CROSSINGS_PER_IRQ_PASS);
         MidiOutput_TimebendArmCompareLocked();
         MidiOutput_ExitCritical(primask);
         return 1U;
@@ -422,7 +431,8 @@ void MidiOutput_TimebendInjectEncoderDelta(int8_t delta)
     midi_output_timebend_last_encoder_us = now;
 
     MidiOutput_TimebendAdvancePhaseLocked(now);
-    MidiOutput_TimebendEmitCrossingsLocked(now);
+    MidiOutput_TimebendEmitCrossingsLocked(now,
+                                           MIDI_TIMEBEND_MAX_CROSSINGS_PER_FOREGROUND_PASS);
     MidiOutput_TimebendArmCompareLocked();
 
     MidiOutput_ExitCritical(primask);
@@ -474,6 +484,7 @@ void MidiOutput_TakeTimebendDiagnostics(MidiOutputTimebendDiagnostics_t *diagnos
         : (midi_output_timebend_diag_late_sum_us / midi_output_timebend_diag_late_sample_count);
     diagnostics->late_max_us = midi_output_timebend_diag_late_max_us;
     diagnostics->emit_interval_sample_count = midi_output_timebend_diag_emit_interval_sample_count;
+    diagnostics->scheduling_jitter_est_us = midi_output_timebend_diag_sched_jitter_est_us;
     diagnostics->emit_interval_avg_us = (midi_output_timebend_diag_emit_interval_sample_count == 0U)
         ? 0U
         : (midi_output_timebend_diag_emit_interval_sum_us / midi_output_timebend_diag_emit_interval_sample_count);
@@ -522,6 +533,26 @@ void MidiOutput_TakeTimebendDiagnostics(MidiOutputTimebendDiagnostics_t *diagnos
     MidiOutput_ExitCritical(primask);
 }
 
+void MidiOutput_GetTimebendBacklogSnapshot(MidiOutputTimebendBacklogSnapshot_t *snapshot)
+{
+    uint32_t primask;
+
+    if (!snapshot)
+        return;
+
+    primask = MidiOutput_EnterCritical();
+    snapshot->active = midi_output_timebend_active;
+    snapshot->due_depth = MidiOutput_TimebendDueDepthLocked();
+    snapshot->uart_clock_depth = MidiOutput_ClockDepthLocked();
+    snapshot->uart_message_depth = MidiOutput_MessageDepthLocked();
+    snapshot->crossing_backlog_now = MidiOutput_TimebendCrossingBacklogLocked();
+    snapshot->crossing_backlog_peak = midi_output_timebend_diag_crossing_backlog_peak;
+    snapshot->dropped_count = midi_output_timebend_diag_dropped_count;
+    snapshot->missed_emit_count = midi_output_timebend_diag_missed_emit_count;
+    snapshot->scheduling_jitter_est_us = midi_output_timebend_diag_sched_jitter_est_us;
+    MidiOutput_ExitCritical(primask);
+}
+
 __attribute__((section(".RamFunc")))
 void MidiOutput_HandleTimingCounterIrq(void)
 {
@@ -547,12 +578,50 @@ void MidiOutput_HandleTimingCounterIrq(void)
             midi_output_timebend_diag_late_max_us = late_us;
         if (midi_output_timebend_diag_late_sample_count < UINT32_MAX)
             midi_output_timebend_diag_late_sample_count++;
+
+        MidiOutput_TimebendUpdateSchedJitterEstimateLocked(late_us);
     }
 
     MidiOutput_TimebendUpdateModelLocked(now);
     MidiOutput_TimebendAdvancePhaseLocked(now);
-    MidiOutput_TimebendEmitCrossingsLocked(now);
+    MidiOutput_TimebendEmitCrossingsLocked(now,
+                                           MIDI_TIMEBEND_MAX_CROSSINGS_PER_IRQ_PASS);
     MidiOutput_TimebendArmCompareLocked();
+}
+
+__attribute__((section(".RamFunc")))
+static void MidiOutput_TimebendUpdateSchedJitterEstimateLocked(uint32_t late_us)
+{
+    uint32_t delta_us;
+
+    if (!midi_output_timebend_diag_sched_seeded)
+    {
+        midi_output_timebend_diag_sched_jitter_est_us = late_us;
+        midi_output_timebend_diag_sched_last_late_us = late_us;
+        midi_output_timebend_diag_sched_seeded = 1U;
+        return;
+    }
+
+    if (late_us >= midi_output_timebend_diag_sched_last_late_us)
+        delta_us = late_us - midi_output_timebend_diag_sched_last_late_us;
+    else
+        delta_us = midi_output_timebend_diag_sched_last_late_us - late_us;
+
+    if (delta_us > midi_output_timebend_diag_sched_jitter_est_us)
+    {
+        midi_output_timebend_diag_sched_jitter_est_us +=
+            (delta_us - midi_output_timebend_diag_sched_jitter_est_us
+             + ((1U << MIDI_TIMEBEND_SCHED_JITTER_FILTER_SHIFT) - 1U))
+            >> MIDI_TIMEBEND_SCHED_JITTER_FILTER_SHIFT;
+    }
+    else
+    {
+        midi_output_timebend_diag_sched_jitter_est_us -=
+            (midi_output_timebend_diag_sched_jitter_est_us - delta_us)
+            >> MIDI_TIMEBEND_SCHED_JITTER_FILTER_SHIFT;
+    }
+
+    midi_output_timebend_diag_sched_last_late_us = late_us;
 }
 
 __attribute__((section(".RamFunc")))
@@ -634,6 +703,9 @@ static void MidiOutput_TimebendResetLocked(void)
     midi_output_timebend_diag_missed_emit_count = 0U;
     midi_output_timebend_diag_crossing_backlog_peak = 0U;
     midi_output_timebend_diag_phase_nonmono_count = 0U;
+    midi_output_timebend_diag_sched_jitter_est_us = 0U;
+    midi_output_timebend_diag_sched_last_late_us = 0U;
+    midi_output_timebend_diag_sched_seeded = 0U;
     midi_output_clock_diag_peak_depth = MidiOutput_ClockDepthLocked();
     TIM2->DIER &= ~TIM_DIER_CC4IE;
     TIM2->SR = ~TIM_SR_CC4IF;
@@ -821,9 +893,13 @@ static void MidiOutput_TimebendAdvancePhaseLocked(uint32_t now_us)
 }
 
 __attribute__((section(".RamFunc")))
-static void MidiOutput_TimebendEmitCrossingsLocked(uint32_t now_us)
+static void MidiOutput_TimebendEmitCrossingsLocked(uint32_t now_us,
+                                                   uint32_t crossing_budget)
 {
     uint32_t crossings_processed = 0U;
+
+    if (crossing_budget == 0U)
+        crossing_budget = 1U;
 
     while (midi_output_timebend_phase_out_q24 >= midi_output_timebend_next_edge_q24)
     {
@@ -872,13 +948,16 @@ static void MidiOutput_TimebendEmitCrossingsLocked(uint32_t now_us)
 
         midi_output_timebend_next_edge_q24 += MIDI_TIMEBEND_PHASE_STEP_Q24;
         crossings_processed++;
-        if (crossings_processed >= MIDI_TIMEBEND_MAX_CROSSINGS_PER_PASS)
+        now_us = TIM2->CNT;
+
+        if (crossings_processed >= crossing_budget)
         {
             uint32_t backlog_now = MidiOutput_TimebendCrossingBacklogLocked();
 
             if (backlog_now > 0U)
             {
                 midi_output_timebend_next_edge_q24 += ((uint64_t)backlog_now * MIDI_TIMEBEND_PHASE_STEP_Q24);
+
                 if ((UINT32_MAX - midi_output_timebend_diag_dropped_count) < backlog_now)
                     midi_output_timebend_diag_dropped_count = UINT32_MAX;
                 else
@@ -891,8 +970,6 @@ static void MidiOutput_TimebendEmitCrossingsLocked(uint32_t now_us)
             }
             break;
         }
-
-        now_us = TIM2->CNT;
     }
 }
 

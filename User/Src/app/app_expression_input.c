@@ -7,14 +7,11 @@
 #include "stm32f4xx_hal.h"
 
 #include <limits.h>
-#include <stdio.h>
 
 #define APP_EXPRESSION_INPUT_RAW_MAX                RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MAX
 #define APP_EXPRESSION_INPUT_RAW_DELTA_PER_STEP     64
 #define APP_EXPRESSION_INPUT_FILTER_NUMERATOR        3U
 #define APP_EXPRESSION_INPUT_FILTER_DENOMINATOR      4U
-#define APP_EXPRESSION_INPUT_SERIAL_MONITOR_ENABLED  1U
-#define APP_EXPRESSION_INPUT_SERIAL_MONITOR_MIN_MS   25U
 
 static uint8_t app_expression_input_sample_valid = 0U;
 static volatile uint16_t app_expression_input_pending_raw_sample = 0U;
@@ -24,10 +21,6 @@ static volatile uint8_t app_expression_input_latest_raw_sample_valid = 0U;
 static uint16_t app_expression_input_last_raw_sample = 0U;
 static uint16_t app_expression_input_filtered_raw_sample = 0U;
 static int32_t app_expression_input_residual_delta = 0;
-#if APP_EXPRESSION_INPUT_SERIAL_MONITOR_ENABLED
-static uint16_t app_expression_input_last_reported_raw_sample = 0U;
-static uint32_t app_expression_input_last_report_tick = 0U;
-#endif
 static uint8_t app_expression_input_adc_initialized = 0U;
 
 static uint16_t AppExpressionInput_ClampRawSample(uint16_t raw_sample);
@@ -244,22 +237,7 @@ static void AppExpressionInput_ResetTrackingState(void)
 
 static void AppExpressionInput_ReportRawSample(uint16_t raw_sample)
 {
-#if APP_EXPRESSION_INPUT_SERIAL_MONITOR_ENABLED
-    uint32_t now = HAL_GetTick();
-
-    if (app_expression_input_last_report_tick != 0U
-     && (now - app_expression_input_last_report_tick) < APP_EXPRESSION_INPUT_SERIAL_MONITOR_MIN_MS
-     && raw_sample == app_expression_input_last_reported_raw_sample)
-    {
-        return;
-    }
-
-    printf("EXPR_RAW=%u\r\n", (unsigned)raw_sample);
-    app_expression_input_last_reported_raw_sample = raw_sample;
-    app_expression_input_last_report_tick = now;
-#else
     (void)raw_sample;
-#endif
 }
 
 static void AppExpressionInput_InitAdc(void)

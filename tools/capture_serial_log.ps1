@@ -23,7 +23,8 @@ if (-not [System.IO.Path]::IsPathRooted($resolvedLogDir))
 New-Item -ItemType Directory -Path $resolvedLogDir -Force | Out-Null
 
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$sessionLog = Join-Path $resolvedLogDir ("serial_" + $Port + "_" + $timestamp + ".log")
+$safePortLabel = ($Port -replace '[^A-Za-z0-9._-]', '_')
+$sessionLog = Join-Path $resolvedLogDir ("serial_" + $safePortLabel + "_" + $timestamp + ".log")
 $latestLog = Join-Path $resolvedLogDir "serial_latest.log"
 $analyzerScript = Join-Path $PSScriptRoot "analyze_sync_log.ps1"
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -87,7 +88,7 @@ finally
         {
             Write-Host ""
             Write-Host "Running sync analyzer report..."
-            & powershell -NoProfile -ExecutionPolicy Bypass -File $analyzerScript -LogPath $sessionLog
+            & $analyzerScript -LogPath $sessionLog
             if ($LASTEXITCODE -ne 0)
             {
                 Write-Host ("Sync analyzer returned exit code: " + $LASTEXITCODE)

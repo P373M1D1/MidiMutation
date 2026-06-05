@@ -25,7 +25,7 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PA12        | USB_DP                                                | USB connector                 |
 | PG6         | USB power switch enable (output)                      | USB power switch IC           |
 | PG7         | USB overcurrent sense (input)                         | USB power switch IC           |
-| **SPI1 — ST7796 Display**                                                                     |
+| **SPI1 — ST7796 Display + BUILTIN SD (TFT slot)**                                           |
 | PA4         | Backlight Pin for fade                               | ST7796 LED                     |
 | PA5         | SPI1_SCK  (AF5) — CN7 / Arduino D13                  | ST7796 SCK                    |
 | PA6         | SPI1_MISO (AF5) — CN7 / Arduino D12                  | ST7796 MISO                   |
@@ -33,10 +33,16 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PD14        | ST7796_CS  — chip select (output) — Morpho CN11       | ST7796 CS                     |
 | PD15        | ST7796_DC  — data/command select (output) — Morpho CN11 | ST7796 DC / RS              |
 | PF12        | ST7796_RST — reset (output) — Morpho CN11             | ST7796 RST                    |
+| PG2         | BUILTIN_SD_CS — chip select (output)                 | BUILTIN SD CS (TFT slot)      |
+| **SPI3 — USER SD Card (new dedicated SD bus)**                                             |
+| PC10        | SPI3_SCK  (AF6) — Morpho CN11                          | USER SD SCK                  |
+| PC11        | SPI3_MISO (AF6) — Morpho CN11                          | USER SD MISO                 |
+| PC12        | SPI3_MOSI (AF6) — Morpho CN11                          | USER SD MOSI                 |
+| PG1         | USER_SD_CS — chip select (output)                      | USER SD CS                   |
 | **MIDI UART Ports**                                                                           |
 | PD0         | UART4_RX (AF11) — Morpho CN11                         | MIDI In 2 monitor input |
 | PD1         | UART4_TX (AF11) — Morpho CN11                         | MIDI Out 1 — smart output (preset MIDI + internal/external clock) |
-| PC12        | UART5_TX (AF8) — Morpho CN11                          | Spare second MIDI out (currently unused in firmware) |
+| PC12        | Repurposed from UART5_TX spare route                  | Now used by USER SD SPI3 MOSI |
 | PD5         | USART2_TX (AF7) — Morpho CN11                         | MIDI Thru — soft-thru copy of MIDI In |
 | PD6         | USART2_RX (AF7) — Morpho CN11                         | MIDI In (opto-isolated input) |
 | **Rotary Encoders — practical 3-controller plan**                                             |
@@ -68,7 +74,6 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | **Encoder button LEDs — GPIO output**                                                         |
 | PF15        | MIDI In activity LED output                           | MIDI In indicator LED         |
 | PG0         | MIDI Out activity LED output                          | MIDI Out indicator LED        |
-| PG1         | Spare LED output                                      | Spare indicator LED           |
 | **Metronome PWM Output**                                                                         |
 | PB8         | TIM4_CH3 PWM output (AF2), manually configured in firmware | Metronome click output    |
 | **Tap Tempo Input**                                                                           |

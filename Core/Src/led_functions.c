@@ -7,6 +7,7 @@
 #define LED_PULSE_MS  50U  /* pulse width for all LED blinks */
 #define LED_PULSE_US ((uint32_t)LED_PULSE_MS * 1000UL)
 #define LED_TIMING_COMPARE_GUARD_US 20UL //
+#define LED_BEAT_DUPLICATE_GUARD_US 80000UL
 #define LED_PRESET_EDIT_DIM_PERIOD_MS 10U /* dim PWM-like cycle length in edit mode; increase for slower flicker, decrease for smoother/faster gating */
 #define LED_PRESET_EDIT_DIM_ON_MS 1U /* dim brightness control in edit mode; lower = dimmer, higher = brighter (duty = ON / PERIOD, here 2/10 = 20%) */
 #define BUTTON_MONITOR_LED_PINS_MASK (PRESET_LED1_Pin | PRESET_LED2_Pin | PRESET_LED3_Pin | PRESET_LED4_Pin \
@@ -21,6 +22,7 @@ static volatile uint32_t midi_in_off_tick = 0U; /* PF15      – MIDI in start  
 static volatile uint8_t beat_pulse_compare_active = 0U;
 static volatile uint32_t beat_pulse_compare_on_us = 0U;
 static volatile uint32_t beat_pulse_compare_off_us = 0U;
+static volatile uint32_t beat_pulse_last_due_us = 0U;
 static volatile uint8_t led_timing_compare_pending = 0U;
 static uint16_t active_button_led_pin = 0U; /* one active selection LED across preset/random/mute */
 static uint8_t special_function_led_active = 0U; /* sticky state for button 10 mode */
@@ -261,6 +263,8 @@ static uint8_t LED_BeatPulseIsAllowed(void)
  */
 void LED_ServiceDeferredTimingWork(void)
 {
+    uint32_t now_us;
+
     if (led_timing_compare_pending == 0U)
     {
         return;
@@ -276,7 +280,13 @@ void LED_ServiceDeferredTimingWork(void)
 
     if (!beat_pulse_compare_active)
     {
+        /* Pulse width must be measured from the actual ON edge. Anchors can
+         * legitimately arrive in the past under load, so deriving OFF from the
+         * anchor shortens/lengthens visible pulse width. */
+        now_us = LED_TimingNowUs();
         HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_SET);
+        beat_pulse_compare_on_us = now_us;
+        beat_pulse_compare_off_us = now_us + LED_PULSE_US;
         beat_pulse_compare_active = 1U;
         LED_ArmBeatPulseCompare(beat_pulse_compare_off_us);
         return;
@@ -337,6 +347,9 @@ void LED_BeatPulse(void)
 void LED_BeatPulseAtUs(uint32_t start_us)
 {
     uint32_t primask;
+    uint32_t now_us;
+    uint32_t due_us;
+    uint32_t elapsed_since_last_due_us;
 
     if (!LED_BeatPulseIsAllowed())
     {
@@ -350,11 +363,32 @@ void LED_BeatPulseAtUs(uint32_t start_us)
 
     primask = __get_PRIMASK();
     __disable_irq();
+    now_us = LED_TimingNowUs();
+
+    /* Beat LED timing follows the transport anchor directly so INT and EXT
+     * modes share one observable timing truth. */
+    due_us = LED_TimeReachedUs(now_us, start_us) ? now_us : start_us;
+
+    /* Observer-only duplicate suppression: drop pulses that arrive too soon
+     * to be musical quarter notes, which avoids perceived "too fast" LED
+     * cadence when upstream emits occasional extra beat cues. */
+    if (beat_pulse_last_due_us != 0U)
+    {
+        elapsed_since_last_due_us = due_us - beat_pulse_last_due_us;
+        if (elapsed_since_last_due_us < LED_BEAT_DUPLICATE_GUARD_US)
+        {
+            if (primask == 0U)
+                __enable_irq();
+            return;
+        }
+    }
+
     beat_pulse_compare_active = 0U;
-    beat_pulse_compare_on_us = start_us;
-    beat_pulse_compare_off_us = start_us + LED_PULSE_US;
+    beat_pulse_compare_on_us = due_us;
+    beat_pulse_compare_off_us = 0U;
+    beat_pulse_last_due_us = due_us;
     HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
-    LED_ArmBeatPulseCompare(start_us);
+    LED_ArmBeatPulseCompare(due_us);
     if (primask == 0U)
         __enable_irq();
 }

@@ -113,6 +113,19 @@ typedef struct
     uint32_t feedback_taper_drop_count;
 } MidiProducerDiagnostics_t;
 
+typedef struct
+{
+    uint8_t active;
+    uint8_t due_depth;
+    uint8_t uart_clock_depth;
+    uint8_t uart_message_depth;
+    uint32_t crossing_backlog_now;
+    uint32_t crossing_backlog_peak;
+    uint32_t dropped_count;
+    uint32_t missed_emit_count;
+    uint32_t scheduling_jitter_est_us;
+} MidiTimebendBacklogSnapshot_t;
+
 /**
  * @brief  Initialise MIDI input on USART2 and enable its soft-thru output.
  *         RX bytes are echoed on USART2 TX while the parser still filters
@@ -416,6 +429,7 @@ void MidiTimebendSetExpressionEnabled(uint8_t enabled);
 void MidiTimebendRequestFromEncoder(int8_t delta);
 void MidiTimebendRequestFromExpression(int8_t delta);
 uint8_t MidiTimebendIsEngaged(void);
+void MidiTimebendGetBacklogSnapshot(MidiTimebendBacklogSnapshot_t *snapshot);
 
 /**
  * @brief  Emit a once-per-second clock diagnostic summary on the debug UART.
