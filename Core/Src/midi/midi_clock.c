@@ -46,14 +46,16 @@ static volatile uint8_t midi_clock_realtime_output_enabled = 1U;
 #define MIDI_CLOCK_OUTPUT_IRQ_SUBPRIORITY  0U
 
 static void midi_clock_output_apply_pulse_counts(uint32_t pulse_counts);
+static uint32_t midi_clock_output_counts_for_pulse_interval_us(uint32_t pulse_interval_us);
 __attribute__((section(".RamFunc")))
 static uint8_t midi_clock_external_signal_present_fast(void);
 __attribute__((section(".RamFunc")))
 static uint8_t midi_clock_flash_busy(void);
-
-#if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
-static uint32_t midi_clock_output_counts_for_pulse_interval_us(uint32_t pulse_interval_us);
-#endif
+__attribute__((section(".RamFunc")))
+static void midi_clock_align_internal_phase_to_external_with_counts(uint32_t now_us,
+                                                                    uint32_t last_pulse_us,
+                                                                    uint32_t external_pulse_count,
+                                                                    uint32_t pulse_counts);
 
 void MidiClockOutputInit(uint16_t bpm)
 {
@@ -180,6 +182,20 @@ void MidiClock_AlignInternalPhaseToExternal(uint32_t now_us,
                                             uint32_t external_pulse_count)
 {
     uint32_t pulse_counts;
+
+    pulse_counts = midi_clock_output_timer.Instance->ARR + 1U;
+    midi_clock_align_internal_phase_to_external_with_counts(now_us,
+                                                            last_pulse_us,
+                                                            external_pulse_count,
+                                                            pulse_counts);
+}
+
+__attribute__((section(".RamFunc")))
+static void midi_clock_align_internal_phase_to_external_with_counts(uint32_t now_us,
+                                                                    uint32_t last_pulse_us,
+                                                                    uint32_t external_pulse_count,
+                                                                    uint32_t pulse_counts)
+{
     uint32_t phase_counts;
     uint32_t transport_pulse_count;
     uint8_t pulse_phase;
@@ -190,9 +206,12 @@ void MidiClock_AlignInternalPhaseToExternal(uint32_t now_us,
     if (last_pulse_us == 0U)
         return;
 
-    pulse_counts = midi_clock_output_timer.Instance->ARR + 1U;
     if (pulse_counts == 0U)
-        pulse_counts = 1U;
+    {
+        pulse_counts = midi_clock_output_timer.Instance->ARR + 1U;
+        if (pulse_counts == 0U)
+            pulse_counts = 1U;
+    }
 
     elapsed_counts = (((uint64_t)(now_us - last_pulse_us) * (uint64_t)MIDI_CLOCK_OUTPUT_TIMER_TICK_HZ) + 500000ULL)
         / 1000000ULL;
@@ -204,6 +223,7 @@ void MidiClock_AlignInternalPhaseToExternal(uint32_t now_us,
 
     primask = __get_PRIMASK();
     __disable_irq();
+    midi_clock_output_timer.Instance->ARR = pulse_counts - 1U;
     midi_internal_transport_pulse_count = transport_pulse_count;
     midi_internal_clock_pulse_count = pulse_phase;
     midi_clock_output_timer.Instance->CNT = phase_counts;
@@ -217,6 +237,8 @@ void MidiClock_HandoffExternalPhaseToInternal(uint32_t now_us)
     uint32_t last_pulse_us;
     uint32_t total_tick_count;
     uint32_t origin_tick_count;
+    uint32_t recovered_interval_us = 0U;
+    uint32_t handoff_pulse_counts = 0U;
     uint32_t primask;
     MidiClockEstimatorStatus_t estimator_status;
 
@@ -233,11 +255,15 @@ void MidiClock_HandoffExternalPhaseToInternal(uint32_t now_us)
      && estimator_status.publication_ready)
     {
         (void)MidiClockEstimator_GetRecoveredPulseTimestampUs(&last_pulse_us);
+        if (MidiClockEstimator_GetRecoveredPulseIntervalUs(&recovered_interval_us))
+            handoff_pulse_counts =
+                midi_clock_output_counts_for_pulse_interval_us(recovered_interval_us);
     }
 
-    MidiClock_AlignInternalPhaseToExternal(now_us,
-                                           last_pulse_us,
-                                           total_tick_count - origin_tick_count);
+    midi_clock_align_internal_phase_to_external_with_counts(now_us,
+                                                            last_pulse_us,
+                                                            total_tick_count - origin_tick_count,
+                                                            handoff_pulse_counts);
 }
 
 __attribute__((section(".RamFunc")))
@@ -305,7 +331,6 @@ static void midi_clock_output_apply_pulse_counts(uint32_t pulse_counts)
         __enable_irq();
 }
 
-#if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
 static uint32_t midi_clock_output_counts_for_pulse_interval_us(uint32_t pulse_interval_us)
 {
     uint64_t pulse_counts;
@@ -322,6 +347,7 @@ static uint32_t midi_clock_output_counts_for_pulse_interval_us(uint32_t pulse_in
     return (uint32_t)pulse_counts;
 }
 
+#if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
 void MidiClock_ResetOutputPhase(void)
 {
     uint32_t primask = __get_PRIMASK();

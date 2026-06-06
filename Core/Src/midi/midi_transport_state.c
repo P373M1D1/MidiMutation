@@ -45,6 +45,7 @@ typedef enum
     MIDI_SYNC_TRANSITION_REASON_ENTER_REARM,
     MIDI_SYNC_TRANSITION_REASON_SYNC_LOST,
     MIDI_SYNC_TRANSITION_REASON_TRANSPORT_IDLE,
+    MIDI_SYNC_TRANSITION_REASON_TRANSPORT_STOPPED,
 } MidiSyncTransitionReason_t;
 
 typedef struct
@@ -52,6 +53,7 @@ typedef struct
     uint8_t active;
     uint8_t running;
     uint8_t rearm_required;
+    uint8_t stop_latched;
     uint8_t sync_lost;
     MidiClockEstimatorStatus_t estimator_status;
     int32_t phase_error_us;
@@ -233,7 +235,12 @@ static MidiSyncState_t midi_transport_compute_sync_state(const MidiSyncLifecycle
     const MidiClockEstimatorStatus_t *status = &inputs->estimator_status;
 
     if (inputs->rearm_required)
-        return inputs->sync_lost ? MIDI_SYNC_STATE_HOLDOVER : MIDI_SYNC_STATE_REARM;
+    {
+        if (inputs->sync_lost || (inputs->stop_latched && has_lock_history))
+            return MIDI_SYNC_STATE_HOLDOVER;
+
+        return MIDI_SYNC_STATE_REARM;
+    }
 
     if (inputs->sync_lost)
         return MIDI_SYNC_STATE_LOST;
@@ -279,6 +286,8 @@ static const char *midi_transport_transition_reason_name(MidiSyncTransitionReaso
         return "SYNC_LOST";
     case MIDI_SYNC_TRANSITION_REASON_TRANSPORT_IDLE:
         return "TRANSPORT_IDLE";
+    case MIDI_SYNC_TRANSITION_REASON_TRANSPORT_STOPPED:
+        return "TRANSPORT_STOPPED";
     default:
         return "NONE";
     }
@@ -775,13 +784,16 @@ static MidiSyncTransitionReason_t midi_transport_transition_reason(MidiSyncState
                                                                    MidiSyncState_t to,
                                                                    const MidiSyncLifecycleInputs_t *inputs)
 {
-    (void)inputs;
-
     if (from == to)
         return MIDI_SYNC_TRANSITION_REASON_NONE;
 
     if (to == MIDI_SYNC_STATE_HOLDOVER)
+    {
+        if (inputs && inputs->stop_latched)
+            return MIDI_SYNC_TRANSITION_REASON_TRANSPORT_STOPPED;
+
         return MIDI_SYNC_TRANSITION_REASON_SOURCE_TIMEOUT;
+    }
 
     if (to == MIDI_SYNC_STATE_REARM)
         return MIDI_SYNC_TRANSITION_REASON_ENTER_REARM;
@@ -875,6 +887,7 @@ static void midi_transport_update_sync_lifecycle(void)
     inputs.active = MidiTransport_IsExternalClockActive();
     inputs.running = midi_transport_running;
     inputs.rearm_required = midi_transport_rearm_required;
+    inputs.stop_latched = midi_transport_stop_latched;
     inputs.sync_lost = midi_clock_sync_lost;
     MidiClockEstimator_GetStatus(&inputs.estimator_status);
     MidiClockEstimator_GetRecoveredPllDiagnostics(&inputs.phase_error_us,
@@ -901,13 +914,18 @@ static void midi_transport_update_sync_lifecycle(void)
         midi_sync_pending_reason = midi_transport_transition_reason(midi_sync_state,
                                                                     desired_state,
                                                                     &inputs);
-        return;
+        transition_dwell_ms = midi_transport_transition_dwell_ms(midi_sync_state,
+                                                                 desired_state);
+        if (transition_dwell_ms != 0U)
+            return;
     }
-
-    transition_dwell_ms = midi_transport_transition_dwell_ms(midi_sync_state,
-                                                             desired_state);
-    if ((now_ms - midi_sync_pending_enter_tick_ms) < transition_dwell_ms)
-        return;
+    else
+    {
+        transition_dwell_ms = midi_transport_transition_dwell_ms(midi_sync_state,
+                                                                 desired_state);
+        if ((now_ms - midi_sync_pending_enter_tick_ms) < transition_dwell_ms)
+            return;
+    }
 
     midi_sync_last_transition_from = midi_sync_state;
     midi_sync_last_transition_to = desired_state;
@@ -921,6 +939,7 @@ static void midi_transport_update_sync_lifecycle(void)
      && midi_sync_last_transition_to != MIDI_SYNC_STATE_LOCKED
      && midi_sync_last_transition_reason != MIDI_SYNC_TRANSITION_REASON_ENTER_REARM
      && midi_sync_last_transition_reason != MIDI_SYNC_TRANSITION_REASON_TRANSPORT_IDLE
+     && midi_sync_last_transition_reason != MIDI_SYNC_TRANSITION_REASON_TRANSPORT_STOPPED
      && midi_sync_metric_lock_lost_count < UINT32_MAX)
     {
         midi_sync_metric_lock_lost_count++;

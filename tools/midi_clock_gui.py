@@ -186,8 +186,10 @@ class MidiClockApp:
         if self.worker_thread and self.worker_thread.is_alive():
             self.stop_event.set()
             self.worker_thread.join(timeout=1.5)
-        else:
-            self._send_realtime_message("stop")
+
+        # Always send an explicit MIDI Stop when the user presses Stop so the
+        # receiver can hand off immediately instead of waiting for clock timeout.
+        self._send_realtime_message("stop")
 
         self.worker_thread = None
         self.running_mode = "stopped"

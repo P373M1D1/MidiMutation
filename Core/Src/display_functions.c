@@ -383,10 +383,22 @@ static uint8_t Display_GetMainInfoScrollMax(void)
 static uint8_t Display_GetMainInfoRightFirstItemForFirstSlot(uint8_t first_slot)
 {
     uint8_t program_scroll_max = Display_GetMainInfoProgramScrollMax();
+    uint8_t right_item_count = PRESET_RELAY_COUNT + 1U;
 
-    return (first_slot > program_scroll_max)
-        ? (uint8_t)(first_slot - program_scroll_max)
-        : 0U;
+    if (first_slot <= program_scroll_max)
+        return 0U;
+
+    {
+        uint8_t right_first_item = (uint8_t)(first_slot - program_scroll_max);
+        uint8_t max_right_first = (right_item_count > MAIN_INFO_ROW_COUNT)
+            ? (uint8_t)(right_item_count - MAIN_INFO_ROW_COUNT)
+            : 0U;
+
+        if (right_first_item > max_right_first)
+            right_first_item = max_right_first;
+
+        return right_first_item;
+    }
 }
 
 static uint8_t Display_GetMainInfoRightFirstItem(void)
@@ -867,7 +879,14 @@ static void Display_DrawMainInfoComposedRow(const Preset_t *preset, uint8_t row_
 
     Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
     Display_DrawMainInfoLeftRow(preset, info_index, 0U);
-    Display_DrawMainInfoRightRow(preset, (uint8_t)(right_first_item + row_index), 0U);
+
+    /** Right-column items (relays, function button) are only valid alongside
+     * program rows. When the left side shows a CC or Init row (info_index
+     * >= PRESET_DEVICE_SLOTS), skip the right draw entirely so relay/function
+     * labels do not bleed over CC edit content and the view correctly shows
+     * an empty right half for those rows. */
+    if (info_index < PRESET_DEVICE_SLOTS)
+        Display_DrawMainInfoRightRow(preset, (uint8_t)(right_first_item + row_index), 0U);
 
     if (row_index == 0U)
     {

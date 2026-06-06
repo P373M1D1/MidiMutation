@@ -211,45 +211,16 @@ static void Display_FormatDeviceCcNumberOnlyValue(const MidiCC_t *cc,
     (void)snprintf(buffer, buffer_size, "CC:%3u", cc->cc);
 }
 
-static void Display_FormatDeviceCcEditValue(const MidiCC_t *cc, char *buffer, size_t buffer_size)
-{
-    char cc_number_text[4];
-    char value_text[4];
-
-    if (!buffer || buffer_size == 0U || !cc)
-        return;
-
-    if (cc->cc == PRESET_CC_NUMBER_UNUSED)
-        (void)snprintf(cc_number_text, sizeof(cc_number_text), "---");
-    else
-        (void)snprintf(cc_number_text, sizeof(cc_number_text), "%3u", cc->cc);
-
-    (void)snprintf(value_text, sizeof(value_text), "%3u", cc->value);
-    (void)snprintf(buffer, buffer_size, "CC:%s VAL:%s", cc_number_text, value_text);
-}
-
-static void Display_FormatDeviceCcEditNumberOnlyValue(const MidiCC_t *cc,
-                                                      char *buffer,
-                                                      size_t buffer_size)
-{
-    char cc_number_text[4];
-
-    if (!buffer || buffer_size == 0U || !cc)
-        return;
-
-    if (cc->cc == PRESET_CC_NUMBER_UNUSED)
-        (void)snprintf(cc_number_text, sizeof(cc_number_text), "---");
-    else
-        (void)snprintf(cc_number_text, sizeof(cc_number_text), "%3u", cc->cc);
-
-    (void)snprintf(buffer, buffer_size, "CC:%s", cc_number_text);
-}
-
 void Display_FormatDeviceEditValue(uint8_t item_index, char *buffer, size_t buffer_size)
 {
     const RuntimeConfigDevice_t *device = RuntimeConfig_GetDevice(display_state.menu_active_device_index);
 
-    if (!buffer || buffer_size == 0U || !device)
+    if (!buffer || buffer_size == 0U)
+        return;
+
+    buffer[0] = '\0';
+
+    if (!device)
         return;
 
     switch (item_index)
@@ -267,58 +238,31 @@ void Display_FormatDeviceEditValue(uint8_t item_index, char *buffer, size_t buff
         (void)snprintf(buffer, buffer_size, "%u", device->channel);
         break;
     case 3U:
-        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 3U)
-            Display_FormatDeviceCcEditValue(&device->active, buffer, buffer_size);
-        else
-            Display_FormatDeviceCcValue(&device->active, buffer, buffer_size);
+        Display_FormatDeviceCcValue(&device->active, buffer, buffer_size);
         break;
     case 4U:
-        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 4U)
-            Display_FormatDeviceCcEditValue(&device->bypass, buffer, buffer_size);
-        else
-            Display_FormatDeviceCcValue(&device->bypass, buffer, buffer_size);
+        Display_FormatDeviceCcValue(&device->bypass, buffer, buffer_size);
         break;
     case 5U:
-        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 5U)
-            Display_FormatDeviceCcEditValue(&device->tap_tempo, buffer, buffer_size);
-        else
-            Display_FormatDeviceCcValue(&device->tap_tempo, buffer, buffer_size);
+        Display_FormatDeviceCcValue(&device->tap_tempo, buffer, buffer_size);
         break;
     case 6U:
-        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 6U)
-            Display_FormatDeviceCcEditNumberOnlyValue(&device->volume1, buffer, buffer_size);
-        else
-            Display_FormatDeviceCcNumberOnlyValue(&device->volume1, buffer, buffer_size);
+        Display_FormatDeviceCcNumberOnlyValue(&device->volume1, buffer, buffer_size);
         break;
     case 7U:
-        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 7U)
-            Display_FormatDeviceCcEditNumberOnlyValue(&device->volume2, buffer, buffer_size);
-        else
-            Display_FormatDeviceCcNumberOnlyValue(&device->volume2, buffer, buffer_size);
+        Display_FormatDeviceCcNumberOnlyValue(&device->volume2, buffer, buffer_size);
         break;
     case 8U:
-        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 8U)
-            Display_FormatDeviceCcEditNumberOnlyValue(&device->mix1, buffer, buffer_size);
-        else
-            Display_FormatDeviceCcNumberOnlyValue(&device->mix1, buffer, buffer_size);
+        Display_FormatDeviceCcNumberOnlyValue(&device->mix1, buffer, buffer_size);
         break;
     case 9U:
-        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 9U)
-            Display_FormatDeviceCcEditNumberOnlyValue(&device->mix2, buffer, buffer_size);
-        else
-            Display_FormatDeviceCcNumberOnlyValue(&device->mix2, buffer, buffer_size);
+        Display_FormatDeviceCcNumberOnlyValue(&device->mix2, buffer, buffer_size);
         break;
     case 10U:
-        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 10U)
-            Display_FormatDeviceCcEditNumberOnlyValue(&device->decay1, buffer, buffer_size);
-        else
-            Display_FormatDeviceCcNumberOnlyValue(&device->decay1, buffer, buffer_size);
+        Display_FormatDeviceCcNumberOnlyValue(&device->decay1, buffer, buffer_size);
         break;
     case 11U:
-        if (display_state.menu_device_cc_field_edit_active && display_state.menu_device_edit_selection_index == 11U)
-            Display_FormatDeviceCcEditNumberOnlyValue(&device->decay2, buffer, buffer_size);
-        else
-            Display_FormatDeviceCcNumberOnlyValue(&device->decay2, buffer, buffer_size);
+        Display_FormatDeviceCcNumberOnlyValue(&device->decay2, buffer, buffer_size);
         break;
     case 12U:
         buffer[0] = '\0';

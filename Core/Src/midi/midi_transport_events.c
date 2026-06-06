@@ -83,8 +83,8 @@ void MidiTransport_OnStop(uint32_t now)
     MidiTransport_ClearRecoveryHint();
     midi_transport_rearm_required = 1U;
     midi_transport_running = 0U;
-    midi_transport_stop_latched = 0U;
-    midi_transport_event = MIDI_TRANSPORT_EVENT_NONE;
+    midi_transport_stop_latched = 1U;
+    midi_transport_event = MIDI_TRANSPORT_EVENT_STOP;
     midi_clock_last_pulse_us = 0U;
     midi_clock_last_captured_pulse_us = 0U;
     midi_clock_external_bpm_valid = 0U;
