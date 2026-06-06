@@ -1,7 +1,8 @@
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "display_functions.h"
-#include "display/display_compose_helpers.h"
 #include "display/display_internal.h"
 #include "display/display_layout.h"
 #include "stm32f4xx_hal.h"
@@ -14,67 +15,78 @@
  * implementation is still blocking because boot flow currently expects a simple
  * splash-delay stage before the main UI comes up. */
 
-#define LOADING_SCREEN_BG_COLOUR   BLACK
-#define LOADING_SCREEN_BAR_COLOUR  DARK_RED
+#define LOADING_SCREEN_BAR_COLOUR  WHITE
 #define LOADING_SCREEN_TEXT_COLOUR WHITE
 
-static void Display_LoadingBarClearTextRow(void)
+typedef struct
 {
-    Display_ComposeFillRect(ST7796_WIDTH,
-                            LOADING_BAR_TEXT_FONT.height,
-                            0U,
-                            0U,
-                            ST7796_WIDTH,
-                            LOADING_BAR_TEXT_FONT.height,
-                            LOADING_SCREEN_BG_COLOUR);
-    Display_ComposeBlit(0U,
-                        LOADING_BAR_TEXT_Y,
-                        ST7796_WIDTH,
-                        LOADING_BAR_TEXT_FONT.height);
+    const char *text;
+} LoadingStartupLine_t;
+
+/* Startup loading messages are stored as one struct per line so adding another
+ * option only requires appending one entry to this table. */
+static const LoadingStartupLine_t loading_startup_lines[] = {
+    { "Tightening Orion's Belt" },
+    { "Emptying the Big Dipper" },
+    { "Locating Southern Cross" },
+    { "Aligning Cassiopeia" },
+    { "Counting Perseid Meteors" },
+    { "Polishing Polaris" },
+    { "Untangling Andromeda" },
+    { "Charting Lyra" },
+    { "Calibrating Nebula Drift" },
+    { "Checking Saturn's Rings" },
+};
+
+#define LOADING_STARTUP_LINE_COUNT ((uint32_t)(sizeof(loading_startup_lines) / sizeof(loading_startup_lines[0])))
+
+static const char *Display_LoadingBarSelectStartupLine(void)
+{
+    uint32_t seed = HAL_GetTick() ^ SysTick->VAL ^ (uint32_t)(uintptr_t)&loading_startup_lines[0];
+    uint32_t index = (LOADING_STARTUP_LINE_COUNT > 0U) ? (seed % LOADING_STARTUP_LINE_COUNT) : 0U;
+
+    return loading_startup_lines[index].text;
 }
 
 static void Display_LoadingBarSetText(const char *text, uint16_t colour)
 {
-    size_t text_len = strlen(text);
-    uint16_t text_x = (uint16_t)(ST7796_WIDTH - ((uint16_t)text_len * LOADING_BAR_TEXT_FONT.width) - LOADING_BAR_X);
+    if (!text)
+        return;
 
-    /* Boot text is right-aligned to the bar end so changing message lengths do
-     * not shift the visual relationship between the text row and the bar. */
-    Display_ComposeFillRect(ST7796_WIDTH,
-                            LOADING_BAR_TEXT_FONT.height,
-                            0U,
-                            0U,
-                            ST7796_WIDTH,
-                            LOADING_BAR_TEXT_FONT.height,
-                            LOADING_SCREEN_BG_COLOUR);
-    Display_ComposeString16(ST7796_WIDTH,
-                            LOADING_BAR_TEXT_FONT.height,
-                            text_x,
-                            0U,
-                            text,
-                            LOADING_BAR_TEXT_FONT,
-                            colour,
-                            LOADING_SCREEN_BG_COLOUR);
-    Display_ComposeBlit(0U,
-                        LOADING_BAR_TEXT_Y,
-                        ST7796_WIDTH,
-                        LOADING_BAR_TEXT_FONT.height);
+    size_t text_len = strlen(text);
+    uint16_t text_w = (uint16_t)(text_len * LOADING_BAR_TEXT_FONT.width);
+    uint16_t text_margin = (uint16_t)(LOADING_BAR_TEXT_FONT.width * 2U);
+    uint16_t text_x = (text_w + text_margin < ST7796_WIDTH)
+                          ? (uint16_t)(ST7796_WIDTH - text_w - text_margin)
+                          : 0U;
+
+    ST7796_WriteStringTransparent(text_x,
+                                  LOADING_BAR_TEXT_Y,
+                                  text,
+                                  LOADING_BAR_TEXT_FONT,
+                                  colour);
 }
 
 void Display_LoadingBar(uint32_t duration_ms, void (*service_hook)(void))
 {
-    Display_LoadingBarSetText(LOADING_BAR_WAIT_TEXT, LOADING_SCREEN_TEXT_COLOUR);
+    uint16_t inner_x = (uint16_t)(LOADING_BAR_X + 1U);
+    uint16_t inner_y = (uint16_t)(LOADING_BAR_Y + 1U);
+    uint16_t inner_w = (uint16_t)(LOADING_BAR_W - 2U);
+    uint16_t inner_h = (uint16_t)(LOADING_BAR_H - 2U);
 
-    ST7796_DrawFilledRectangle(LOADING_BAR_X,
-                               LOADING_BAR_Y,
-                               LOADING_BAR_W,
-                               LOADING_BAR_H,
-                               LOADING_SCREEN_BG_COLOUR);
+    if (duration_ms == 0U)
+        duration_ms = 1U;
+
+    Display_LoadingBarSetText(Display_LoadingBarSelectStartupLine(), LOADING_SCREEN_TEXT_COLOUR);
+
+    ST7796_DrawRectangle(LOADING_BAR_X,
+                         LOADING_BAR_Y,
+                         (uint16_t)(LOADING_BAR_X + LOADING_BAR_W - 1U),
+                         (uint16_t)(LOADING_BAR_Y + LOADING_BAR_H - 1U),
+                         LOADING_SCREEN_BAR_COLOUR);
 
     uint32_t start = HAL_GetTick();
     uint16_t prev_fill = 0U;
-    uint8_t phase = 0U;
-    uint32_t phase_ts = 0U;
 
     for (;;)
     {
@@ -87,39 +99,17 @@ void Display_LoadingBar(uint32_t duration_ms, void (*service_hook)(void))
 
         if (elapsed > 0U)
         {
-            uint16_t fill = (uint16_t)((elapsed * LOADING_BAR_W) / duration_ms);
+            uint16_t fill = (uint16_t)((elapsed * inner_w) / duration_ms);
 
             if (fill > prev_fill)
             {
-                ST7796_DrawFilledRectangle((uint16_t)(LOADING_BAR_X + prev_fill),
-                                           LOADING_BAR_Y,
+                ST7796_DrawFilledRectangle((uint16_t)(inner_x + prev_fill),
+                                           inner_y,
                                            (uint16_t)(fill - prev_fill),
-                                           LOADING_BAR_H,
+                                           inner_h,
                                            LOADING_SCREEN_BAR_COLOUR);
                 prev_fill = fill;
             }
-        }
-
-        uint32_t now = HAL_GetTick();
-
-        /* Text phases are time-based rather than fill-based so boot copy stays
-         * readable even if panel SPI speed or duration_ms changes later. */
-        if (phase == 0U && elapsed >= duration_ms / LOADING_BAR_PHASE_DIVISOR)
-        {
-            Display_LoadingBarSetText(LOADING_BAR_MATCH_TEXT, LOADING_SCREEN_TEXT_COLOUR);
-            phase = 1U;
-            phase_ts = now;
-        }
-        if (phase == 1U && now - phase_ts >= LOADING_BAR_PHASE_HOLD_MS)
-        {
-            Display_LoadingBarSetText(LOADING_BAR_MARKERS_TEXT, LOADING_SCREEN_TEXT_COLOUR);
-            phase = 2U;
-            phase_ts = now;
-        }
-        if (phase == 2U && now - phase_ts >= LOADING_BAR_PHASE_HOLD_MS)
-        {
-            Display_LoadingBarClearTextRow();
-            phase = 3U;
         }
 
         if (elapsed >= duration_ms)
@@ -129,12 +119,5 @@ void Display_LoadingBar(uint32_t duration_ms, void (*service_hook)(void))
 
 void Display_LoadingBarClear(void)
 {
-    ST7796_DrawFilledRectangle(LOADING_BAR_X,
-                               LOADING_BAR_Y,
-                               LOADING_BAR_W,
-                               LOADING_BAR_H,
-                               LOADING_SCREEN_BG_COLOUR);
-    Display_LoadingBarSetText(LOADING_BAR_DONE_TEXT, LOADING_SCREEN_TEXT_COLOUR);
-    HAL_Delay(LOADING_BAR_PHASE_HOLD_MS);
-    Display_LoadingBarClearTextRow();
+    /* Keep splash text/background intact until startup fade-out removes it. */
 }

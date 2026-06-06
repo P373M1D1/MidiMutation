@@ -16,7 +16,6 @@
 #define APP_STARTUP_STATUS_FONT Font_7x10
 #define APP_STARTUP_STATUS_SUBTEXT_Y (APP_STARTUP_STATUS_TEXT_Y + APP_STARTUP_STATUS_FONT.height + 2U)
 #define APP_STARTUP_STATUS_FG_COLOUR CHARCOAL
-#define APP_STARTUP_STATUS_BG_COLOUR BLACK
 #define APP_STARTUP_STATUS_TEXT_BUFFER_SIZE 16U
 #define APP_STARTUP_LOADING_BAR_MS_DEFAULT 1000U
 
@@ -42,22 +41,20 @@ static void AppStartupDisplay_DrawPersistentStoreStatus(void)
     char status_text[APP_STARTUP_STATUS_TEXT_BUFFER_SIZE];
 
     RuntimeConfig_FormatPersistentStoreStatusText(status_text, sizeof(status_text));
-    ST7796_WriteString(APP_STARTUP_STATUS_TEXT_X,
-                       APP_STARTUP_STATUS_TEXT_Y,
-                       status_text,
-                       APP_STARTUP_STATUS_FONT,
-                       APP_STARTUP_STATUS_FG_COLOUR,
-                       APP_STARTUP_STATUS_BG_COLOUR);
+    ST7796_WriteStringTransparent(APP_STARTUP_STATUS_TEXT_X,
+                                  APP_STARTUP_STATUS_TEXT_Y,
+                                  status_text,
+                                  APP_STARTUP_STATUS_FONT,
+                                  APP_STARTUP_STATUS_FG_COLOUR);
 }
 
 static void AppStartupDisplay_DrawClockSource(void)
 {
-    ST7796_WriteString(APP_STARTUP_STATUS_TEXT_X,
-                       APP_STARTUP_STATUS_SUBTEXT_Y,
-                       AppStartupDisplay_GetClockSourceStatusText(),
-                       APP_STARTUP_STATUS_FONT,
-                       APP_STARTUP_STATUS_FG_COLOUR,
-                       APP_STARTUP_STATUS_BG_COLOUR);
+    ST7796_WriteStringTransparent(APP_STARTUP_STATUS_TEXT_X,
+                                  APP_STARTUP_STATUS_SUBTEXT_Y,
+                                  AppStartupDisplay_GetClockSourceStatusText(),
+                                  APP_STARTUP_STATUS_FONT,
+                                  APP_STARTUP_STATUS_FG_COLOUR);
 }
 
 static void AppStartupDisplay_ServiceClockPromotion(void)
