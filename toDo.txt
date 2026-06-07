@@ -6,7 +6,7 @@ Change: Move PA_4 initialisation back to main.cpp
 
 Add: FX Mute function while in EDIT mode to A/B wet / dry sound
 Add: ENC1. Enter / Send function -  maybe it suffices to add note in documentation
-Add: Use level CC to "bypass" Wet / Dry Bank presets
+
 Add: Relay functions (I know the pins are a little short, but testing must be done)
 
 Add: Copy Midi out (UART4) to two more UART TX

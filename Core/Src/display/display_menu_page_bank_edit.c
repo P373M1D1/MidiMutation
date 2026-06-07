@@ -96,12 +96,14 @@ void Display_DrawMenuBankEditItem(uint8_t item_index)
 
     if (item_index == 3U)
     {
-        /* INIT BANK is drawn as a centered alert badge to visually separate it
-         * from ordinary editable rows and reduce accidental activation. */
+        uint8_t init_selected = (item_index == display_state.menu_bank_edit_selection_index) ? 1U : 0U;
+
+        /* Keep INIT visible at all times: red text when idle, black on red when
+         * the cursor is actually on the action row. */
         Display_DrawMenuCenteredBadgeRowByIndex(row_index,
                                                 menu_bank_edit_labels[item_index],
-                                                MAIN_ALERT_BADGE_TEXT_COLOUR,
-                                                RED);
+                                                init_selected ? BLACK : RED,
+                                                init_selected ? RED : DISPLAY_BG_COLOUR);
         return;
     }
 

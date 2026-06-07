@@ -861,7 +861,14 @@ static void Display_DrawMainInfoLeftRow(const Preset_t *preset,
     else if (info_index < MAIN_INFO_PRESET_INIT_ROW_INDEX)
         Display_DrawMainInfoCcRow(preset, (uint8_t)(info_index - PRESET_DEVICE_SLOTS), row_y);
     else if (info_index == MAIN_INFO_PRESET_INIT_ROW_INDEX && Display_PresetEditIsActive())
-        Display_ComposeCenteredBadgeRow(MAIN_INFO_PRESET_INIT_TEXT, MAIN_ALERT_BADGE_TEXT_COLOUR, RED);
+    {
+        DisplayPresetEditField_t edit_field = Display_PresetEditGetField();
+        uint8_t init_selected = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_INIT) ? 1U : 0U;
+
+        Display_ComposeCenteredBadgeRow(MAIN_INFO_PRESET_INIT_TEXT,
+                                        init_selected ? BLACK : RED,
+                                        init_selected ? RED : DISPLAY_BG_COLOUR);
+    }
 }
 
 static void Display_DrawMainInfoComposedRow(const Preset_t *preset, uint8_t row_index)

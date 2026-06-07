@@ -42,6 +42,7 @@ static uint8_t display_transport_last_rendered_beat_to_ui_lag_valid = 0U;
 static uint8_t display_transport_last_rendered_bar = 0U;
 static uint8_t display_transport_last_rendered_beat = 0U;
 static uint8_t display_transport_last_rendered_barbeat_valid = 0U;
+static uint8_t display_transport_start_grace_active = 0U;
 
 static void Display_DrawTransportBarBeat(const char *text);
 static void Display_DrawTransportAlert(DisplayTransportStatusMode_t mode);
@@ -53,6 +54,7 @@ static void Display_FormatRightAlignedStatusText(char *buffer,
                                                  const char *text,
                                                  uint8_t padded_chars);
 static uint32_t Display_TimerDiffUs(uint32_t end_us, uint32_t start_us);
+static void Display_FormatBarBeatText(char *buffer, uint8_t bar, uint8_t beat);
 
 static uint16_t Display_GetBpmDeltaX10(uint16_t lhs, uint16_t rhs)
 {
@@ -103,15 +105,44 @@ static uint32_t Display_TimerDiffUs(uint32_t end_us, uint32_t start_us)
         : (UINT32_MAX - start_us + end_us + 1U);
 }
 
+static void Display_FormatBarBeatText(char *buffer, uint8_t bar, uint8_t beat)
+{
+    if (!buffer)
+        return;
+
+    if (bar > RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX)
+        bar = RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX;
+    if (beat > 9U)
+        beat = 9U;
+
+    if (bar >= 10U)
+    {
+        buffer[0] = (char)('0' + (bar / 10U));
+        buffer[1] = (char)('0' + (bar % 10U));
+        buffer[2] = '.';
+        buffer[3] = (char)('0' + beat);
+        buffer[4] = '\0';
+    }
+    else
+    {
+        buffer[0] = (char)('0' + bar);
+        buffer[1] = '.';
+        buffer[2] = (char)('0' + beat);
+        buffer[3] = '\0';
+    }
+}
+
 static void Display_UpdateTransportBarBeat(void)
 {
     uint8_t bar;
     uint8_t beat;
     uint8_t have_barbeat;
+    uint8_t have_phase_locked_barbeat_precision;
     uint8_t transport_running;
     uint8_t external_signal_present;
     uint8_t sync_lost;
     uint8_t stop_latched;
+    ClockState_t clock_state;
     DisplayTransportStatusMode_t mode = DISPLAY_TRANSPORT_STATUS_NONE;
     char next_text[5];
     uint32_t transport_quarter_count = 0U;
@@ -125,6 +156,8 @@ static void Display_UpdateTransportBarBeat(void)
     sync_lost = ClockEngine_IsSyncLost();
     transport_running = ClockEngine_IsRunning();
     external_signal_present = ClockEngine_IsExternalSignalPresent();
+    clock_state = ClockEngine_GetState();
+    have_phase_locked_barbeat_precision = (clock_state == CLOCK_STATE_LOCKED && transport_running) ? 1U : 0U;
     stop_latched = MidiTransportStopLatched();
     have_barbeat = MidiClockGetBarBeat(&bar, &beat);
     have_transport_quarter_count = MidiClockGetQuarterNoteCount(&transport_quarter_count);
@@ -154,25 +187,39 @@ static void Display_UpdateTransportBarBeat(void)
 
     if (mode == DISPLAY_TRANSPORT_STATUS_BARBEAT)
     {
-        if (bar > RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX)
-            bar = RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX;
-        if (beat > 9U)
-            beat = 9U;
-
-        if (bar >= 10U)
+        /* When transport is not truly phase-locked, bar precision is unknown.
+         * Show a placeholder instead of reusing stale bar.beat values. */
+        if (!have_phase_locked_barbeat_precision)
         {
-            next_text[0] = (char)('0' + (bar / 10U));
-            next_text[1] = (char)('0' + (bar % 10U));
-            next_text[2] = '.';
-            next_text[3] = (char)('0' + beat);
-            next_text[4] = '\0';
+            if (!transport_running || stop_latched)
+            {
+                display_transport_start_grace_active = 0U;
+                strcpy(next_text, "-.-");
+            }
+            else if (external_signal_present && bar == 1U && beat == 1U)
+            {
+                /* START/CONTINUE anchors at 1.1. Hold non-locked bar display
+                 * through the first natural beat advance to avoid a brief -.-
+                 * flash between 1.1 and 1.2. */
+                display_transport_start_grace_active = 1U;
+                Display_FormatBarBeatText(next_text, bar, beat);
+            }
+            else if (display_transport_start_grace_active && external_signal_present)
+            {
+                Display_FormatBarBeatText(next_text, bar, beat);
+                if (!(bar == 1U && beat == 1U))
+                    display_transport_start_grace_active = 0U;
+            }
+            else
+            {
+                display_transport_start_grace_active = 0U;
+                strcpy(next_text, "-.-");
+            }
         }
         else
         {
-            next_text[0] = (char)('0' + bar);
-            next_text[1] = '.';
-            next_text[2] = (char)('0' + beat);
-            next_text[3] = '\0';
+            display_transport_start_grace_active = 0U;
+            Display_FormatBarBeatText(next_text, bar, beat);
         }
     }
     else

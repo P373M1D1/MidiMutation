@@ -340,10 +340,12 @@ void Display_DrawMenuDeviceEditItem(uint8_t item_index)
 
     if (item_index == 12U)
     {
+        uint8_t init_selected = (item_index == display_state.menu_device_edit_selection_index) ? 1U : 0U;
+
         Display_DrawMenuCenteredBadgeRowByIndex(row_index,
                                                 Display_GetMenuDeviceEditLabel(item_index, label_text, sizeof(label_text)),
-                                                MAIN_ALERT_BADGE_TEXT_COLOUR,
-                                                RED);
+                                                init_selected ? BLACK : RED,
+                                                init_selected ? RED : DISPLAY_BG_COLOUR);
         return;
     }
 
