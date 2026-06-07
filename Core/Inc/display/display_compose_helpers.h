@@ -63,6 +63,14 @@ void Display_ComposeBlit(uint16_t x,
                          uint16_t y,
                          uint16_t width,
                          uint16_t height);
+void Display_ComposeLoadThemeBackgroundRegion(uint16_t clip_width,
+                                              uint16_t clip_height,
+                                              uint16_t source_x,
+                                              uint16_t source_y,
+                                              uint16_t fallback_colour);
+void Display_DrawThemeBackgroundFull(void);
+void Display_DrawThemeBackgroundBand(uint16_t y,
+                                     uint16_t height);
 
 #ifdef __cplusplus
 }

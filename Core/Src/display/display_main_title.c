@@ -5,6 +5,7 @@
 #include "display/display_internal.h"
 #include "display/display_layout.h"
 #include "display/display_main_title.h"
+#include "display/display_theme.h"
 
 /* Main-title renderer for the large preset line and the bank-name line.
  *
@@ -65,14 +66,16 @@ static void Display_PresetNameComposeChar32(uint16_t x,
                                             uint16_t colour,
                                             uint16_t background)
 {
-    Display_ComposeChar32(MAIN_PRESET_ROW_BUFFER_WIDTH,
-                          MAIN_PRESET_FONT_CELL_HEIGHT,
-                          x,
-                          y,
-                          ch,
-                          MAIN_PRESET_FONT,
-                          colour,
-                          background);
+    char glyph_text[2] = { ch, '\0' };
+
+    Display_ComposeString32(MAIN_PRESET_ROW_BUFFER_WIDTH,
+                            MAIN_PRESET_FONT_CELL_HEIGHT,
+                            x,
+                            y,
+                            glyph_text,
+                            MAIN_PRESET_FONT,
+                            colour,
+                            background);
 }
 
 void Display_DrawCurrentBankNameLine(void)
@@ -101,9 +104,11 @@ void Display_DrawCurrentBankNameLine(void)
         group_width = (uint16_t)(group_width + gap_width + badge_width);
     }
 
-    Display_ComposeClear(ST7796_WIDTH,
-                         MAIN_BANK_FONT.height,
-                         MAIN_BANK_BG_COLOUR);
+    Display_ComposeLoadThemeBackgroundRegion(ST7796_WIDTH,
+                                             MAIN_BANK_FONT.height,
+                                             0U,
+                                             MAIN_BANK_TEXT_Y,
+                                             MAIN_BANK_BG_COLOUR);
 
     if (group_width > ST7796_WIDTH)
         group_width = ST7796_WIDTH;
@@ -146,6 +151,7 @@ void Display_DrawPresetName(const Preset_t *preset)
     uint8_t name_length;
     uint8_t render_length;
     uint8_t pad_left;
+    uint8_t starlight_active = Display_ThemeUsesStarlightBackground();
     uint16_t base_x = Display_GetPresetNameBaseX();
 
     if (!preset)
@@ -161,6 +167,12 @@ void Display_DrawPresetName(const Preset_t *preset)
     name_length = Display_GetPresetNameLength(preset);
     render_length = Display_GetPresetNameRenderLength(preset);
     pad_left = Display_GetPresetNamePadLeft(preset);
+
+    Display_ComposeLoadThemeBackgroundRegion(MAIN_PRESET_ROW_BUFFER_WIDTH,
+                                             MAIN_PRESET_FONT_CELL_HEIGHT,
+                                             base_x,
+                                             MAIN_PRESET_TEXT_Y,
+                                             MAIN_PRESET_BG_COLOUR);
 
     for (uint8_t cell_index = 0U; cell_index < PRESET_NAME_LENGTH; ++cell_index)
     {
@@ -189,11 +201,14 @@ void Display_DrawPresetName(const Preset_t *preset)
             background = MAIN_INFO_EDIT_CURSOR_BG_COLOUR;
         }
 
-        Display_PresetNameComposeFillRect(char_x,
-                                          0U,
-                                          MAIN_PRESET_FONT.width,
-                                          MAIN_PRESET_FONT.height,
-                                          background);
+        if (!starlight_active || background != DISPLAY_BG_COLOUR)
+        {
+            Display_PresetNameComposeFillRect(char_x,
+                                              0U,
+                                              MAIN_PRESET_FONT.width,
+                                              MAIN_PRESET_FONT.height,
+                                              background);
+        }
 
         if (ch != ' ')
         {

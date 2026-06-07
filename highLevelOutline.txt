@@ -113,7 +113,7 @@ Runtime configuration
 - Device layer: editable short name, channel, max preset, and CC mappings for active, bypass, level, and tap tempo.
 - Global layer: startup delay, screensaver timeout, sync style, display mode, and brightness.
 - Theme layer: 3 editable USER themes, each storing raw RGB565 colour fields for the main display palette.
-- Display modes currently include DARK, BRIGHT, USER1, BLUESCREEN, TRIPPING, USER2, USER3, C64, and BIOS.
+- Display modes currently include DARK, BRIGHT, USER, BLUESCREEN, TRIPPING, and Starlight.
 
 8. Timing and interrupt model
 

@@ -44,6 +44,7 @@ static void Display_DrawExpressionCcEditRowByIndex(uint8_t row_index,
     char slot_label[5];
     char slot_number_text[2];
     uint16_t value_x;
+    uint16_t row_y;
 
     if (row_index >= MENU_VISIBLE_ROW_COUNT || !slot || slot_index >= RUNTIME_CONFIG_EXPRESSION_PEDAL_CC_SLOT_COUNT)
         return;
@@ -51,6 +52,8 @@ static void Display_DrawExpressionCcEditRowByIndex(uint8_t row_index,
     Display_FormatExpressionSlotLabel(slot_index, slot_label, sizeof(slot_label));
     (void)snprintf(slot_number_text, sizeof(slot_number_text), "%u", (unsigned)(slot_index + 1U));
 
+    row_y = Display_GetMenuRowYByIndex(row_index);
+    Display_MenuRowComposeSetTargetY(row_y);
     Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
     Display_MenuRowComposeTextSegment32(MENU_ITEM_X,
                                         slot_label,
@@ -83,7 +86,7 @@ static void Display_DrawExpressionCcEditRowByIndex(uint8_t row_index,
                                                toe_text,
                                                (display_state.menu_expression_field_index == 2U) ? 1U : 0U);
 
-    Display_MenuRowComposeBlit(Display_GetMenuRowYByIndex(row_index));
+    Display_MenuRowComposeBlit(row_y);
 }
 
 void Display_FormatExpressionValue(uint8_t item_index, char *buffer, size_t buffer_size)

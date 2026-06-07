@@ -144,6 +144,7 @@ uint8_t Display_GetFunctionButtonMessageSelectionIndex(void)
 
 static void Display_DrawMenuFunctionButtonCompareHeaderRow(uint16_t row_y)
 {
+    Display_MenuRowComposeSetTargetY(row_y);
     Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
     Display_MenuRowComposeTextSegment32(MENU_ITEM_X,
                                         "   Active        Inactive",
@@ -154,6 +155,7 @@ static void Display_DrawMenuFunctionButtonCompareHeaderRow(uint16_t row_y)
 
 static void Display_DrawMenuFunctionButtonCcHeaderRow(uint16_t row_y)
 {
+    Display_MenuRowComposeSetTargetY(row_y);
     Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
     Display_MenuRowComposeTextSegment32(MENU_ITEM_X,
                                         "  Ch Cc  Val    Ch Cc  Val",
@@ -185,6 +187,7 @@ void Display_DrawMenuFunctionButtonProgramCompareEditRowCore(uint16_t row_y,
     if (!function_button || program_index >= RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT)
         return;
 
+    Display_MenuRowComposeSetTargetY(row_y);
     Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
 
     Display_FormatMenuOptionalField(active_channel_text,
@@ -337,6 +340,7 @@ static void Display_DrawMenuFunctionButtonCcCompareEditRowCore(uint16_t row_y,
                                     3U,
                                     0U);
 
+    Display_MenuRowComposeSetTargetY(row_y);
     Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
 
     (void)snprintf(row_number_text, sizeof(row_number_text), "%u", (uint8_t)(cc_index + 1U));

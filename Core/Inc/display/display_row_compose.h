@@ -22,6 +22,7 @@ void Display_FormatMenuOptionalField(char *buffer,
 				     uint8_t digits,
 				     uint8_t highlighted);
 void Display_MenuRowComposeClear(uint16_t colour);
+void Display_MenuRowComposeSetTargetY(uint16_t row_y);
 void Display_MenuRowComposeTextSegment32(uint16_t x,
 					 const char *text,
 					 uint16_t foreground,

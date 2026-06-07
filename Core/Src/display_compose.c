@@ -71,6 +71,49 @@ static void DisplayCompose_Char16(uint16_t clip_width,
     }
 }
 
+static void DisplayCompose_Char16Transparent(uint16_t clip_width,
+                                             uint16_t clip_height,
+                                             uint16_t x,
+                                             uint16_t y,
+                                             char ch,
+                                             FontDef font,
+                                             uint16_t colour)
+{
+    uint32_t glyph_offset;
+
+    if (ch < 32 || ch > 126)
+        ch = '?';
+
+    if (x >= clip_width || y >= clip_height)
+        return;
+
+    glyph_offset = (uint32_t)(ch - 32) * font.height;
+
+    for (uint8_t row = 0U; row < font.height; ++row)
+    {
+        uint16_t target_y = (uint16_t)(y + row);
+        uint16_t bitmap;
+        uint32_t row_offset;
+
+        if (target_y >= clip_height)
+            break;
+
+        bitmap = font.data[glyph_offset + row];
+        row_offset = (uint32_t)target_y * ST7796_WIDTH;
+
+        for (uint8_t column = 0U; column < font.width; ++column)
+        {
+            uint16_t target_x = (uint16_t)(x + column);
+
+            if (target_x >= clip_width)
+                break;
+
+            if (bitmap & (uint16_t)(0x8000U >> column))
+                display_compose_buffer[row_offset + target_x] = colour;
+        }
+    }
+}
+
 void DisplayCompose_Clear(uint16_t clip_width,
                           uint16_t clip_height,
                           uint16_t colour)
@@ -160,6 +203,49 @@ void DisplayCompose_Char32(uint16_t clip_width,
     }
 }
 
+static void DisplayCompose_Char32Transparent(uint16_t clip_width,
+                                             uint16_t clip_height,
+                                             uint16_t x,
+                                             uint16_t y,
+                                             char ch,
+                                             FontDef32 font,
+                                             uint16_t colour)
+{
+    uint32_t glyph_offset;
+
+    if (ch < 32 || ch > 126)
+        ch = '?';
+
+    if (x >= clip_width || y >= clip_height)
+        return;
+
+    glyph_offset = (uint32_t)(ch - 32) * font.height;
+
+    for (uint8_t row = 0U; row < font.height; ++row)
+    {
+        uint16_t target_y = (uint16_t)(y + row);
+        uint32_t bitmap;
+        uint32_t row_offset;
+
+        if (target_y >= clip_height)
+            break;
+
+        bitmap = font.data[glyph_offset + row];
+        row_offset = (uint32_t)target_y * ST7796_WIDTH;
+
+        for (uint8_t column = 0U; column < font.width; ++column)
+        {
+            uint16_t target_x = (uint16_t)(x + column);
+
+            if (target_x >= clip_width)
+                break;
+
+            if (bitmap & (0x80000000UL >> column))
+                display_compose_buffer[row_offset + target_x] = colour;
+        }
+    }
+}
+
 void DisplayCompose_String32(uint16_t clip_width,
                              uint16_t clip_height,
                              uint16_t x,
@@ -221,6 +307,102 @@ void DisplayCompose_String16(uint16_t clip_width,
                               background);
         draw_x = (uint16_t)(draw_x + font.width);
         ++text;
+    }
+}
+
+void DisplayCompose_String16Transparent(uint16_t clip_width,
+                                        uint16_t clip_height,
+                                        uint16_t x,
+                                        uint16_t y,
+                                        const char *text,
+                                        FontDef font,
+                                        uint16_t colour)
+{
+    uint16_t draw_x = x;
+
+    if (!text)
+        return;
+
+    while (*text != '\0')
+    {
+        if (draw_x >= clip_width)
+            break;
+
+        DisplayCompose_Char16Transparent(clip_width,
+                                         clip_height,
+                                         draw_x,
+                                         y,
+                                         *text,
+                                         font,
+                                         colour);
+        draw_x = (uint16_t)(draw_x + font.width);
+        ++text;
+    }
+}
+
+void DisplayCompose_String32Transparent(uint16_t clip_width,
+                                        uint16_t clip_height,
+                                        uint16_t x,
+                                        uint16_t y,
+                                        const char *text,
+                                        FontDef32 font,
+                                        uint16_t colour)
+{
+    uint16_t draw_x = x;
+
+    if (!text)
+        return;
+
+    while (*text != '\0')
+    {
+        if (draw_x >= clip_width)
+            break;
+
+        DisplayCompose_Char32Transparent(clip_width,
+                                         clip_height,
+                                         draw_x,
+                                         y,
+                                         *text,
+                                         font,
+                                         colour);
+        draw_x = (uint16_t)(draw_x + font.width);
+        ++text;
+    }
+}
+
+void DisplayCompose_LoadImageSwapRBRegion(uint16_t clip_width,
+                                          uint16_t clip_height,
+                                          uint16_t src_x,
+                                          uint16_t src_y,
+                                          const uint16_t *image,
+                                          uint16_t image_width,
+                                          uint16_t image_height)
+{
+    if (!image || clip_width == 0U || clip_height == 0U)
+        return;
+
+    if (src_x >= image_width || src_y >= image_height)
+        return;
+
+    if ((uint32_t)src_x + clip_width > image_width)
+        clip_width = (uint16_t)(image_width - src_x);
+    if ((uint32_t)src_y + clip_height > image_height)
+        clip_height = (uint16_t)(image_height - src_y);
+
+    for (uint16_t row = 0U; row < clip_height; ++row)
+    {
+        uint32_t dst_offset = (uint32_t)row * ST7796_WIDTH;
+        uint32_t src_offset = ((uint32_t)(src_y + row) * image_width) + src_x;
+
+        for (uint16_t column = 0U; column < clip_width; ++column)
+        {
+            uint16_t pixel = image[src_offset + column];
+            uint16_t rgb565 = (uint16_t)((pixel & 0x07E0U)
+                                       | ((pixel & 0xF800U) >> 11)
+                                       | ((pixel & 0x001FU) << 11));
+
+            display_compose_buffer[dst_offset + column] = rgb565;
+        }
     }
 }
 

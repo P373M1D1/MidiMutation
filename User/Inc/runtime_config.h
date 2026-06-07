@@ -80,7 +80,7 @@ typedef enum {
     RUNTIME_CONFIG_DISPLAY_MODE_USER2,
     RUNTIME_CONFIG_DISPLAY_MODE_USER3,
     RUNTIME_CONFIG_DISPLAY_MODE_C64,
-    RUNTIME_CONFIG_DISPLAY_MODE_BIOS,
+    RUNTIME_CONFIG_DISPLAY_MODE_STARLIGHT,
     /* Must stay last so bounds checks and theme table sizing remain correct. */
     RUNTIME_CONFIG_DISPLAY_MODE_COUNT,
 } RuntimeConfigDisplayMode_t;

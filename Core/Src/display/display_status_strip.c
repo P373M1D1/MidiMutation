@@ -308,9 +308,11 @@ void Display_UpdateTransportBarBeatFast(void)
 
 static void Display_DrawTransportBarBeat(const char *text)
 {
-    Display_ComposeClear(TRANSPORT_STATUS_AREA_W,
-                         TRANSPORT_STATUS_AREA_H,
-                         DISPLAY_BG_COLOUR);
+    Display_ComposeLoadThemeBackgroundRegion(TRANSPORT_STATUS_AREA_W,
+                                             TRANSPORT_STATUS_AREA_H,
+                                             TRANSPORT_STATUS_AREA_X,
+                                             TRANSPORT_STATUS_AREA_Y,
+                                             DISPLAY_BG_COLOUR);
 
     if (text && text[0] != '\0')
     {
@@ -337,9 +339,11 @@ static void Display_DrawTransportAlert(DisplayTransportStatusMode_t mode)
     uint16_t text_x = 0U;
     uint16_t text_y = 0U;
 
-    Display_ComposeClear(TRANSPORT_STATUS_AREA_W,
-                         TRANSPORT_STATUS_AREA_H,
-                         DISPLAY_BG_COLOUR);
+    Display_ComposeLoadThemeBackgroundRegion(TRANSPORT_STATUS_AREA_W,
+                                             TRANSPORT_STATUS_AREA_H,
+                                             TRANSPORT_STATUS_AREA_X,
+                                             TRANSPORT_STATUS_AREA_Y,
+                                             DISPLAY_BG_COLOUR);
 
     if (mode == DISPLAY_TRANSPORT_STATUS_NONE)
     {
@@ -427,9 +431,11 @@ static void Display_DrawBpmAreaComposed(uint16_t primary_text_x,
                                         const char *secondary_text,
                                         uint16_t secondary_colour)
 {
-    Display_ComposeClear(BPM_DISPLAY_AREA_W,
-                         BPM_FONT.height,
-                         BPM_BG_COLOUR);
+    Display_ComposeLoadThemeBackgroundRegion(BPM_DISPLAY_AREA_W,
+                                             BPM_FONT.height,
+                                             BPM_DISPLAY_AREA_X,
+                                             BPM_TEXT_Y,
+                                             BPM_BG_COLOUR);
 
     if (primary_text && primary_text[0] != '\0')
     {

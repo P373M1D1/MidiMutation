@@ -882,6 +882,10 @@ static void Display_DrawMainInfoComposedRow(const Preset_t *preset, uint8_t row_
 
     info_index = (uint8_t)(main_info_first_slot + row_index);
 
+    /* Bind row-buffer clears to the destination scanline so themed image
+     * backgrounds sample the correct Y band for each individual row. */
+    Display_MenuRowComposeSetTargetY(main_info_row_y[row_index]);
+
     Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
     Display_DrawMainInfoLeftRow(preset, info_index, 0U);
 
@@ -1732,7 +1736,7 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
     {
         /* A dirty layout means static chrome may be stale after theme changes,
          * screensaver wake, or mode transitions, so repaint the full backdrop. */
-        ST7796_FillScreen(Display_GetBackgroundColour());
+        Display_DrawThemeBackgroundFull();
         bpm_display_valid = 0U;
         display_state.transport_status_valid = 0U;
         Display_DrawMainLayout();

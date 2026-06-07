@@ -1145,6 +1145,13 @@ RuntimeConfigDisplayMode_t RuntimeConfig_NormalizeDisplayMode(uint8_t display_mo
     if (display_mode >= (uint8_t)RUNTIME_CONFIG_DISPLAY_MODE_COUNT)
         return RUNTIME_CONFIG_DISPLAY_MODE_DARK;
 
+    if ((RuntimeConfigDisplayMode_t)display_mode == RUNTIME_CONFIG_DISPLAY_MODE_USER2
+     || (RuntimeConfigDisplayMode_t)display_mode == RUNTIME_CONFIG_DISPLAY_MODE_USER3)
+        return RUNTIME_CONFIG_DISPLAY_MODE_USER;
+
+    if ((RuntimeConfigDisplayMode_t)display_mode == RUNTIME_CONFIG_DISPLAY_MODE_C64)
+        return RUNTIME_CONFIG_DISPLAY_MODE_DARK;
+
     return (RuntimeConfigDisplayMode_t)display_mode;
 }
 
@@ -1163,13 +1170,13 @@ static RuntimeConfigDisplayMode_t RuntimeConfig_MigrateLegacyDisplayMode(uint8_t
     case 6U:
         return RUNTIME_CONFIG_DISPLAY_MODE_TRIPPING;
     case 7U:
-        return RUNTIME_CONFIG_DISPLAY_MODE_USER2;
+        return RUNTIME_CONFIG_DISPLAY_MODE_USER;
     case 8U:
-        return RUNTIME_CONFIG_DISPLAY_MODE_USER3;
+        return RUNTIME_CONFIG_DISPLAY_MODE_USER;
     case 9U:
-        return RUNTIME_CONFIG_DISPLAY_MODE_C64;
+        return RUNTIME_CONFIG_DISPLAY_MODE_DARK;
     case 10U:
-        return RUNTIME_CONFIG_DISPLAY_MODE_BIOS;
+        return RUNTIME_CONFIG_DISPLAY_MODE_STARLIGHT;
     case 3U: /* removed Weed theme */
     case 5U: /* removed Midnight theme */
     default:
@@ -1193,11 +1200,8 @@ static uint8_t RuntimeConfig_FindDisplayModeSelectionIndex(RuntimeConfigDisplayM
         RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT,
         RUNTIME_CONFIG_DISPLAY_MODE_TRIPPING,
         RUNTIME_CONFIG_DISPLAY_MODE_BLUESCREEN,
-        RUNTIME_CONFIG_DISPLAY_MODE_C64,
-        RUNTIME_CONFIG_DISPLAY_MODE_BIOS,
+        RUNTIME_CONFIG_DISPLAY_MODE_STARLIGHT,
         RUNTIME_CONFIG_DISPLAY_MODE_USER,
-        RUNTIME_CONFIG_DISPLAY_MODE_USER2,
-        RUNTIME_CONFIG_DISPLAY_MODE_USER3,
     };
 
     for (uint8_t index = 0U; index < (uint8_t)(sizeof(display_mode_selection_order) / sizeof(display_mode_selection_order[0])); ++index)
@@ -1216,11 +1220,8 @@ RuntimeConfigDisplayMode_t RuntimeConfig_StepDisplayMode(RuntimeConfigDisplayMod
         RUNTIME_CONFIG_DISPLAY_MODE_BRIGHT,
         RUNTIME_CONFIG_DISPLAY_MODE_TRIPPING,
         RUNTIME_CONFIG_DISPLAY_MODE_BLUESCREEN,
-        RUNTIME_CONFIG_DISPLAY_MODE_C64,
-        RUNTIME_CONFIG_DISPLAY_MODE_BIOS,
+        RUNTIME_CONFIG_DISPLAY_MODE_STARLIGHT,
         RUNTIME_CONFIG_DISPLAY_MODE_USER,
-        RUNTIME_CONFIG_DISPLAY_MODE_USER2,
-        RUNTIME_CONFIG_DISPLAY_MODE_USER3,
     };
     uint8_t selection_index = RuntimeConfig_FindDisplayModeSelectionIndex(
         RuntimeConfig_NormalizeDisplayMode((uint8_t)display_mode));
@@ -2211,14 +2212,6 @@ uint8_t RuntimeConfig_TryGetUserThemeIndex(RuntimeConfigDisplayMode_t display_mo
     case RUNTIME_CONFIG_DISPLAY_MODE_USER:
         if (theme_index)
             *theme_index = 0U;
-        return 1U;
-    case RUNTIME_CONFIG_DISPLAY_MODE_USER2:
-        if (theme_index)
-            *theme_index = 1U;
-        return 1U;
-    case RUNTIME_CONFIG_DISPLAY_MODE_USER3:
-        if (theme_index)
-            *theme_index = 2U;
         return 1U;
     default:
         return 0U;

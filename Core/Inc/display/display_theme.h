@@ -44,6 +44,8 @@ const DisplayTheme_t *Display_GetTheme(void);
 /* Theme names are user-facing strings used by the GLOBAL page; the lookup also
  * normalizes out-of-range persisted ids before the label reaches the screen. */
 const char *Display_GetThemeName(RuntimeConfigDisplayMode_t display_mode);
+uint8_t Display_IsStarlightMode(RuntimeConfigDisplayMode_t display_mode);
+uint8_t Display_ThemeUsesStarlightBackground(void);
 const FontDef32 *Display_GetThemeFootbarFont(void);
 const FontDef32 *Display_GetThemeInfoFont(void);
 const FontDef32 *Display_GetThemePresetFont(void);
@@ -55,8 +57,8 @@ const FontDef32 *Display_GetThemePresetFont(void);
 
 #define MAIN_INFO_TEXT_COLOUR                      (Display_GetTheme()->main_info_text_colour)
 #define MAIN_INFO_TEXT_BG_COLOUR                   DISPLAY_BG_COLOUR
-#define MAIN_INFO_SHARED_TEXT_COLOUR               DISPLAY_BG_COLOUR
-#define MAIN_INFO_SHARED_BG_COLOUR                 MAIN_INFO_TEXT_COLOUR
+#define MAIN_INFO_SHARED_TEXT_COLOUR               (Display_ThemeUsesStarlightBackground() ? MAIN_INFO_TEXT_COLOUR : DISPLAY_BG_COLOUR)
+#define MAIN_INFO_SHARED_BG_COLOUR                 (Display_ThemeUsesStarlightBackground() ? MAIN_INFO_TEXT_BG_COLOUR : MAIN_INFO_TEXT_COLOUR)
 #define MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR          (Display_GetTheme()->main_info_edit_cursor_text_colour)
 #define MAIN_INFO_EDIT_CURSOR_BG_COLOUR            (Display_GetTheme()->main_info_edit_cursor_bg_colour)
 #define MAIN_INFO_EDIT_CURSOR_SHARED_BG_COLOUR     (Display_GetTheme()->main_info_edit_cursor_shared_bg_colour)

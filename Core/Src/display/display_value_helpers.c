@@ -1,4 +1,5 @@
 #include "display_functions.h"
+#include "display/display_compose_helpers.h"
 #include "display/display_internal.h"
 #include "display/display_value_helpers.h"
 #include "runtime_config.h"
@@ -99,7 +100,7 @@ void Display_ForceFullDisplayRedraw(void)
 {
     /* Theme changes swap both colours and fonts, so incremental redraws are
      * not sufficient; force every cached display fragment to be recomputed. */
-    ST7796_FillScreen(Display_GetBackgroundColour());
+    Display_DrawThemeBackgroundFull();
     display_state.menu_draw_state_valid = 0U;
     display_state.menu_last_drawn_page = DISPLAY_MENU_PAGE_ROOT;
     display_state.main_layout_dirty = 1U;

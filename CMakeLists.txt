@@ -63,6 +63,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Custom application sources
     Core/Src/display_compose.c
+    Core/Src/starlight_image.c
     Core/Src/gallery_images.c
     Core/Src/display/display_backlight.c
     Core/Src/display/display_compose_helpers.c
@@ -155,12 +156,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/ST7796/font_consolas_15x35.c
     Drivers/ST7796/font_consolas_23x49.c
     Drivers/ST7796/font_consolas_24x40.c
-    Drivers/ST7796/font_c64_8x21.c
-    Drivers/ST7796/font_c64_15x35.c
-    Drivers/ST7796/font_c64_23x49.c
-    Drivers/ST7796/font_bios_8x21.c
-    Drivers/ST7796/font_bios_15x35.c
-    Drivers/ST7796/font_bios_23x49.c
     Core/Src/button_functions.c
 )
 

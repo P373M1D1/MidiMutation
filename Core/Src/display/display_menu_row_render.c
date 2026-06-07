@@ -45,6 +45,7 @@ static void Display_DrawMenuRowComposed(uint16_t row_y,
 
     /* Standard rows highlight the value when one exists; rows without a value
      * badge instead highlight the label so selection is still visible. */
+    Display_MenuRowComposeSetTargetY(row_y);
     Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
 
     if (label && label[0] != '\0')
@@ -102,6 +103,7 @@ static void Display_DrawMenuCenteredBadgeRow(uint16_t row_y,
     if (!text || text[0] == '\0')
         return;
 
+    Display_MenuRowComposeSetTargetY(row_y);
     Display_ComposeCenteredBadgeRow(text, foreground, background);
     Display_MenuRowComposeBlit(row_y);
 }
@@ -122,6 +124,7 @@ static void Display_DrawMenuTextEditRow(uint16_t row_y,
     Display_LoadMenuTextCells(source, cell_count, cells);
     value_x = (uint16_t)(ST7796_WIDTH - MENU_ITEM_X - ((uint16_t)cell_count * MAIN_INFO_FONT.width));
 
+    Display_MenuRowComposeSetTargetY(row_y);
     Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
 
     if (label && label[0] != '\0')
@@ -203,9 +206,13 @@ void Display_DrawMenuCenteredBadgeRowByIndex(uint8_t row_index,
 
 void Display_ClearStandardMenuRow(uint8_t row_index)
 {
+    uint16_t row_y;
+
     if (row_index >= MENU_VISIBLE_ROW_COUNT)
         return;
 
+    row_y = menu_row_y[row_index];
+    Display_MenuRowComposeSetTargetY(row_y);
     Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
-    Display_MenuRowComposeBlit(menu_row_y[row_index]);
+    Display_MenuRowComposeBlit(row_y);
 }

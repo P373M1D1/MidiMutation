@@ -55,11 +55,14 @@ static void Display_DrawMenuDeviceCcEditRowByIndex(uint8_t row_index,
     char cc_number_text[4];
     char value_text[4];
     uint16_t value_x;
+    uint16_t row_y;
     uint8_t has_value_field = Display_DeviceEditItemHasCcValue(item_index);
 
     if (row_index >= MENU_VISIBLE_ROW_COUNT || !cc)
         return;
 
+    row_y = Display_GetMenuRowYByIndex(row_index);
+    Display_MenuRowComposeSetTargetY(row_y);
     Display_MenuRowComposeClear(DISPLAY_BG_COLOUR);
 
     if (label && label[0] != '\0')
@@ -100,7 +103,7 @@ static void Display_DrawMenuDeviceCcEditRowByIndex(uint8_t row_index,
                                                    (display_state.menu_device_cc_field_index == 1U) ? 1U : 0U);
     }
 
-    Display_MenuRowComposeBlit(Display_GetMenuRowYByIndex(row_index));
+    Display_MenuRowComposeBlit(row_y);
 }
 
 const char *Display_GetMenuDeviceEditLabel(uint8_t item_index,

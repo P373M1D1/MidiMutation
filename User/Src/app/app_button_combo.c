@@ -10,9 +10,11 @@
 static uint32_t app_button_combo_last_tap_tick = 0U;
 static uint32_t app_button_combo_last_mute_tick = 0U;
 static uint8_t app_button_combo_mute_activation_pending = 0U;
+static uint8_t app_button_combo_mute_activation_deferred = 0U;
 
 static void AppButtonCombo_Clear(void);
-static void AppButtonCombo_QueueMuteActivateEvent(uint32_t now);
+static void AppButtonCombo_RequestMuteActivateEvent(uint32_t now);
+static uint8_t AppButtonCombo_TryQueueMuteActivateEvent(uint32_t now);
 static uint8_t AppButtonCombo_CanBankStepFromMuteState(void);
 
 uint8_t AppButtonCombo_HandleTapPress(uint32_t now, uint8_t mute_held)
@@ -50,12 +52,18 @@ uint8_t AppButtonCombo_HandleMuteRelease(uint32_t now)
         return 0U;
 
     app_button_combo_mute_activation_pending = 0U;
-    AppButtonCombo_QueueMuteActivateEvent(now);
+    AppButtonCombo_RequestMuteActivateEvent(now);
     return 1U;
 }
 
 uint8_t AppButtonCombo_Service(uint32_t now)
 {
+    if (app_button_combo_mute_activation_deferred)
+    {
+        (void)AppButtonCombo_TryQueueMuteActivateEvent(now);
+        return 0U;
+    }
+
     if (!app_button_combo_mute_activation_pending)
         return 0U;
 
@@ -63,13 +71,13 @@ uint8_t AppButtonCombo_Service(uint32_t now)
         return 0U;
 
     app_button_combo_mute_activation_pending = 0U;
-    AppButtonCombo_QueueMuteActivateEvent(now);
+    AppButtonCombo_RequestMuteActivateEvent(now);
     return 1U;
 }
 
 uint8_t AppButtonCombo_IsMuteActivationPending(void)
 {
-    return app_button_combo_mute_activation_pending;
+    return (uint8_t)(app_button_combo_mute_activation_pending || app_button_combo_mute_activation_deferred);
 }
 
 static void AppButtonCombo_Clear(void)
@@ -77,9 +85,16 @@ static void AppButtonCombo_Clear(void)
     app_button_combo_last_tap_tick = 0U;
     app_button_combo_last_mute_tick = 0U;
     app_button_combo_mute_activation_pending = 0U;
+    app_button_combo_mute_activation_deferred = 0U;
 }
 
-static void AppButtonCombo_QueueMuteActivateEvent(uint32_t now)
+static void AppButtonCombo_RequestMuteActivateEvent(uint32_t now)
+{
+    if (!AppButtonCombo_TryQueueMuteActivateEvent(now))
+        app_button_combo_mute_activation_deferred = 1U;
+}
+
+static uint8_t AppButtonCombo_TryQueueMuteActivateEvent(uint32_t now)
 {
     AppEvent_t event;
 
@@ -87,7 +102,11 @@ static void AppButtonCombo_QueueMuteActivateEvent(uint32_t now)
     event.source = APP_EVENT_SOURCE_NONE;
     event.value = 0;
     event.tick = now;
-    (void)AppEvent_Push(&event);
+    if (!AppEvent_Push(&event))
+        return 0U;
+
+    app_button_combo_mute_activation_deferred = 0U;
+    return 1U;
 }
 
 static uint8_t AppButtonCombo_CanBankStepFromMuteState(void)

@@ -1,4 +1,5 @@
 #include "display/display_internal.h"
+#include "display/display_compose_helpers.h"
 #include "display/display_layout.h"
 #include "display/display_menu_page_banks.h"
 #include "display/display_menu_page_devices.h"
@@ -400,11 +401,19 @@ void Display_MenuRefresh(void)
 
     if (!display_state.menu_draw_state_valid)
     {
-        ST7796_DrawFilledRectangle(0U,
-                                   0U,
-                                   ST7796_WIDTH,
-                                   MAIN_PRESET_TEXT_Y,
-                                   current_uses_monitor_chrome ? BLACK : Display_GetBackgroundColour());
+        if (current_uses_monitor_chrome)
+        {
+            ST7796_DrawFilledRectangle(0U,
+                                       0U,
+                                       ST7796_WIDTH,
+                                       MAIN_PRESET_TEXT_Y,
+                                       BLACK);
+        }
+        else
+        {
+            Display_DrawThemeBackgroundBand(0U,
+                                            MAIN_PRESET_TEXT_Y);
+        }
         Display_DrawFootbar();
         Display_DrawMainModeHeader();
     }
@@ -412,11 +421,19 @@ void Display_MenuRefresh(void)
     {
         if (header_changed || current_uses_monitor_chrome || previous_uses_monitor_chrome)
         {
-            ST7796_DrawFilledRectangle(0U,
-                                       0U,
-                                       ST7796_WIDTH,
-                                       MAIN_PRESET_TEXT_Y,
-                                       current_uses_monitor_chrome ? BLACK : Display_GetBackgroundColour());
+            if (current_uses_monitor_chrome)
+            {
+                ST7796_DrawFilledRectangle(0U,
+                                           0U,
+                                           ST7796_WIDTH,
+                                           MAIN_PRESET_TEXT_Y,
+                                           BLACK);
+            }
+            else
+            {
+                Display_DrawThemeBackgroundBand(0U,
+                                                MAIN_PRESET_TEXT_Y);
+            }
         }
 
         if (Display_MenuPageUsesConfirmFootbar((DisplayMenuPage_t)display_state.menu_last_drawn_page)

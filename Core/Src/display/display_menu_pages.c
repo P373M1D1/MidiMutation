@@ -176,11 +176,16 @@ void Display_DrawFootbar(void)
                                        && !display_state.menu_preview_active
                                        && (DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_MIDI_MONITOR) ? 1U : 0U;
     uint16_t footbar_background = midi_monitor_chrome_active ? BLACK : MAIN_FOOTBAR_COLOR;
+    uint16_t footbar_text_background = (Display_ThemeUsesStarlightBackground() && !midi_monitor_chrome_active)
+        ? DISPLAY_BG_COLOUR
+        : footbar_background;
     uint16_t footbar_text_colour = midi_monitor_chrome_active ? WHITE : MAIN_FOOTBAR_TEXT_COLOUR;
 
-    Display_ComposeClear(ST7796_WIDTH,
-                         MAIN_FOOTBAR_H,
-                         footbar_background);
+    Display_ComposeLoadThemeBackgroundRegion(ST7796_WIDTH,
+                                             MAIN_FOOTBAR_H,
+                                             0U,
+                                             MAIN_FOOTBAR_Y,
+                                             footbar_background);
 
     for (uint8_t section_index = 0U; section_index < MAIN_FOOTBAR_SECTION_COUNT; ++section_index)
     {
@@ -203,7 +208,7 @@ void Display_DrawFootbar(void)
                            text,
                            MAIN_FOOTBAR_FONT,
                            footbar_text_colour,
-                           footbar_background);
+                           footbar_text_background);
     }
 
     Display_ComposeBlit(0U,
@@ -455,6 +460,7 @@ void Display_DrawMainModeHeader(void)
     uint8_t midi_monitor_chrome_active = (display_state.menu_mode_active
                                        && !display_state.menu_preview_active
                                        && (DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_MIDI_MONITOR) ? 1U : 0U;
+    uint8_t starlight_active = Display_ThemeUsesStarlightBackground();
     uint8_t header_width_chars = Display_GetModeHeaderWidthChars(header_text);
     uint16_t clear_w = (uint16_t)(MAIN_MODE_HEADER_MAX_TEXT_CHARS * MAIN_MODE_HEADER_FONT.width);
     uint16_t clear_x = (uint16_t)((ST7796_WIDTH - clear_w) / 2U);
@@ -468,10 +474,12 @@ void Display_DrawMainModeHeader(void)
         : MAIN_MODE_HEADER_COLOUR);
     uint16_t background = midi_monitor_chrome_active
         ? BLACK
+        : (starlight_active
+        ? DISPLAY_BG_COLOUR
         : ((display_state.preset_edit_mode_active
          || (display_state.menu_mode_active && !display_state.menu_preview_active))
         ? MAIN_MODE_HEADER_EDIT_BG_COLOUR
-        : DISPLAY_BG_COLOUR);
+        : DISPLAY_BG_COLOUR));
     uint16_t clear_background = midi_monitor_chrome_active ? BLACK : DISPLAY_BG_COLOUR;
     char padded[MAIN_MODE_HEADER_MAX_TEXT_CHARS + 1U];
     size_t text_len = strnlen(header_text, header_width_chars);
@@ -483,9 +491,11 @@ void Display_DrawMainModeHeader(void)
     memcpy(padded + pad_left, header_text, text_len);
     padded[header_width_chars] = '\0';
 
-    Display_ComposeClear(clear_w,
-                         MAIN_MODE_HEADER_FONT.height,
-                         clear_background);
+    Display_ComposeLoadThemeBackgroundRegion(clear_w,
+                                             MAIN_MODE_HEADER_FONT.height,
+                                             clear_x,
+                                             MAIN_MODE_HEADER_TEXT_Y,
+                                             clear_background);
     Display_ComposeString32(clear_w,
                             MAIN_MODE_HEADER_FONT.height,
                             text_x,
@@ -510,11 +520,8 @@ void Display_ClearMenuBody(void)
 
         if (row_y > clear_y)
         {
-            ST7796_DrawFilledRectangle(0U,
-                                       clear_y,
-                                       ST7796_WIDTH,
-                                       (uint16_t)(row_y - clear_y),
-                                       Display_GetBackgroundColour());
+            Display_DrawThemeBackgroundBand(clear_y,
+                                            (uint16_t)(row_y - clear_y));
         }
 
         Display_ClearStandardMenuRow(row_index);
@@ -523,11 +530,8 @@ void Display_ClearMenuBody(void)
 
     if (clear_y < MAIN_FOOTBAR_Y)
     {
-        ST7796_DrawFilledRectangle(0U,
-                                   clear_y,
-                                   ST7796_WIDTH,
-                                   (uint16_t)(MAIN_FOOTBAR_Y - clear_y),
-                                   Display_GetBackgroundColour());
+        Display_DrawThemeBackgroundBand(clear_y,
+                                        (uint16_t)(MAIN_FOOTBAR_Y - clear_y));
     }
 }
 

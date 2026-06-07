@@ -1500,7 +1500,7 @@ static const Preset_t *Presets_GetButton11PresetForCurrentBank(void)
 /* Shared activation path for normal presets, random preset, and mute preset.
  * update_index controls whether this activation should become the persisted
  * "current preset" or just temporarily repaint/run an overlay preset. */
-static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index, uint8_t idx)
+static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index, uint8_t idx, uint8_t urgent_midi)
 {
     if (!preset)
         return;
@@ -1519,7 +1519,10 @@ static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index,
         AppState_SetActiveOverlayPreset(preset);
     }
 
-    Midi_LoadPreset(preset);
+    if (urgent_midi)
+        Midi_LoadPresetUrgent(preset);
+    else
+        Midi_LoadPreset(preset);
     Presets_ApplyRelayOutputs(preset);
 
     if (update_index) {
@@ -1703,7 +1706,7 @@ void App_ActivatePreset(uint8_t idx)
     if (AppState_IsActivePreset(preset))
         return;
 
-    App_ActivatePresetData(preset, 1U, idx);
+    App_ActivatePresetData(preset, 1U, idx, 0U);
 }
 
 void Presets_ActivateRandom(void)
@@ -1720,7 +1723,7 @@ void Presets_ActivateRandom(void)
         random_preset.prg[slot].program = PRESET_PROGRAM_UNUSED;
     }
 
-    App_ActivatePresetData(&random_preset, 0U, 0U);
+    App_ActivatePresetData(&random_preset, 0U, 0U, 0U);
     LED_SetActiveButtonIndicator(8U);
 }
 
@@ -1730,7 +1733,7 @@ void Presets_ActivateMute(void)
 
     /* The LED still points at the physical button, but the payload comes from
      * whichever editable global preset applies to the current bank. */
-    App_ActivatePresetData(overlay_preset, 0U, 0U);
+    App_ActivatePresetData(overlay_preset, 0U, 0U, 1U);
 
     LED_SetActiveButtonIndicator(10U);
 }

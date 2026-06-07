@@ -87,7 +87,7 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
         },
     },
     [RUNTIME_CONFIG_DISPLAY_MODE_USER] = {
-        .name = "USER1",
+        .name = "USER",
         .footbar_font = &Font_Consolas8x21,
         .info_font = &Font_Consolas15x35,
         .preset_font = &Font_Consolas23x49,
@@ -176,128 +176,36 @@ static const DisplayThemeSpec_t display_theme_specs[RUNTIME_CONFIG_DISPLAY_MODE_
             .ext_bpm_colour = ELECTRIC_LIME,
         },
     },
-    [RUNTIME_CONFIG_DISPLAY_MODE_USER2] = {
-        .name = "USER2",
+    [RUNTIME_CONFIG_DISPLAY_MODE_STARLIGHT] = {
+        /* Starlight intentionally keeps the DARK legibility profile while the
+         * renderer replaces flat clears with the starfield background image. */
+        .name = "Starlight",
         .footbar_font = &Font_Consolas8x21,
         .info_font = &Font_Consolas15x35,
         .preset_font = &Font_Consolas23x49,
         .theme = {
             .display_bg_colour = BLACK,
-            .main_footbar_color = DARK_GOLDENROD,
-            .main_footbar_text_colour = LIGHT_GOLDENROD_YELLOW,
-            .main_info_text_colour = AMBER,
+            .main_footbar_color = JET,
+            .main_footbar_text_colour = WHITE,
+            .main_info_text_colour = NICKEL,
             .main_info_edit_cursor_text_colour = BLACK,
-            .main_info_edit_cursor_bg_colour = GOLDENROD,
-            .main_info_edit_cursor_shared_bg_colour = ORANGE,
-            .main_saving_popup_bg_colour = LIGHT_GOLDENROD_YELLOW,
-            .main_saving_popup_text_colour = DARK_BROWN,
-            .main_saving_popup_border_colour = GOLDEN_BROWN,
-            .main_mode_header_colour = LIGHT_GOLDENROD_YELLOW,
-            .main_mode_header_edit_colour = BLACK,
-            .main_mode_header_edit_bg_colour = AMBER,
-            .main_preset_colour = LIGHT_GOLDENROD_YELLOW,
-            .main_bank_colour = GOLDENROD,
-            .main_bank_wet_dry_colour = AMBER,
-            .main_special_function_button_active_colour = LIGHT_GOLDENROD_YELLOW,
-            .main_special_function_button_inactive_colour = GOLD_FUSION,
-            .main_special_function_button_active_bg = BROWN,
-            .main_alert_badge_text_colour = BLACK,
-            .bpm_internal_colour = AMBER,
-            .ext_bpm_colour = GOLDENROD,
-        },
-    },
-    [RUNTIME_CONFIG_DISPLAY_MODE_USER3] = {
-        .name = "USER3",
-        .footbar_font = &Font_Consolas8x21,
-        .info_font = &Font_Consolas15x35,
-        .preset_font = &Font_Consolas23x49,
-        .theme = {
-            .display_bg_colour = BLACK,
-            .main_footbar_color = TYRIAN_PURPLE,
-            .main_footbar_text_colour = BABY_POWDER,
-            .main_info_text_colour = CAPRI,
-            .main_info_edit_cursor_text_colour = BLACK,
-            .main_info_edit_cursor_bg_colour = CAPRI,
-            .main_info_edit_cursor_shared_bg_colour = HOT_PINK,
-            .main_saving_popup_bg_colour = BABY_POWDER,
-            .main_saving_popup_text_colour = TYRIAN_PURPLE,
-            .main_saving_popup_border_colour = CAPRI,
-            .main_mode_header_colour = BABY_POWDER,
-            .main_mode_header_edit_colour = BLACK,
-            .main_mode_header_edit_bg_colour = CAPRI,
-            .main_preset_colour = BABY_POWDER,
-            .main_bank_colour = CAPRI,
-            .main_bank_wet_dry_colour = CAPRI,
-            .main_special_function_button_active_colour = BABY_POWDER,
-            .main_special_function_button_inactive_colour = VIOLET_CRAYOLA,
-            .main_special_function_button_active_bg = TYRIAN_PURPLE,
-            .main_alert_badge_text_colour = BLACK,
-            .bpm_internal_colour = CAPRI,
-            .ext_bpm_colour = HOT_PINK,
-        },
-    },
-    [RUNTIME_CONFIG_DISPLAY_MODE_C64] = {
-        /* Custom generated bitmap fonts keep the C64 theme legible at the same
-         * geometry as the Consolas themes without changing layout constants. */
-        .name = "C64",
-        .footbar_font = &Font_C64_8x21,
-        .info_font = &Font_C64_15x35,
-        .preset_font = &Font_C64_23x49,
-        .theme = {
-            .display_bg_colour = DARK_JUNGLE_GREEN,
-            .main_footbar_color = GREEN_WEB,
-            .main_footbar_text_colour = EERIE_BLACK,
-            .main_info_text_colour = GREEN_WEB,
-            .main_info_edit_cursor_text_colour = DARK_JUNGLE_GREEN,
-            .main_info_edit_cursor_bg_colour = GREEN_WEB,
-            .main_info_edit_cursor_shared_bg_colour = DARK_PASTEL_GREEN,
-            .main_saving_popup_bg_colour = GREEN_WEB,
-            .main_saving_popup_text_colour = DARK_JUNGLE_GREEN,
-            .main_saving_popup_border_colour = DARK_GREEN_X11,
-            .main_mode_header_colour = GREEN_WEB,
-            .main_mode_header_edit_colour = DARK_JUNGLE_GREEN,
-            .main_mode_header_edit_bg_colour = GREEN_WEB,
-            .main_preset_colour = GREEN_WEB,
-            .main_bank_colour = GREEN_WEB,
-            .main_bank_wet_dry_colour = GREEN_WEB,
-            .main_special_function_button_active_colour = GREEN_WEB,
-            .main_special_function_button_inactive_colour = DARK_PASTEL_GREEN,
-            .main_special_function_button_active_bg = DARK_GREEN_X11,
-            .main_alert_badge_text_colour = DARK_JUNGLE_GREEN,
-            .bpm_internal_colour = GREEN_WEB,
-            .ext_bpm_colour = GREEN_WEB,
-        },
-    },
-    [RUNTIME_CONFIG_DISPLAY_MODE_BIOS] = {
-        /* BIOS uses its own font trio for the same reason as C64: preserve the
-         * established layout while changing the character style completely. */
-        .name = "BIOS",
-        .footbar_font = &Font_BIOS_8x21,
-        .info_font = &Font_BIOS_15x35,
-        .preset_font = &Font_BIOS_23x49,
-        .theme = {
-            .display_bg_colour = COBALT_BLUE,
-            .main_footbar_color = DARK_BLUE,
-            .main_footbar_text_colour = BABY_POWDER,
-            .main_info_text_colour = BABY_POWDER,
-            .main_info_edit_cursor_text_colour = BLACK,
-            .main_info_edit_cursor_bg_colour = BABY_POWDER,
-            .main_info_edit_cursor_shared_bg_colour = BEAU_BLUE,
-            .main_saving_popup_bg_colour = DARK_BLUE,
-            .main_saving_popup_text_colour = BABY_POWDER,
-            .main_saving_popup_border_colour = WHITE,
+            .main_info_edit_cursor_bg_colour = WHITE,
+            .main_info_edit_cursor_shared_bg_colour = YELLOW,
+            .main_saving_popup_bg_colour = WHITE,
+            .main_saving_popup_text_colour = BLACK,
+            .main_saving_popup_border_colour = BLACK,
             .main_mode_header_colour = WHITE,
             .main_mode_header_edit_colour = BLACK,
-            .main_mode_header_edit_bg_colour = BABY_POWDER,
+            .main_mode_header_edit_bg_colour = YELLOW,
             .main_preset_colour = WHITE,
-            .main_bank_colour = BEAU_BLUE,
-            .main_bank_wet_dry_colour = BABY_POWDER,
+            .main_bank_colour = WHITE,
+            .main_bank_wet_dry_colour = WHITE,
             .main_special_function_button_active_colour = WHITE,
-            .main_special_function_button_inactive_colour = BEAU_BLUE,
+            .main_special_function_button_inactive_colour = NICKEL,
             .main_special_function_button_active_bg = RED,
-            .main_alert_badge_text_colour = WHITE,
-            .bpm_internal_colour = BABY_POWDER,
-            .ext_bpm_colour = BEAU_BLUE,
+            .main_alert_badge_text_colour = BLACK,
+            .bpm_internal_colour = GREEN_WEB,
+            .ext_bpm_colour = COBALT_BLUE,
         },
     },
 };
@@ -370,6 +278,19 @@ const char *Display_GetThemeName(RuntimeConfigDisplayMode_t display_mode)
     display_mode = Display_NormalizeThemeMode(display_mode);
 
     return display_theme_specs[(uint8_t)display_mode].name;
+}
+
+uint8_t Display_IsStarlightMode(RuntimeConfigDisplayMode_t display_mode)
+{
+    return (Display_NormalizeThemeMode(display_mode) == RUNTIME_CONFIG_DISPLAY_MODE_STARLIGHT) ? 1U : 0U;
+}
+
+uint8_t Display_ThemeUsesStarlightBackground(void)
+{
+    const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
+    RuntimeConfigDisplayMode_t mode = global ? global->display_mode : RUNTIME_CONFIG_DISPLAY_MODE_DARK;
+
+    return Display_IsStarlightMode(mode);
 }
 
 const FontDef32 *Display_GetThemeFootbarFont(void)

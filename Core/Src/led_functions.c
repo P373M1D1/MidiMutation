@@ -1,6 +1,6 @@
 #include "led_functions.h"
 #include "display_functions.h"
-#include "main.h"          /* LD1_Pin / LD1_GPIO_Port, LD2_Pin / LD2_GPIO_Port */
+#include "main.h"          /* board LED and custom LED GPIO definitions */
 #include "stm32f4xx_hal.h"
 #include "midi/clock_engine.h"
 
@@ -8,8 +8,6 @@
 #define LED_PULSE_US ((uint32_t)LED_PULSE_MS * 1000UL)
 #define LED_TIMING_COMPARE_GUARD_US 20UL //
 #define LED_BEAT_DUPLICATE_GUARD_US 80000UL
-#define LED_PRESET_EDIT_DIM_PERIOD_MS 10U /* dim PWM-like cycle length in edit mode; increase for slower flicker, decrease for smoother/faster gating */
-#define LED_PRESET_EDIT_DIM_ON_MS 1U /* dim brightness control in edit mode; lower = dimmer, higher = brighter (duty = ON / PERIOD, here 2/10 = 20%) */
 #define BUTTON_MONITOR_LED_PINS_MASK (PRESET_LED1_Pin | PRESET_LED2_Pin | PRESET_LED3_Pin | PRESET_LED4_Pin \
                                     | PRESET_LED5_Pin | PRESET_LED6_Pin | PRESET_LED7_Pin | PRESET_LED8_Pin \
                                     | PRESET_LED9_Pin | PRESET_LED10_Pin | PRESET_LED11_Pin)
@@ -24,14 +22,17 @@ static volatile uint32_t beat_pulse_compare_on_us = 0U;
 static volatile uint32_t beat_pulse_compare_off_us = 0U;
 static volatile uint32_t beat_pulse_last_due_us = 0U;
 static volatile uint8_t led_timing_compare_pending = 0U;
+static volatile uint8_t led_all_outputs_suppressed = 0U;
+static volatile uint8_t led_beat_output_suppressed = 0U;
 static uint16_t active_button_led_pin = 0U; /* one active selection LED across preset/random/mute */
 static uint8_t special_function_led_active = 0U; /* sticky state for button 10 mode */
 
+static void LED_UpdateUiSuppressionState(void);
+static uint8_t LED_AllOutputsAreSuppressed(void);
+static uint8_t LED_TransientPulseIsAllowed(void);
 static uint8_t LED_BeatPulseIsAllowed(void);
-static uint8_t LED_InEditMode(void);
-static uint8_t LED_UsePresetEditDimming(void);
-static uint8_t LED_PresetEditDimPulseIsOn(uint32_t now_ms);
 static uint8_t LED_PulseDeadlineIsActive(uint32_t off_tick, uint32_t now);
+static void LED_ClearAllPhysicalOutputs(void);
 __attribute__((section(".RamFunc")))
 static uint32_t LED_TimingNowUs(void);
 __attribute__((section(".RamFunc")))
@@ -124,57 +125,42 @@ void LED_ClearButtonMonitorIndicators(void)
     HAL_GPIO_WritePin(GPIOF, BUTTON_MONITOR_LED_PINS_MASK, GPIO_PIN_RESET);
 }
 
-static uint8_t LED_InEditMode(void)
+static void LED_UpdateUiSuppressionState(void)
 {
-    return (Display_PresetEditIsActive() || Display_MenuIsActive()) ? 1U : 0U;
+    uint8_t menu_active = Display_MenuIsActive();
+
+    led_all_outputs_suppressed = menu_active ? 1U : 0U;
+    led_beat_output_suppressed =
+        (menu_active || Display_PresetEditIsActive()) ? 1U : 0U;
 }
 
-static uint8_t LED_UsePresetEditDimming(void)
+static uint8_t LED_AllOutputsAreSuppressed(void)
 {
-    return LED_InEditMode();
+    return led_all_outputs_suppressed;
 }
 
-static uint8_t LED_PresetEditDimPulseIsOn(uint32_t now_ms)
+static uint8_t LED_TransientPulseIsAllowed(void)
 {
-    /* Dim-level tuning lives in LED_PRESET_EDIT_DIM_PERIOD_MS and
-     * LED_PRESET_EDIT_DIM_ON_MS above. Keep ON <= PERIOD. */
-    return ((now_ms % LED_PRESET_EDIT_DIM_PERIOD_MS) < LED_PRESET_EDIT_DIM_ON_MS) ? 1U : 0U;
+    return LED_AllOutputsAreSuppressed() ? 0U : 1U;
 }
 
 static void LED_ApplyButtonIndicatorState(void)
 {
     uint16_t pin_mask = 0U;
-    uint8_t in_live_mode = LED_InEditMode() ? 0U : 1U;
-    uint8_t in_edit_mode = LED_UsePresetEditDimming();
-    uint8_t dim_pulse_on = 1U;
-
-    if (in_edit_mode)
-    {
-        /* To retune edit-mode dim level later, change the two
-         * LED_PRESET_EDIT_DIM_* constants near the top of this file. */
-        dim_pulse_on = LED_PresetEditDimPulseIsOn(HAL_GetTick());
-    }
 
     HAL_GPIO_WritePin(GPIOF, BUTTON_MONITOR_LED_PINS_MASK, GPIO_PIN_RESET);
 
-    /* Keep the active preset indicator steady in every mode so it remains a
-     * single source of truth; only the special-function badge is dimmed. */
+    if (LED_AllOutputsAreSuppressed())
+        return;
+
     if (active_button_led_pin != 0U)
     {
         pin_mask = active_button_led_pin;
     }
 
-    /* Special function indicator stays visible while editing, but dimmed. */
     if (special_function_led_active)
     {
-        if (in_live_mode)
-        {
-            pin_mask |= PRESET_LED9_Pin;
-        }
-        else if (in_edit_mode && dim_pulse_on)
-        {
-            pin_mask |= PRESET_LED9_Pin;
-        }
+        pin_mask |= PRESET_LED9_Pin;
     }
 
     if (pin_mask != 0U)
@@ -216,6 +202,28 @@ static uint8_t LED_PulseDeadlineIsActive(uint32_t off_tick, uint32_t now)
     return (off_tick != 0U && ((int32_t)(off_tick - now) > 0)) ? 1U : 0U;
 }
 
+static void LED_ClearAllPhysicalOutputs(void)
+{
+    uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
+    LED_DisarmBeatPulseCompare();
+    beat_off_tick = 0U;
+    flash_off_tick = 0U;
+    tap_press_off_tick = 0U;
+    midi_in_off_tick = 0U;
+    beat_pulse_last_due_us = 0U;
+    led_timing_compare_pending = 0U;
+    if (primask == 0U)
+        __enable_irq();
+
+    HAL_GPIO_WritePin(GPIOF, BUTTON_MONITOR_LED_PINS_MASK, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(TAP_FEEDBACK_LED_GPIO_Port, TAP_FEEDBACK_LED_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_RESET);
+}
+
 __attribute__((section(".RamFunc")))
 static uint32_t LED_TimingNowUs(void)
 {
@@ -255,7 +263,7 @@ static void LED_DisarmBeatPulseCompare(void)
 
 static uint8_t LED_BeatPulseIsAllowed(void)
 {
-    return 1U;
+    return led_beat_output_suppressed ? 0U : 1U;
 }
 
 /**
@@ -320,13 +328,15 @@ void LED_FlagTimingCounterIrq(void)
 uint8_t LED_IsPulseActive(void)
 {
     uint32_t now;
-    uint8_t beat_pulse_active;
+    uint8_t beat_pulse_active = 0U;
 
-    if (!LED_BeatPulseIsAllowed())
+    if (LED_AllOutputsAreSuppressed())
         return 0U;
 
     now = HAL_GetTick();
-    beat_pulse_active = (uint8_t)(beat_pulse_compare_active || (beat_pulse_compare_on_us != 0U));
+    if (LED_BeatPulseIsAllowed())
+        beat_pulse_active = (uint8_t)(beat_pulse_compare_active || (beat_pulse_compare_on_us != 0U));
+
     return (uint8_t)(beat_pulse_active
                    || LED_PulseDeadlineIsActive(flash_off_tick, now)
                    || LED_PulseDeadlineIsActive(tap_press_off_tick, now)
@@ -398,7 +408,7 @@ void LED_BeatPulseAtUs(uint32_t start_us)
  */
 void LED_FlashPulse(void)
 {
-    if (!LED_BeatPulseIsAllowed())
+    if (!LED_TransientPulseIsAllowed())
     {
         flash_off_tick = 0U;
         HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
@@ -430,7 +440,7 @@ void LED_MidiClockPulseAtUs(uint32_t start_us)
  */
 void LED_TapPressPulse(void)
 {
-    if (!LED_BeatPulseIsAllowed())
+    if (!LED_TransientPulseIsAllowed())
     {
         tap_press_off_tick = 0U;
         HAL_GPIO_WritePin(TAP_FEEDBACK_LED_GPIO_Port, TAP_FEEDBACK_LED_Pin, GPIO_PIN_RESET);
@@ -446,7 +456,7 @@ void LED_TapPressPulse(void)
  */
 void LED_MidiInPulse(void)
 {
-    if (!LED_BeatPulseIsAllowed())
+    if (!LED_TransientPulseIsAllowed())
     {
         midi_in_off_tick = 0U;
         HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_RESET);
@@ -553,9 +563,14 @@ static void LED_ApplyBeatPulseGovernance(void)
 void LED_Update(void)
 {
     uint32_t now = HAL_GetTick();
-    uint8_t in_edit_mode = LED_UsePresetEditDimming();
-    uint8_t dim_pulse_on = in_edit_mode ? LED_PresetEditDimPulseIsOn(now) : 1U;
-    uint8_t beat_pulse_active = (uint8_t)(beat_pulse_compare_active || (beat_pulse_compare_on_us != 0U));
+
+    LED_UpdateUiSuppressionState();
+
+    if (LED_AllOutputsAreSuppressed())
+    {
+        LED_ClearAllPhysicalOutputs();
+        return;
+    }
 
     LED_ApplyBeatPulseGovernance();
 
@@ -565,14 +580,11 @@ void LED_Update(void)
 
         __disable_irq();
         LED_DisarmBeatPulseCompare();
+        beat_off_tick = 0U;
+        beat_pulse_last_due_us = 0U;
+        led_timing_compare_pending = 0U;
         if (primask == 0U)
             __enable_irq();
-        flash_off_tick = 0U;
-        tap_press_off_tick = 0U;
-        midi_in_off_tick = 0U;
-        HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
-        HAL_GPIO_WritePin(TAP_FEEDBACK_LED_GPIO_Port, TAP_FEEDBACK_LED_Pin, GPIO_PIN_RESET);
-        HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port, MIDI_IN_LED_Pin, GPIO_PIN_RESET);
     }
 
     LED_ServiceDeferredTimingWork();
@@ -581,25 +593,4 @@ void LED_Update(void)
 
     /* Re-apply button indicator state in case mode changed */
     LED_ApplyButtonIndicatorState();
-
-    /* In edit mode, pulse-driven LEDs are duty-cycled so all visible feedback
-     * appears dimmer, including tap and transport activity LEDs. */
-    if (in_edit_mode)
-    {
-        if (beat_pulse_active)
-            HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, dim_pulse_on ? GPIO_PIN_SET : GPIO_PIN_RESET);
-
-        if (flash_off_tick != 0U)
-            HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, dim_pulse_on ? GPIO_PIN_SET : GPIO_PIN_RESET);
-
-        if (tap_press_off_tick != 0U)
-            HAL_GPIO_WritePin(TAP_FEEDBACK_LED_GPIO_Port,
-                              TAP_FEEDBACK_LED_Pin,
-                              dim_pulse_on ? GPIO_PIN_SET : GPIO_PIN_RESET);
-
-        if (midi_in_off_tick != 0U)
-            HAL_GPIO_WritePin(MIDI_IN_LED_GPIO_Port,
-                              MIDI_IN_LED_Pin,
-                              dim_pulse_on ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    }
 }
