@@ -203,8 +203,6 @@ void Display_ClearMainLayoutDirty(void)
 #define BPM_EXT_HYSTERESIS_MIN_X10      1U                   // minimum external BPM deadband in tenths of BPM
 #define BPM_EXT_HYSTERESIS_BPS          20U                  // external BPM deadband as basis points of the current reading
 #define BPM_EXT_UPDATE_MIN_INTERVAL_MS  500U                 // minimum time between small external BPM redraws
-#define BPM_EXT_FORCE_UPDATE_DELTA_X10  5U                   // delta in tenths that forces an external BPM update
-#define BPM_EXT_SLEW_STEP_X10           1U                   // maximum smoothing step per update in tenths of BPM
 #define BPM_INTERNAL_HEAD_TEXT_CHARS    7U                   // width reserved for internal prefix+value, e.g. "INT 120"
 #define BPM_INTERNAL_SUFFIX_TEXT        " BPM"              // fixed suffix for internal BPM display
 #define BPM_INTERNAL_SUFFIX_TEXT_CHARS  4U                   // width of the fixed internal suffix text block

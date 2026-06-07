@@ -35,6 +35,16 @@ extern "C" {
 #define MIDI_CLOCK_DIAGNOSTICS_ENABLED  1U
 #define MIDI_CLOCK_DIAGNOSTIC_REPORT_MS 1000U
 
+typedef struct
+{
+    MidiTransportEvent_t event;
+    uint32_t timestamp_us;
+    uint8_t running;
+    uint8_t rearm_required;
+    uint8_t stop_latched;
+    uint8_t preserve_observed_clock;
+} MidiTransportDiagnosticEvent_t;
+
 extern volatile uint32_t midi_clock_last_pulse_us;
 extern volatile uint32_t midi_clock_diag_interval_sum_us;
 extern volatile uint32_t midi_clock_diag_interval_min_us;
@@ -73,6 +83,10 @@ void MidiTransport_NoteQuarterServiceLatency(uint32_t latency_us);
 __attribute__((section(".RamFunc")))
 void MidiTransport_ResetClockTracking(void);
 __attribute__((section(".RamFunc")))
+void MidiTransport_SkipNextClockInterval(void);
+__attribute__((section(".RamFunc")))
+void MidiTransport_ClearNextClockIntervalSkip(void);
+__attribute__((section(".RamFunc")))
 void MidiTransport_OnStart(uint32_t now);
 __attribute__((section(".RamFunc")))
 void MidiTransport_OnContinue(uint32_t now);
@@ -81,6 +95,8 @@ void MidiTransport_OnStop(uint32_t now);
 __attribute__((section(".RamFunc")))
 void MidiTransport_ResetForInternalTempo(void);
 MidiTransportEvent_t MidiTransport_TakeEvent(void);
+uint8_t MidiTransport_TakeDiagnosticEvent(MidiTransportDiagnosticEvent_t *event);
+uint32_t MidiTransport_GetDiagnosticEventOverflowCount(void);
 __attribute__((section(".RamFunc")))
 void MidiTransport_OnClockPulse(uint32_t now);
 __attribute__((section(".RamFunc")))

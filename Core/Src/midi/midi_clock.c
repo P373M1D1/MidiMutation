@@ -20,10 +20,6 @@ all live in midi_clock_estimator.c, which feeds recovered tempo and phase inform
 
 #include "app/app_metronome.h"
 
-#if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
-#include "app/app_midi_clock_sync.h"
-#endif
-
 void Error_Handler(void);
 
 /* TIM6-owned internal MIDI clock generation.
@@ -347,21 +343,26 @@ static uint32_t midi_clock_output_counts_for_pulse_interval_us(uint32_t pulse_in
     return (uint32_t)pulse_counts;
 }
 
-#if !MIDI_CLOCK_LOOPBACK_MONITOR_ONLY
-void MidiClock_ResetOutputPhase(void)
+uint8_t MidiClock_ClockEngineApplyOutputIntervalUs(uint32_t interval_us)
 {
-    uint32_t primask = __get_PRIMASK();
+    uint32_t pulse_counts = midi_clock_output_counts_for_pulse_interval_us(interval_us);
+    uint32_t primask;
+    TIM_TypeDef *timer = midi_clock_output_timer.Instance;
 
+    if (!timer || pulse_counts == 0U)
+        return 0U;
+
+    primask = __get_PRIMASK();
     __disable_irq();
-    midi_clock_output_timer.Instance->CNT = 0U;
+    if (timer->CNT < pulse_counts)
+    {
+        timer->ARR = pulse_counts - 1U;
+        if (primask == 0U)
+            __enable_irq();
+        return 1U;
+    }
+
     if (primask == 0U)
         __enable_irq();
+    return 0U;
 }
-
-void MidiClock_TrackExternalPulseInterval(uint32_t interval_us)
-{
-    AppMidiClock_TrackExternalPulseInterval(interval_us);
-
-    midi_clock_output_apply_pulse_counts(midi_clock_output_counts_for_pulse_interval_us(interval_us));
-}
-#endif

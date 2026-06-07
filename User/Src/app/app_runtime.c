@@ -60,9 +60,13 @@ void AppRuntime_ServiceForeground(void)
     /* Tap-tempo CC mode delegates timing outward, so suppress local realtime
      * MIDI clock generation to avoid sending two competing tempo authorities. */
     if (global && global->sync_style == RUNTIME_CONFIG_SYNC_STYLE_TAP_TEMPO_CC)
+    {
         MidiClockSetRealtimeOutputEnabled(0U);
+    }
     else
+    {
         MidiClockSetRealtimeOutputEnabled(1U);
+    }
 
     if (global)
     {

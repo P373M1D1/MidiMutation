@@ -99,6 +99,21 @@ This spec does not define UI layout or menu behavior.
 - LOCKED -> CLOCK_STATE_LOCKED
 - HOLDOVER -> CLOCK_STATE_HOLDOVER or CLOCK_STATE_LOST (implementation-specific distinction)
 
+### 5.6 User Clock Mode Policy
+
+The MAIN menu `Clock Mode` setting is a policy selector only. It MUST NOT grant
+non-ClockEngine modules permission to write timing registers.
+
+- `Master`: internal tempo is authoritative. External clock may be monitored,
+  but no external correction is applied to timing.
+- `Slave`: external F8 intervals feed the estimator continuously, including
+  tempo changes that occur without Start/Stop. ClockEngine applies only bounded
+  correction from estimator output.
+- `Monitor`: external clock evidence is collected for display/diagnostics, but
+  zero timing correction is applied.
+
+All three modes retain the hard rule that only ClockEngine may write TIM6.
+
 ## 6. External Pulse Processing Contract
 
 Each valid external pulse MUST execute only:

@@ -136,24 +136,35 @@ void AppUi_RequestBeatSynchronousStatusStripRefresh(void)
  * policy temporarily defers the wider UI invalidation pipeline. */
 uint8_t AppUi_ServiceBeatSynchronousStatusStrip(void)
 {
+    uint8_t pending_mask;
     uint32_t t_start;
     uint32_t t_elapsed;
 
     if (!AppUi_RenderConsumeBeatStatusRefresh())
         return 0U;
 
+    pending_mask = AppUi_RenderGetPendingMask();
     t_start = TIM2->CNT;
     /* LOCKED beat-edge refresh now updates only the transport bar lane so
      * downbeat visibility is not delayed by broader BPM/status text work. */
     if (ClockEngine_GetSyncState() == MIDI_SYNC_STATE_LOCKED)
     {
-        if (Display_IsBpmHeaderSyncing())
+        if (Display_IsBpmHeaderSyncing()
+         || ((pending_mask & APP_UI_RENDER_INVALIDATE_STATUS_STRIP) != 0U))
+        {
+            AppUi_RenderClearPendingMask(APP_UI_RENDER_INVALIDATE_STATUS_STRIP);
             Display_UpdateBPM(AppState_GetTempoBpm());
+        }
         else
+        {
             Display_UpdateTransportBarBeatFast();
+        }
     }
     else
+    {
+        AppUi_RenderClearPendingMask(APP_UI_RENDER_INVALIDATE_STATUS_STRIP);
         Display_UpdateBPM(AppState_GetTempoBpm());
+    }
 
     t_elapsed = AppUiRender_TimerDiffUs(TIM2->CNT, t_start);
     if (t_elapsed > app_ui_render_beat_max_us)

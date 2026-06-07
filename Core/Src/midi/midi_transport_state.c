@@ -322,6 +322,21 @@ static const char *midi_transport_transition_event_name(MidiSyncState_t from,
     return "SYNC_EVENT_STATE_TRANSITION";
 }
 
+static const char *midi_transport_event_name(MidiTransportEvent_t event)
+{
+    switch (event)
+    {
+    case MIDI_TRANSPORT_EVENT_START:
+        return "START";
+    case MIDI_TRANSPORT_EVENT_CONTINUE:
+        return "CONTINUE";
+    case MIDI_TRANSPORT_EVENT_STOP:
+        return "STOP";
+    default:
+        return "NONE";
+    }
+}
+
 static const char *midi_transport_adaptive_action_name(MidiSyncAdaptiveAction_t action)
 {
     switch (action)
@@ -1442,6 +1457,7 @@ void MidiClockDiagnosticService(void)
     static uint32_t last_report_tick = 0U;
     MidiTransportPhaseSnapshot_t phase_snapshot;
     MidiSyncTransitionEvent_t sync_event;
+    MidiTransportDiagnosticEvent_t transport_event;
     MidiInputRealtimeRxDiagnostics_t realtime_rx_diag;
     MidiOutputTimebendDiagnostics_t timebend_diag;
     MidiProducerDiagnostics_t producer_diag;
@@ -1516,6 +1532,24 @@ void MidiClockDiagnosticService(void)
     int32_t pll_phase_correction_us = 0;
     int32_t pll_frequency_correction_us = 0;
     char pll_mode = '-';
+
+    while (MidiTransport_TakeDiagnosticEvent(&transport_event))
+    {
+        uint32_t now_us = TIM2->CNT;
+        uint32_t age_us = (now_us >= transport_event.timestamp_us)
+            ? (now_us - transport_event.timestamp_us)
+            : (UINT32_MAX - transport_event.timestamp_us + now_us + 1U);
+
+        printf("TRANSPORTMSG event=%s age_us=%lu timestamp_us=%lu running=%u rearm_pending=%u stop_latched=%u preserve_observed=%u overflow_total=%lu\r\n",
+               midi_transport_event_name(transport_event.event),
+               (unsigned long)age_us,
+               (unsigned long)transport_event.timestamp_us,
+               (unsigned)transport_event.running,
+               (unsigned)transport_event.rearm_required,
+               (unsigned)transport_event.stop_latched,
+               (unsigned)transport_event.preserve_observed_clock,
+               (unsigned long)MidiTransport_GetDiagnosticEventOverflowCount());
+    }
 
     while (midi_transport_dequeue_sync_event(&sync_event))
     {

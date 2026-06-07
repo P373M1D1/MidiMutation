@@ -2,11 +2,20 @@
 #include "midi/clock_engine.h"
 
 #include "app/app_ui.h"
+#include "midi/midi_clock_estimator.h"
+#include "midi/midi_clock_internal.h"
 #include "midi_functions.h"
+#include "runtime_config.h"
 #undef MIDI_LEGACY_CLOCK_READ_API_ALLOWED
 #define MIDI_TRANSPORT_INTERNAL_ACCESS 1
 #include "midi/midi_transport_internal.h"
 #undef MIDI_TRANSPORT_INTERNAL_ACCESS
+
+#define CLOCK_ENGINE_SERVICE_INTERVAL_MS              10U
+#define CLOCK_ENGINE_MAX_FREQ_CORRECTION_PPM_PER_SEC  250000U
+#define CLOCK_ENGINE_MAX_ACCEPTED_ESTIMATOR_STEP_US   50000U
+#define CLOCK_ENGINE_MIN_FREQ_STEP_US                 1U
+#define CLOCK_ENGINE_EXTERNAL_BPM_REFRESH_DELTA_X10   2U
 
 static volatile ClockEngineSnapshot_t clock_engine_cached_snapshot;
 static volatile uint8_t clock_engine_cached_snapshot_valid = 0U;
@@ -15,6 +24,8 @@ static volatile uint8_t clock_engine_last_status_signal_present = 0U;
 static volatile uint8_t clock_engine_last_status_running = 0U;
 static volatile MidiSyncState_t clock_engine_last_status_sync_state = MIDI_SYNC_STATE_IDLE;
 static volatile uint8_t clock_engine_last_status_valid = 0U;
+static uint16_t clock_engine_last_external_bpm_x10 = 0U;
+static uint8_t clock_engine_last_external_bpm_valid = 0U;
 static volatile ClockState_t clock_engine_last_state = CLOCK_STATE_OFF;
 static volatile uint8_t clock_engine_last_state_valid = 0U;
 static volatile ClockEngineStateTrace_t clock_engine_last_state_trace = {
@@ -32,6 +43,10 @@ static ClockEngineTransitionReason_t ClockEngine_ClassifyTransitionReason(const 
                                                                           ClockState_t to_state);
 
 static void ClockEngine_CaptureSnapshot(void);
+static void ClockEngine_ServiceExternalRateControl(void);
+static uint8_t ClockEngine_ServiceExternalBpmDisplayRefresh(void);
+static uint32_t ClockEngine_AbsDeltaU32(uint32_t a, uint32_t b);
+static uint32_t ClockEngine_MaxFrequencyStepUs(uint32_t current_interval_us);
 
 /**
  * Atomically captures all transport and sync primitives into a single coherent
@@ -226,6 +241,7 @@ void ClockEngine_Service10ms(void)
     previous_state = clock_engine_last_state;
 
     MidiTransport_ServiceSyncLifecycle();
+    ClockEngine_ServiceExternalRateControl();
     ClockEngine_CaptureSnapshot();
 
     clock_engine_last_status_sync_lost = clock_engine_cached_snapshot.sync_lost;
@@ -265,8 +281,108 @@ void ClockEngine_Service10ms(void)
         || previous_running != clock_engine_cached_snapshot.running
         || previous_sync_state != clock_engine_cached_snapshot.sync_state);
 
+    if (ClockEngine_ServiceExternalBpmDisplayRefresh())
+        status_changed = 1U;
+
     if (status_changed)
         AppUi_RequestStatusStripRefresh();
+}
+
+static void ClockEngine_ServiceExternalRateControl(void)
+{
+    const RuntimeConfigGlobal_t *global = RuntimeConfig_GetGlobal();
+    MidiClockEstimatorStatus_t estimator_status;
+    uint32_t current_interval_us;
+    uint32_t target_interval_us;
+    uint32_t step_us;
+    uint32_t delta_us;
+    uint32_t next_interval_us;
+
+    if (!global || global->sync_style != RUNTIME_CONFIG_SYNC_STYLE_MIDI_CLOCK)
+        return;
+
+    if (global->clock_mode != RUNTIME_CONFIG_CLOCK_MODE_SLAVE)
+        return;
+
+    MidiClockEstimator_GetStatus(&estimator_status);
+    if (!estimator_status.estimator_valid || !estimator_status.publication_ready)
+        return;
+
+    if (!MidiClockEstimator_GetRecoveredPulseIntervalUs(&target_interval_us) || target_interval_us == 0U)
+        return;
+
+    current_interval_us = MidiClock_GetOutputPulseIntervalUs();
+    if (current_interval_us == 0U)
+        return;
+
+    delta_us = ClockEngine_AbsDeltaU32(target_interval_us, current_interval_us);
+    if (delta_us == 0U)
+        return;
+
+    if (delta_us > CLOCK_ENGINE_MAX_ACCEPTED_ESTIMATOR_STEP_US)
+        return;
+
+    step_us = ClockEngine_MaxFrequencyStepUs(current_interval_us);
+    if (step_us > delta_us)
+        step_us = delta_us;
+
+    next_interval_us = (target_interval_us > current_interval_us)
+        ? (current_interval_us + step_us)
+        : (current_interval_us - step_us);
+
+    (void)MidiClock_ClockEngineApplyOutputIntervalUs(next_interval_us);
+}
+
+static uint8_t ClockEngine_ServiceExternalBpmDisplayRefresh(void)
+{
+    uint16_t bpm_x10;
+    uint32_t delta_x10;
+
+    if (!clock_engine_cached_snapshot.external_signal_present
+     || clock_engine_cached_snapshot.sync_lost
+     || (!MidiClockGetMeasuredExternalBpmX10(&bpm_x10)
+      && !MidiClockGetExternalBpmX10(&bpm_x10)))
+    {
+        clock_engine_last_external_bpm_valid = 0U;
+        clock_engine_last_external_bpm_x10 = 0U;
+        return 0U;
+    }
+
+    if (!clock_engine_last_external_bpm_valid)
+    {
+        clock_engine_last_external_bpm_valid = 1U;
+        clock_engine_last_external_bpm_x10 = bpm_x10;
+        return 1U;
+    }
+
+    delta_x10 = ClockEngine_AbsDeltaU32((uint32_t)bpm_x10,
+                                        (uint32_t)clock_engine_last_external_bpm_x10);
+    if (delta_x10 < CLOCK_ENGINE_EXTERNAL_BPM_REFRESH_DELTA_X10)
+        return 0U;
+
+    clock_engine_last_external_bpm_x10 = bpm_x10;
+    return 1U;
+}
+
+static uint32_t ClockEngine_AbsDeltaU32(uint32_t a, uint32_t b)
+{
+    return (a >= b) ? (a - b) : (b - a);
+}
+
+static uint32_t ClockEngine_MaxFrequencyStepUs(uint32_t current_interval_us)
+{
+    uint64_t step_us = (uint64_t)current_interval_us
+        * (uint64_t)CLOCK_ENGINE_MAX_FREQ_CORRECTION_PPM_PER_SEC
+        * (uint64_t)CLOCK_ENGINE_SERVICE_INTERVAL_MS;
+
+    step_us /= 1000000000ULL;
+    if (step_us < CLOCK_ENGINE_MIN_FREQ_STEP_US)
+        step_us = CLOCK_ENGINE_MIN_FREQ_STEP_US;
+
+    if (step_us > UINT32_MAX)
+        return UINT32_MAX;
+
+    return (uint32_t)step_us;
 }
 
 uint8_t ClockEngine_GetSnapshot(ClockEngineSnapshot_t *snapshot)

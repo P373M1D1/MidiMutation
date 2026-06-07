@@ -21,6 +21,7 @@ static const char * const menu_global_labels[MENU_GLOBAL_ITEM_COUNT] = {
     "Startup Delay",
     "Screen Saver",
     "Sync Style",
+    "Clock Mode",
     "Live ENC2",
     "Theme",
     "Brightness",
@@ -41,19 +42,34 @@ void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buff
 
     switch (item_index)
     {
-    case 0U:
+    case MENU_GLOBAL_ITEM_STARTUP_DELAY:
         (void)snprintf(buffer, buffer_size, "%u sec", global->startup_delay_seconds);
         break;
-    case 1U:
+    case MENU_GLOBAL_ITEM_SCREEN_SAVER:
         (void)snprintf(buffer, buffer_size, "%u min", global->screensaver_timeout_minutes);
         break;
-    case 2U:
+    case MENU_GLOBAL_ITEM_SYNC_STYLE:
         (void)snprintf(buffer,
                        buffer_size,
                        "%s",
                        (global->sync_style == RUNTIME_CONFIG_SYNC_STYLE_TAP_TEMPO_CC) ? "Tap Tempo CC" : "MIDI clock");
         break;
-    case 3U:
+    case MENU_GLOBAL_ITEM_CLOCK_MODE:
+        switch (global->clock_mode)
+        {
+        case RUNTIME_CONFIG_CLOCK_MODE_SLAVE:
+            (void)snprintf(buffer, buffer_size, "%s", "Slave pending");
+            break;
+        case RUNTIME_CONFIG_CLOCK_MODE_MASTER:
+            (void)snprintf(buffer, buffer_size, "%s", "Master");
+            break;
+        case RUNTIME_CONFIG_CLOCK_MODE_MONITOR:
+        default:
+            (void)snprintf(buffer, buffer_size, "%s", "Monitor");
+            break;
+        }
+        break;
+    case MENU_GLOBAL_ITEM_LIVE_ENC2:
         switch (global->live_enc2_mode)
         {
         case RUNTIME_CONFIG_LIVE_ENC2_MODE_METRONOME:
@@ -68,7 +84,7 @@ void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buff
             break;
         }
         break;
-    case 4U:
+    case MENU_GLOBAL_ITEM_THEME:
         /* Theme names come from the registration table in display_theme.c, so
          * adding a theme there automatically updates the menu label here. */
         (void)snprintf(buffer,
@@ -76,32 +92,32 @@ void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buff
                        "%s",
                        Display_GetThemeName(global->display_mode));
         break;
-    case 5U:
+    case MENU_GLOBAL_ITEM_BRIGHTNESS:
         (void)snprintf(buffer,
                        buffer_size,
                        "%u",
                        Display_GetGlobalBrightnessUiValue(global->backlight_brightness));
         break;
-    case 6U:
+    case MENU_GLOBAL_ITEM_FEEDBACK_TAPER:
         (void)snprintf(buffer,
                        buffer_size,
                        "%s",
                        global->feedback_taper_enabled ? "Enabled" : "Disabled");
         break;
-    case 7U:
+    case MENU_GLOBAL_ITEM_THRESHOLD:
         (void)snprintf(buffer, buffer_size, "%u", global->feedback_taper_threshold);
         break;
-    case 8U:
+    case MENU_GLOBAL_ITEM_REDUCE:
         (void)snprintf(buffer, buffer_size, "%u", global->feedback_taper_reduce);
         break;
-    case 9U:
+    case MENU_GLOBAL_ITEM_EXPRESSION:
         (void)snprintf(buffer, buffer_size, "%s", "Open");
         break;
-    case 10U:
+    case MENU_GLOBAL_ITEM_GALLERY:
         /* Gallery is a navigation entry; value column shows image count. */
         (void)snprintf(buffer, buffer_size, "%u img", (unsigned)gallery_image_count);
         break;
-    case 11U:
+    case MENU_GLOBAL_ITEM_FACTORY_RESET:
         buffer[0] = '\0';
         break;
     default:
@@ -138,7 +154,7 @@ void Display_DrawMenuGlobalItem(uint8_t item_index)
 
     row_index = (uint8_t)(item_index - first_visible_index);
 
-    if (item_index == (MENU_GLOBAL_ITEM_COUNT - 1U))
+    if (item_index == MENU_GLOBAL_ITEM_FACTORY_RESET)
     {
         /* Factory reset is intentionally rendered as a badge instead of a value
          * row so it stands apart from ordinary editable global settings. */

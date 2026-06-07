@@ -122,7 +122,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     User/Src/app/app_encoder_math.c
     User/Src/app/app_expression_input.c
     User/Src/app/app_footswitch_input.c
-    User/Src/app/app_midi_clock_sync.c
     User/Src/app/app_midi_transport.c
     User/Src/app/app_input_encoder_switches.c
     User/Src/app/app_input_board.c

@@ -25,7 +25,7 @@ This file also includes diagnostic code for reporting the internal state of the 
 #define MIDI_CLOCK_BPM_X10_MAX        2400U
 #define MIDI_CLOCK_BPM_WINDOW_MIN_PULSES      24U
 #define MIDI_CLOCK_BPM_WINDOW_MOTION_PULSES   24U
-#define MIDI_CLOCK_BPM_WINDOW_SHRINK_BPS      100U
+#define MIDI_CLOCK_BPM_WINDOW_SHRINK_BPS      25U
 #define MIDI_CLOCK_BPM_WINDOW_EXPAND_BPS      25U
 #define MIDI_CLOCK_BPM_WINDOW_HOLD_PULSES     24U
 #define MIDI_CLOCK_PLL_LOCK_ERROR_FILTER_DIVISOR_DEFAULT       8U

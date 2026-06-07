@@ -1,6 +1,7 @@
 #define MIDI_TRANSPORT_INTERNAL_ACCESS 1
 #include "midi/midi_transport_internal.h"
 #undef MIDI_TRANSPORT_INTERNAL_ACCESS
+#include "midi/midi_clock_estimator.h"
 #include "midi/midi_clock_internal.h"
 
 #define MIDI_CLOCK_RECOVERY_TEMPO_MATCH_BPS 100U
@@ -73,13 +74,16 @@ void MidiTransport_NoteClockDuringRecoveryWait(uint32_t now)
     uint32_t tempo_delta_us;
     uint32_t tempo_tolerance_us;
 
-    if (!midi_transport_rearm_required || !midi_clock_sync_lost)
+    if (!midi_transport_rearm_required)
         return;
 
     if (midi_transport_recovery_probe_last_pulse_us == 0U
      || now == midi_transport_recovery_probe_last_pulse_us)
     {
         midi_transport_recovery_probe_last_pulse_us = now;
+        midi_clock_last_pulse_us = now;
+        midi_clock_last_captured_pulse_us = now;
+        MidiClockEstimator_AnchorPulse(now);
         return;
     }
 
@@ -88,6 +92,15 @@ void MidiTransport_NoteClockDuringRecoveryWait(uint32_t now)
     midi_transport_recovery_probe_last_pulse_us = now;
     if (returned_interval_us == 0U)
         return;
+
+    MidiClockEstimator_NotePulseInterval(now, returned_interval_us);
+    if (!MidiTransport_IsFlashBusyFast())
+        MidiTransport_NoteDiagnosticInterval(returned_interval_us);
+    midi_clock_last_pulse_us = now;
+    midi_clock_last_captured_pulse_us = now;
+    midi_clock_external_activity_timeout_us =
+        MidiTransport_ComputeActivityTimeoutUs(midi_clock_pulse_interval_sum_us,
+                                               midi_clock_pulse_interval_count);
 
     if (midi_transport_recovery_probe_interval_us == 0U)
     {
@@ -123,7 +136,7 @@ uint8_t MidiTransport_IsRecoveryClockActive(void)
     uint32_t last_probe_us = midi_transport_recovery_probe_last_pulse_us;
     uint32_t timeout_us = midi_clock_external_activity_timeout_us;
 
-    if (!midi_transport_rearm_required || !midi_clock_sync_lost || last_probe_us == 0U)
+    if (!midi_transport_rearm_required || last_probe_us == 0U)
         return 0U;
 
     if (timeout_us == 0U)

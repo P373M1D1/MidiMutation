@@ -269,7 +269,7 @@ void Display_MenuEnter(void)
     display_state.menu_device_selection_index = 0U;
     display_state.menu_active_device_index = 0U;
     display_state.menu_device_edit_selection_index = 0U;
-    display_state.menu_global_selection_index = 0U;
+    display_state.menu_global_selection_index = MENU_GLOBAL_ITEM_STARTUP_DELAY;
     display_state.menu_expression_selection_index = 0U;
     display_state.menu_expression_field_index = 0U;
     display_state.menu_expression_learn_armed = 0U;
@@ -306,7 +306,7 @@ uint8_t Display_MenuEnterMetronomeQuickAccess(void)
         display_state.menu_device_selection_index = 0U;
         display_state.menu_active_device_index = 0U;
         display_state.menu_device_edit_selection_index = 0U;
-        display_state.menu_global_selection_index = 0U;
+        display_state.menu_global_selection_index = MENU_GLOBAL_ITEM_STARTUP_DELAY;
         display_state.menu_metronome_selection_index = 0U;
         display_state.menu_metronome_quick_access_live = 1U;
         display_state.menu_user_theme_selection_index = 0U;
@@ -420,7 +420,7 @@ void Display_MenuHome(void)
     {
         Display_ResetMenuTransientEditors();
         Display_RestoreFactorySettings();
-        display_state.menu_global_selection_index = (uint8_t)(MENU_GLOBAL_ITEM_COUNT - 1U);
+        display_state.menu_global_selection_index = MENU_GLOBAL_ITEM_FACTORY_RESET;
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return;
@@ -552,7 +552,7 @@ uint8_t Display_MenuBack(void)
         Display_MenuRefresh();
         return 1U;
     case DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM:
-        display_state.menu_global_selection_index = (uint8_t)(MENU_GLOBAL_ITEM_COUNT - 1U);
+        display_state.menu_global_selection_index = MENU_GLOBAL_ITEM_FACTORY_RESET;
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return 1U;
@@ -573,18 +573,18 @@ uint8_t Display_MenuBack(void)
         Display_MenuRefresh();
         return 1U;
     case DISPLAY_MENU_PAGE_EXPRESSION:
-        display_state.menu_global_selection_index = 9U;
+        display_state.menu_global_selection_index = MENU_GLOBAL_ITEM_EXPRESSION;
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return 1U;
     case DISPLAY_MENU_PAGE_GALLERY:
         /* Return to GLOBAL with the Gallery item highlighted. */
-        display_state.menu_global_selection_index = 10U;
+        display_state.menu_global_selection_index = MENU_GLOBAL_ITEM_GALLERY;
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return 1U;
     case DISPLAY_MENU_PAGE_USER_THEME:
-        display_state.menu_global_selection_index = 4U;
+        display_state.menu_global_selection_index = MENU_GLOBAL_ITEM_THEME;
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return 1U;
@@ -758,7 +758,7 @@ uint8_t Display_MenuActivate(void)
             break;
         case 2U:
             display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
-            display_state.menu_global_selection_index = 0U;
+            display_state.menu_global_selection_index = MENU_GLOBAL_ITEM_STARTUP_DELAY;
             break;
         case 3U:
             display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_METRONOME;
@@ -774,14 +774,14 @@ uint8_t Display_MenuActivate(void)
         }
         break;
     case DISPLAY_MENU_PAGE_GLOBAL:
-        if (display_state.menu_global_selection_index == (uint8_t)(MENU_GLOBAL_ITEM_COUNT - 1U))
+        if (display_state.menu_global_selection_index == MENU_GLOBAL_ITEM_FACTORY_RESET)
         {
             display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM;
             Display_MenuRefresh();
             return 1U;
         }
 
-        if (display_state.menu_global_selection_index == 4U
+        if (display_state.menu_global_selection_index == MENU_GLOBAL_ITEM_THEME
          && global
          && RuntimeConfig_TryGetUserThemeIndex(global->display_mode, NULL))
         {
@@ -792,7 +792,7 @@ uint8_t Display_MenuActivate(void)
             return 1U;
         }
 
-        if (display_state.menu_global_selection_index == 9U)
+        if (display_state.menu_global_selection_index == MENU_GLOBAL_ITEM_EXPRESSION)
         {
             display_state.menu_expression_selection_index = 0U;
             display_state.menu_expression_field_index = 0U;
@@ -804,7 +804,7 @@ uint8_t Display_MenuActivate(void)
             return 1U;
         }
 
-        if (display_state.menu_global_selection_index == 10U)
+        if (display_state.menu_global_selection_index == MENU_GLOBAL_ITEM_GALLERY)
         {
             /* Enter gallery fullscreen viewer. Reset index to first image so
              * each visit starts at the beginning. */

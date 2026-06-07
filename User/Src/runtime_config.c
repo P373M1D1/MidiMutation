@@ -16,6 +16,7 @@
 #define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT   0U
 #define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT 96U
 #define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT    32U
+#define RUNTIME_CONFIG_GLOBAL_CLOCK_MODE_DEFAULT       RUNTIME_CONFIG_CLOCK_MODE_MONITOR
 #define RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT    RUNTIME_CONFIG_LIVE_ENC2_MODE_PRESET_BANK_SCROLL
 #define RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MODE_DEFAULT RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_DISABLED
 #define RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MIN_RAW_DEFAULT RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MIN
@@ -174,6 +175,23 @@ typedef struct {
     RuntimeConfigSyncStyle_t sync_style;
     RuntimeConfigDisplayMode_t display_mode;
     uint16_t backlight_brightness;
+    uint8_t feedback_taper_enabled;
+    uint8_t feedback_taper_threshold;
+    uint8_t feedback_taper_reduce;
+    RuntimeConfigLiveEnc2Mode_t live_enc2_mode;
+    RuntimeConfigExpressionPedalMode_t expression_pedal_mode;
+    uint16_t expression_pedal_min_raw;
+    uint16_t expression_pedal_max_raw;
+    uint8_t expression_pedal_invert;
+    RuntimeConfigExpressionPedalCcSlot_t expression_pedal_cc_slots[RUNTIME_CONFIG_EXPRESSION_PEDAL_CC_SLOT_COUNT];
+} RuntimeConfigGlobalLegacyV14_t;
+
+typedef struct {
+    uint8_t startup_delay_seconds;
+    uint8_t screensaver_timeout_minutes;
+    RuntimeConfigSyncStyle_t sync_style;
+    RuntimeConfigDisplayMode_t display_mode;
+    uint16_t backlight_brightness;
 } RuntimeConfigGlobalLegacyV9_t;
 
 typedef struct {
@@ -265,6 +283,16 @@ typedef struct {
     Preset_t global_bypass_preset;
     Preset_t global_mute_preset;
 } RuntimeConfigLegacyV13_t;
+
+typedef struct {
+    RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
+    RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigGlobalLegacyV14_t global;
+    RuntimeConfigMetronome_t metronome;
+    RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
+    Preset_t global_bypass_preset;
+    Preset_t global_mute_preset;
+} RuntimeConfigLegacyV14_t;
 
 typedef struct {
     RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
@@ -451,6 +479,7 @@ static const RuntimeConfig_t runtime_config_defaults = {
         .feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT,
         .feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT,
         .feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT,
+        .clock_mode = RUNTIME_CONFIG_GLOBAL_CLOCK_MODE_DEFAULT,
         .live_enc2_mode = RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT,
         .expression_pedal_mode = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MODE_DEFAULT,
         .expression_pedal_min_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MIN_RAW_DEFAULT,
@@ -729,6 +758,7 @@ uint8_t RuntimeConfig_PersistentConfigSizeIsSupported(uint32_t config_size)
     return (config_size == sizeof(RuntimeConfig_t)
             || config_size == sizeof(RuntimeConfigLegacyWithRoles_t)
             || config_size == sizeof(RuntimeConfigLegacyWithRolesNoGlobalPresets_t)
+            || config_size == sizeof(RuntimeConfigLegacyV14_t)
             || config_size == sizeof(RuntimeConfigLegacyV13_t)
             || config_size == sizeof(RuntimeConfigLegacyV12_t)
             || config_size == sizeof(RuntimeConfigLegacyV11_t)
@@ -851,6 +881,14 @@ static RuntimeConfigLiveEnc2Mode_t RuntimeConfig_NormalizeLiveEnc2Mode(uint8_t m
     return (RuntimeConfigLiveEnc2Mode_t)mode;
 }
 
+static RuntimeConfigClockMode_t RuntimeConfig_NormalizeClockMode(uint8_t mode)
+{
+    if (mode > (uint8_t)RUNTIME_CONFIG_CLOCK_MODE_MASTER)
+        return RUNTIME_CONFIG_GLOBAL_CLOCK_MODE_DEFAULT;
+
+    return (RuntimeConfigClockMode_t)mode;
+}
+
 static RuntimeConfigExpressionPedalMode_t RuntimeConfig_NormalizeExpressionPedalMode(uint8_t mode)
 {
     if (mode > (uint8_t)RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_TIMEBEND)
@@ -942,6 +980,7 @@ static void RuntimeConfig_ApplyLegacyGlobalV9(RuntimeConfigGlobal_t *destination
     destination->feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT;
     destination->feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT;
     destination->feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT;
+    destination->clock_mode = RUNTIME_CONFIG_GLOBAL_CLOCK_MODE_DEFAULT;
     destination->live_enc2_mode = RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT;
     destination->expression_pedal_mode = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MODE_DEFAULT;
     destination->expression_pedal_min_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MIN_RAW_DEFAULT;
@@ -964,6 +1003,7 @@ static void RuntimeConfig_ApplyLegacyGlobalV10(RuntimeConfigGlobal_t *destinatio
     destination->feedback_taper_enabled = source->feedback_taper_enabled;
     destination->feedback_taper_threshold = source->feedback_taper_threshold;
     destination->feedback_taper_reduce = source->feedback_taper_reduce;
+    destination->clock_mode = RUNTIME_CONFIG_GLOBAL_CLOCK_MODE_DEFAULT;
     destination->live_enc2_mode = RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT;
     destination->expression_pedal_mode = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MODE_DEFAULT;
     destination->expression_pedal_min_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MIN_RAW_DEFAULT;
@@ -986,6 +1026,7 @@ static void RuntimeConfig_ApplyLegacyGlobalV11(RuntimeConfigGlobal_t *destinatio
     destination->feedback_taper_enabled = source->feedback_taper_enabled;
     destination->feedback_taper_threshold = source->feedback_taper_threshold;
     destination->feedback_taper_reduce = source->feedback_taper_reduce;
+    destination->clock_mode = RUNTIME_CONFIG_GLOBAL_CLOCK_MODE_DEFAULT;
     destination->live_enc2_mode = source->live_enc2_mode;
     destination->expression_pedal_mode = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MODE_DEFAULT;
     destination->expression_pedal_min_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MIN_RAW_DEFAULT;
@@ -1008,6 +1049,7 @@ static void RuntimeConfig_ApplyLegacyGlobalV12(RuntimeConfigGlobal_t *destinatio
     destination->feedback_taper_enabled = source->feedback_taper_enabled;
     destination->feedback_taper_threshold = source->feedback_taper_threshold;
     destination->feedback_taper_reduce = source->feedback_taper_reduce;
+    destination->clock_mode = RUNTIME_CONFIG_GLOBAL_CLOCK_MODE_DEFAULT;
     destination->live_enc2_mode = source->live_enc2_mode;
     destination->expression_pedal_mode = source->expression_pedal_mode;
     destination->expression_pedal_min_raw = RUNTIME_CONFIG_GLOBAL_EXPRESSION_PEDAL_MIN_RAW_DEFAULT;
@@ -1030,12 +1072,37 @@ static void RuntimeConfig_ApplyLegacyGlobalV13(RuntimeConfigGlobal_t *destinatio
     destination->feedback_taper_enabled = source->feedback_taper_enabled;
     destination->feedback_taper_threshold = source->feedback_taper_threshold;
     destination->feedback_taper_reduce = source->feedback_taper_reduce;
+    destination->clock_mode = RUNTIME_CONFIG_GLOBAL_CLOCK_MODE_DEFAULT;
     destination->live_enc2_mode = source->live_enc2_mode;
     destination->expression_pedal_mode = source->expression_pedal_mode;
     destination->expression_pedal_min_raw = source->expression_pedal_min_raw;
     destination->expression_pedal_max_raw = source->expression_pedal_max_raw;
     destination->expression_pedal_invert = source->expression_pedal_invert;
     RuntimeConfig_InitExpressionPedalCcSlotsDefaults(destination);
+}
+
+static void RuntimeConfig_ApplyLegacyGlobalV14(RuntimeConfigGlobal_t *destination,
+                                               const RuntimeConfigGlobalLegacyV14_t *source)
+{
+    if (!destination || !source)
+        return;
+
+    destination->startup_delay_seconds = source->startup_delay_seconds;
+    destination->screensaver_timeout_minutes = source->screensaver_timeout_minutes;
+    destination->sync_style = source->sync_style;
+    destination->display_mode = source->display_mode;
+    destination->backlight_brightness = source->backlight_brightness;
+    destination->feedback_taper_enabled = source->feedback_taper_enabled;
+    destination->feedback_taper_threshold = source->feedback_taper_threshold;
+    destination->feedback_taper_reduce = source->feedback_taper_reduce;
+    destination->clock_mode = RUNTIME_CONFIG_GLOBAL_CLOCK_MODE_DEFAULT;
+    destination->live_enc2_mode = source->live_enc2_mode;
+    destination->expression_pedal_mode = source->expression_pedal_mode;
+    destination->expression_pedal_min_raw = source->expression_pedal_min_raw;
+    destination->expression_pedal_max_raw = source->expression_pedal_max_raw;
+    destination->expression_pedal_invert = source->expression_pedal_invert;
+    for (uint8_t slot_index = 0U; slot_index < RUNTIME_CONFIG_EXPRESSION_PEDAL_CC_SLOT_COUNT; ++slot_index)
+        destination->expression_pedal_cc_slots[slot_index] = source->expression_pedal_cc_slots[slot_index];
 }
 
 static RuntimeConfigMetronomePitch_t RuntimeConfig_NormalizeMetronomePitch(uint8_t pitch)
@@ -1191,6 +1258,8 @@ static void RuntimeConfig_NormalizeLoadedStore(void)
         runtime_config_store.global.feedback_taper_threshold);
     runtime_config_store.global.feedback_taper_reduce = RuntimeConfig_NormalizeFeedbackTaperReduce(
         runtime_config_store.global.feedback_taper_reduce);
+    runtime_config_store.global.clock_mode = RuntimeConfig_NormalizeClockMode(
+        (uint8_t)runtime_config_store.global.clock_mode);
     runtime_config_store.global.live_enc2_mode = RuntimeConfig_NormalizeLiveEnc2Mode(
         (uint8_t)runtime_config_store.global.live_enc2_mode);
     runtime_config_store.global.expression_pedal_mode = RuntimeConfig_NormalizeExpressionPedalMode(
@@ -1237,6 +1306,7 @@ static void RuntimeConfig_ApplyLegacyV2Snapshot(const RuntimeConfigLegacyV2_t *l
     runtime_config_store.global.feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT;
     runtime_config_store.global.feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT;
     runtime_config_store.global.feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT;
+    runtime_config_store.global.clock_mode = RUNTIME_CONFIG_GLOBAL_CLOCK_MODE_DEFAULT;
     runtime_config_store.global.live_enc2_mode = RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT;
     runtime_config_store.metronome = runtime_config_defaults.metronome;
 }
@@ -1264,6 +1334,7 @@ static void RuntimeConfig_ApplyLegacyV3Snapshot(const RuntimeConfigLegacyV3_t *l
     runtime_config_store.global.feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT;
     runtime_config_store.global.feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT;
     runtime_config_store.global.feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT;
+    runtime_config_store.global.clock_mode = RUNTIME_CONFIG_GLOBAL_CLOCK_MODE_DEFAULT;
     runtime_config_store.global.live_enc2_mode = RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT;
     runtime_config_store.metronome = runtime_config_defaults.metronome;
 }
@@ -1291,6 +1362,7 @@ static void RuntimeConfig_ApplyLegacyV4Snapshot(const RuntimeConfigLegacyV4_t *l
     runtime_config_store.global.feedback_taper_enabled = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT;
     runtime_config_store.global.feedback_taper_threshold = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_DEFAULT;
     runtime_config_store.global.feedback_taper_reduce = RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_DEFAULT;
+    runtime_config_store.global.clock_mode = RUNTIME_CONFIG_GLOBAL_CLOCK_MODE_DEFAULT;
     runtime_config_store.global.live_enc2_mode = RUNTIME_CONFIG_GLOBAL_LIVE_ENC2_MODE_DEFAULT;
     runtime_config_store.metronome = runtime_config_defaults.metronome;
 }
@@ -1478,6 +1550,26 @@ static void RuntimeConfig_ApplyLegacyV13Snapshot(const RuntimeConfigLegacyV13_t 
            legacy_store->devices,
            sizeof(runtime_config_store.devices));
     RuntimeConfig_ApplyLegacyGlobalV13(&runtime_config_store.global, &legacy_store->global);
+    runtime_config_store.metronome = legacy_store->metronome;
+    memcpy(runtime_config_store.user_themes,
+           legacy_store->user_themes,
+           sizeof(runtime_config_store.user_themes));
+    runtime_config_store.global_bypass_preset = legacy_store->global_bypass_preset;
+    runtime_config_store.global_mute_preset = legacy_store->global_mute_preset;
+}
+
+static void RuntimeConfig_ApplyLegacyV14Snapshot(const RuntimeConfigLegacyV14_t *legacy_store)
+{
+    if (!legacy_store)
+        return;
+
+    memcpy(runtime_config_store.banks,
+           legacy_store->banks,
+           sizeof(runtime_config_store.banks));
+    memcpy(runtime_config_store.devices,
+           legacy_store->devices,
+           sizeof(runtime_config_store.devices));
+    RuntimeConfig_ApplyLegacyGlobalV14(&runtime_config_store.global, &legacy_store->global);
     runtime_config_store.metronome = legacy_store->metronome;
     memcpy(runtime_config_store.user_themes,
            legacy_store->user_themes,
@@ -1692,6 +1784,13 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
             memcpy(&legacy_store, config_payload, sizeof(legacy_store));
             RuntimeConfig_ApplyLegacyWithRolesNoGlobalPresetsSnapshot(&legacy_store);
         }
+        else if (header_v3->config_size == sizeof(RuntimeConfigLegacyV14_t))
+        {
+            RuntimeConfigLegacyV14_t legacy_store;
+
+            memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+            RuntimeConfig_ApplyLegacyV14Snapshot(&legacy_store);
+        }
         else if (header_v3->config_size == sizeof(RuntimeConfigLegacyV13_t))
         {
             RuntimeConfigLegacyV13_t legacy_store;
@@ -1820,6 +1919,13 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
 
         memcpy(&legacy_store, config_payload, sizeof(legacy_store));
         RuntimeConfig_ApplyLegacyWithRolesNoGlobalPresetsSnapshot(&legacy_store);
+    }
+    else if (header->config_size == sizeof(RuntimeConfigLegacyV14_t))
+    {
+        RuntimeConfigLegacyV14_t legacy_store;
+
+        memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+        RuntimeConfig_ApplyLegacyV14Snapshot(&legacy_store);
     }
     else if (header->config_size == sizeof(RuntimeConfigLegacyV13_t))
     {

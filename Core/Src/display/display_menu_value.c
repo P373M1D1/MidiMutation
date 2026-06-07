@@ -461,21 +461,21 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
 
         switch (display_state.menu_global_selection_index)
         {
-        case 0U:
+        case MENU_GLOBAL_ITEM_STARTUP_DELAY:
             changed = Display_AdjustClampedU8(&global->startup_delay_seconds,
                                               RUNTIME_CONFIG_GLOBAL_STARTUP_DELAY_MIN,
                                               RUNTIME_CONFIG_GLOBAL_STARTUP_DELAY_MAX,
                                               delta);
             break;
 
-        case 1U:
+        case MENU_GLOBAL_ITEM_SCREEN_SAVER:
             changed = Display_AdjustClampedU8(&global->screensaver_timeout_minutes,
                                               RUNTIME_CONFIG_GLOBAL_SCREENSAVER_MIN,
                                               RUNTIME_CONFIG_GLOBAL_SCREENSAVER_MAX,
                                               delta);
             break;
 
-        case 2U:
+        case MENU_GLOBAL_ITEM_SYNC_STYLE:
         {
             uint8_t sync_style = (uint8_t)global->sync_style;
 
@@ -488,7 +488,20 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
             break;
         }
 
-        case 3U:
+        case MENU_GLOBAL_ITEM_CLOCK_MODE:
+        {
+            uint8_t clock_mode = (uint8_t)global->clock_mode;
+
+            changed = Display_AdjustWrappedU8(&clock_mode,
+                                              (uint8_t)RUNTIME_CONFIG_CLOCK_MODE_MONITOR,
+                                              (uint8_t)RUNTIME_CONFIG_CLOCK_MODE_MASTER,
+                                              delta);
+            if (changed)
+                global->clock_mode = (RuntimeConfigClockMode_t)clock_mode;
+            break;
+        }
+
+        case MENU_GLOBAL_ITEM_LIVE_ENC2:
         {
             uint8_t live_enc2_mode = (uint8_t)global->live_enc2_mode;
 
@@ -501,7 +514,7 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
             break;
         }
 
-        case 4U:
+        case MENU_GLOBAL_ITEM_THEME:
         {
             RuntimeConfigDisplayMode_t next_display_mode = RuntimeConfig_StepDisplayMode(global->display_mode,
                                                                                          delta);
@@ -515,7 +528,7 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
             break;
         }
 
-        case 5U:
+        case MENU_GLOBAL_ITEM_BRIGHTNESS:
         {
             uint8_t brightness_ui = Display_GetGlobalBrightnessUiValue(global->backlight_brightness);
 
@@ -531,18 +544,18 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
             break;
         }
 
-        case 6U:
+        case MENU_GLOBAL_ITEM_FEEDBACK_TAPER:
             changed = Display_AdjustWrappedU8(&global->feedback_taper_enabled, 0U, 1U, delta);
             break;
 
-        case 7U:
+        case MENU_GLOBAL_ITEM_THRESHOLD:
             changed = Display_AdjustClampedU8(&global->feedback_taper_threshold,
                                               0U,
                                               RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_MAX,
                                               delta);
             break;
 
-        case 8U:
+        case MENU_GLOBAL_ITEM_REDUCE:
             changed = Display_AdjustClampedU8(&global->feedback_taper_reduce,
                                               0U,
                                               RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_MAX,

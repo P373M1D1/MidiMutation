@@ -190,7 +190,6 @@ static void AppTempo_ApplyInternalTempoBpm(uint16_t bpm, uint8_t pulse_led)
 static void AppTempo_ApplyMirroredTempoBpm(uint16_t bpm)
 {
     AppState_SetTempoBpm(bpm);
-    MidiClockOutputSetTempoBpm(bpm);
     AppUi_RequestStatusStripRefresh();
 }
 

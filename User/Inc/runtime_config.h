@@ -37,6 +37,12 @@ typedef enum {
 } RuntimeConfigSyncStyle_t;
 
 typedef enum {
+    RUNTIME_CONFIG_CLOCK_MODE_MONITOR = 0,
+    RUNTIME_CONFIG_CLOCK_MODE_SLAVE,
+    RUNTIME_CONFIG_CLOCK_MODE_MASTER,
+} RuntimeConfigClockMode_t;
+
+typedef enum {
     RUNTIME_CONFIG_LIVE_ENC2_MODE_PRESET_BANK_SCROLL = 0,
     RUNTIME_CONFIG_LIVE_ENC2_MODE_METRONOME,
     RUNTIME_CONFIG_LIVE_ENC2_MODE_TIMEBEND,
@@ -174,6 +180,7 @@ typedef struct {
     uint8_t feedback_taper_enabled;
     uint8_t feedback_taper_threshold;
     uint8_t feedback_taper_reduce;
+    RuntimeConfigClockMode_t clock_mode;
     RuntimeConfigLiveEnc2Mode_t live_enc2_mode;
     RuntimeConfigExpressionPedalMode_t expression_pedal_mode;
     uint16_t expression_pedal_min_raw;

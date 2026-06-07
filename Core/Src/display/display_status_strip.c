@@ -47,7 +47,6 @@ static void Display_DrawTransportBarBeat(const char *text);
 static void Display_DrawTransportAlert(DisplayTransportStatusMode_t mode);
 static uint16_t Display_GetBpmDeltaX10(uint16_t lhs, uint16_t rhs);
 static uint16_t Display_GetExternalBpmHysteresisX10(uint16_t bpm_x10);
-static uint16_t Display_SlewExternalBpmX10(uint16_t current_bpm_x10, uint16_t target_bpm_x10);
 static uint8_t Display_ShouldShowSyncingHeader(void);
 static void Display_FormatRightAlignedStatusText(char *buffer,
                                                  size_t buffer_size,
@@ -67,19 +66,6 @@ static uint16_t Display_GetExternalBpmHysteresisX10(uint16_t bpm_x10)
     return (hysteresis_x10 >= BPM_EXT_HYSTERESIS_MIN_X10)
         ? hysteresis_x10
         : BPM_EXT_HYSTERESIS_MIN_X10;
-}
-
-static uint16_t Display_SlewExternalBpmX10(uint16_t current_bpm_x10, uint16_t target_bpm_x10)
-{
-    uint16_t delta_x10 = Display_GetBpmDeltaX10(current_bpm_x10, target_bpm_x10);
-
-    if (delta_x10 <= BPM_EXT_SLEW_STEP_X10)
-        return target_bpm_x10;
-
-    if (target_bpm_x10 > current_bpm_x10)
-        return (uint16_t)(current_bpm_x10 + BPM_EXT_SLEW_STEP_X10);
-
-    return (uint16_t)(current_bpm_x10 - BPM_EXT_SLEW_STEP_X10);
 }
 
 static uint8_t Display_ShouldShowSyncingHeader(void)
@@ -447,7 +433,10 @@ void Display_UpdateBPM(uint16_t bpm)
     display_bpm_x10 = (uint16_t)(bpm * 10U);
     sync_lost = ClockEngine_IsSyncLost();
     show_syncing = Display_ShouldShowSyncingHeader();
-    if (!show_syncing && !sync_lost && MidiClockGetMeasuredExternalBpmX10(&measured_bpm_x10))
+    if (!show_syncing
+     && !sync_lost
+     && (MidiClockGetMeasuredExternalBpmX10(&measured_bpm_x10)
+      || MidiClockGetExternalBpmX10(&measured_bpm_x10)))
     {
         display_bpm_x10 = measured_bpm_x10;
         use_external = 1U;
@@ -522,12 +511,6 @@ void Display_UpdateBPM(uint16_t bpm)
         || display_state.bpm_display_syncing);
     if (!full_redraw)
     {
-        if ((now_ms - display_state.bpm_display_external_update_tick) < BPM_EXT_UPDATE_MIN_INTERVAL_MS)
-        {
-            display_state.bpm_display_sync_lost = sync_lost;
-            return;
-        }
-
         delta_x10 = Display_GetBpmDeltaX10(display_state.bpm_display_value_x10, display_bpm_x10);
         hysteresis_x10 = Display_GetExternalBpmHysteresisX10(display_state.bpm_display_value_x10);
 
@@ -536,9 +519,6 @@ void Display_UpdateBPM(uint16_t bpm)
             display_state.bpm_display_sync_lost = sync_lost;
             return;
         }
-
-        if (delta_x10 < BPM_EXT_FORCE_UPDATE_DELTA_X10)
-            display_bpm_x10 = Display_SlewExternalBpmX10(display_state.bpm_display_value_x10, display_bpm_x10);
 
         if (display_state.bpm_display_value_x10 == display_bpm_x10)
         {
@@ -787,11 +767,6 @@ void Display_BpmDiagnosticService(void)
             {
                 hold = 1U;
             }
-            else if (delta_x10 < BPM_EXT_FORCE_UPDATE_DELTA_X10)
-            {
-                slew_pending = 1U;
-                hold = (age_ms < BPM_EXT_UPDATE_MIN_INTERVAL_MS) ? 1U : 0U;
-            }
         }
     }
 
@@ -814,7 +789,7 @@ void Display_BpmDiagnosticService(void)
          * Keep steady LOCKED diagnostics compact so serial logging does not
          * monopolize foreground time and delay bar/beat rendering.
          */
-         printf("BPMDIAG_V2_BAR sync_state=%c live_lock=%c transport_run=%u stop_latched=%u sync_lost=%u header_should_sync=%u header_syncing=%u transport_qn=%lu ui_qn=%lu ui_qn_gap=%lu lag_ms=%lu lag_effective_ms=%lu transport_bar=%u transport_beat=%u ui_bar=%u ui_beat=%u ui_bar_delta=%d ui_beat_delta=%d\r\n",
+         printf("BPMDIAG_V2_BAR sync_state=%c live_lock=%c transport_run=%u stop_latched=%u sync_lost=%u header_should_sync=%u header_syncing=%u display_bpm=%u.%u display_valid=%u display_external=%u display_age_ms=%lu transport_qn=%lu ui_qn=%lu ui_qn_gap=%lu lag_ms=%lu lag_effective_ms=%lu transport_bar=%u transport_beat=%u ui_bar=%u ui_beat=%u ui_bar_delta=%d ui_beat_delta=%d\r\n",
                sync_state,
                live_lock,
              (unsigned)transport_running,
@@ -822,6 +797,11 @@ void Display_BpmDiagnosticService(void)
              (unsigned)sync_lost,
              (unsigned)header_should_sync,
              (unsigned)display_syncing,
+             (unsigned)(displayed_bpm_x10 / 10U),
+             (unsigned)(displayed_bpm_x10 % 10U),
+             (unsigned)display_valid,
+             (unsigned)display_external,
+             (unsigned long)age_ms,
                (unsigned long)transport_quarter_count,
                (unsigned long)ui_last_rendered_quarter_snapshot,
                (unsigned long)ui_transport_quarter_gap,
