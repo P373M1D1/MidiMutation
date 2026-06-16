@@ -10,7 +10,7 @@
 
 #define RUNTIME_CONFIG_INVALID_BANK_NAME                "(bank?)"
 #define RUNTIME_CONFIG_GLOBAL_STARTUP_DELAY_DEFAULT     1U
-#define RUNTIME_CONFIG_GLOBAL_SCREENSAVER_MIN_DEFAULT   10U
+#define RUNTIME_CONFIG_GLOBAL_LEGACY_IDLE_TIMEOUT_DEFAULT   0U
 #define RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT       RUNTIME_CONFIG_DISPLAY_MODE_DARK
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_DEFAULT        RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX
 #define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_ENABLED_DEFAULT   0U
@@ -119,7 +119,7 @@ typedef struct {
 
 typedef struct {
     uint8_t startup_delay_seconds;
-    uint8_t screensaver_timeout_minutes;
+    uint8_t legacy_idle_timeout_minutes;
     RuntimeConfigSyncStyle_t sync_style;
     RuntimeConfigDisplayMode_t display_mode;
     uint16_t backlight_brightness;
@@ -130,7 +130,7 @@ typedef struct {
 
 typedef struct {
     uint8_t startup_delay_seconds;
-    uint8_t screensaver_timeout_minutes;
+    uint8_t legacy_idle_timeout_minutes;
     RuntimeConfigSyncStyle_t sync_style;
     RuntimeConfigDisplayMode_t display_mode;
     uint16_t backlight_brightness;
@@ -142,7 +142,7 @@ typedef struct {
 
 typedef struct {
     uint8_t startup_delay_seconds;
-    uint8_t screensaver_timeout_minutes;
+    uint8_t legacy_idle_timeout_minutes;
     RuntimeConfigSyncStyle_t sync_style;
     RuntimeConfigDisplayMode_t display_mode;
     uint16_t backlight_brightness;
@@ -155,7 +155,7 @@ typedef struct {
 
 typedef struct {
     uint8_t startup_delay_seconds;
-    uint8_t screensaver_timeout_minutes;
+    uint8_t legacy_idle_timeout_minutes;
     RuntimeConfigSyncStyle_t sync_style;
     RuntimeConfigDisplayMode_t display_mode;
     uint16_t backlight_brightness;
@@ -171,7 +171,7 @@ typedef struct {
 
 typedef struct {
     uint8_t startup_delay_seconds;
-    uint8_t screensaver_timeout_minutes;
+    uint8_t legacy_idle_timeout_minutes;
     RuntimeConfigSyncStyle_t sync_style;
     RuntimeConfigDisplayMode_t display_mode;
     uint16_t backlight_brightness;
@@ -188,7 +188,7 @@ typedef struct {
 
 typedef struct {
     uint8_t startup_delay_seconds;
-    uint8_t screensaver_timeout_minutes;
+    uint8_t legacy_idle_timeout_minutes;
     RuntimeConfigSyncStyle_t sync_style;
     RuntimeConfigDisplayMode_t display_mode;
     uint16_t backlight_brightness;
@@ -196,7 +196,7 @@ typedef struct {
 
 typedef struct {
     uint8_t startup_delay_seconds;
-    uint8_t screensaver_timeout_minutes;
+    uint8_t legacy_idle_timeout_minutes;
     RuntimeConfigSyncStyle_t sync_style;
     uint16_t backlight_brightness;
 } RuntimeConfigGlobalLegacyV4_t;
@@ -472,7 +472,7 @@ static const RuntimeConfig_t runtime_config_defaults = {
     },
     .global = {
         .startup_delay_seconds = RUNTIME_CONFIG_GLOBAL_STARTUP_DELAY_DEFAULT,
-        .screensaver_timeout_minutes = RUNTIME_CONFIG_GLOBAL_SCREENSAVER_MIN_DEFAULT,
+        .legacy_idle_timeout_minutes = RUNTIME_CONFIG_GLOBAL_LEGACY_IDLE_TIMEOUT_DEFAULT,
         .sync_style = RUNTIME_CONFIG_SYNC_STYLE_MIDI_CLOCK,
         .display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT,
         .backlight_brightness = RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_DEFAULT,
@@ -973,7 +973,7 @@ static void RuntimeConfig_ApplyLegacyGlobalV9(RuntimeConfigGlobal_t *destination
         return;
 
     destination->startup_delay_seconds = source->startup_delay_seconds;
-    destination->screensaver_timeout_minutes = source->screensaver_timeout_minutes;
+    destination->legacy_idle_timeout_minutes = RUNTIME_CONFIG_GLOBAL_LEGACY_IDLE_TIMEOUT_DEFAULT;
     destination->sync_style = source->sync_style;
     destination->display_mode = source->display_mode;
     destination->backlight_brightness = source->backlight_brightness;
@@ -996,7 +996,7 @@ static void RuntimeConfig_ApplyLegacyGlobalV10(RuntimeConfigGlobal_t *destinatio
         return;
 
     destination->startup_delay_seconds = source->startup_delay_seconds;
-    destination->screensaver_timeout_minutes = source->screensaver_timeout_minutes;
+    destination->legacy_idle_timeout_minutes = RUNTIME_CONFIG_GLOBAL_LEGACY_IDLE_TIMEOUT_DEFAULT;
     destination->sync_style = source->sync_style;
     destination->display_mode = source->display_mode;
     destination->backlight_brightness = source->backlight_brightness;
@@ -1019,7 +1019,7 @@ static void RuntimeConfig_ApplyLegacyGlobalV11(RuntimeConfigGlobal_t *destinatio
         return;
 
     destination->startup_delay_seconds = source->startup_delay_seconds;
-    destination->screensaver_timeout_minutes = source->screensaver_timeout_minutes;
+    destination->legacy_idle_timeout_minutes = RUNTIME_CONFIG_GLOBAL_LEGACY_IDLE_TIMEOUT_DEFAULT;
     destination->sync_style = source->sync_style;
     destination->display_mode = source->display_mode;
     destination->backlight_brightness = source->backlight_brightness;
@@ -1042,7 +1042,7 @@ static void RuntimeConfig_ApplyLegacyGlobalV12(RuntimeConfigGlobal_t *destinatio
         return;
 
     destination->startup_delay_seconds = source->startup_delay_seconds;
-    destination->screensaver_timeout_minutes = source->screensaver_timeout_minutes;
+    destination->legacy_idle_timeout_minutes = RUNTIME_CONFIG_GLOBAL_LEGACY_IDLE_TIMEOUT_DEFAULT;
     destination->sync_style = source->sync_style;
     destination->display_mode = source->display_mode;
     destination->backlight_brightness = source->backlight_brightness;
@@ -1065,7 +1065,7 @@ static void RuntimeConfig_ApplyLegacyGlobalV13(RuntimeConfigGlobal_t *destinatio
         return;
 
     destination->startup_delay_seconds = source->startup_delay_seconds;
-    destination->screensaver_timeout_minutes = source->screensaver_timeout_minutes;
+    destination->legacy_idle_timeout_minutes = RUNTIME_CONFIG_GLOBAL_LEGACY_IDLE_TIMEOUT_DEFAULT;
     destination->sync_style = source->sync_style;
     destination->display_mode = source->display_mode;
     destination->backlight_brightness = source->backlight_brightness;
@@ -1088,7 +1088,7 @@ static void RuntimeConfig_ApplyLegacyGlobalV14(RuntimeConfigGlobal_t *destinatio
         return;
 
     destination->startup_delay_seconds = source->startup_delay_seconds;
-    destination->screensaver_timeout_minutes = source->screensaver_timeout_minutes;
+    destination->legacy_idle_timeout_minutes = RUNTIME_CONFIG_GLOBAL_LEGACY_IDLE_TIMEOUT_DEFAULT;
     destination->sync_style = source->sync_style;
     destination->display_mode = source->display_mode;
     destination->backlight_brightness = source->backlight_brightness;
@@ -1253,6 +1253,7 @@ static void RuntimeConfig_NormalizeLoadedStore(void)
 
     runtime_config_store.global.backlight_brightness = RuntimeConfig_NormalizeBacklightBrightness(
         runtime_config_store.global.backlight_brightness);
+    runtime_config_store.global.legacy_idle_timeout_minutes = RUNTIME_CONFIG_GLOBAL_LEGACY_IDLE_TIMEOUT_DEFAULT;
     runtime_config_store.global.feedback_taper_enabled = RuntimeConfig_NormalizeFeedbackTaperEnabled(
         runtime_config_store.global.feedback_taper_enabled);
     runtime_config_store.global.feedback_taper_threshold = RuntimeConfig_NormalizeFeedbackTaperThreshold(
@@ -1300,7 +1301,7 @@ static void RuntimeConfig_ApplyLegacyV2Snapshot(const RuntimeConfigLegacyV2_t *l
                                        &legacy_store->devices[device_index]);
 
     runtime_config_store.global.startup_delay_seconds = legacy_store->global.startup_delay_seconds;
-    runtime_config_store.global.screensaver_timeout_minutes = legacy_store->global.screensaver_timeout_minutes;
+    runtime_config_store.global.legacy_idle_timeout_minutes = RUNTIME_CONFIG_GLOBAL_LEGACY_IDLE_TIMEOUT_DEFAULT;
     runtime_config_store.global.sync_style = legacy_store->global.sync_style;
     runtime_config_store.global.display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT;
     runtime_config_store.global.backlight_brightness = legacy_store->global.backlight_brightness;
@@ -1328,7 +1329,7 @@ static void RuntimeConfig_ApplyLegacyV3Snapshot(const RuntimeConfigLegacyV3_t *l
                                        &legacy_store->devices[device_index]);
 
     runtime_config_store.global.startup_delay_seconds = legacy_store->global.startup_delay_seconds;
-    runtime_config_store.global.screensaver_timeout_minutes = legacy_store->global.screensaver_timeout_minutes;
+    runtime_config_store.global.legacy_idle_timeout_minutes = RUNTIME_CONFIG_GLOBAL_LEGACY_IDLE_TIMEOUT_DEFAULT;
     runtime_config_store.global.sync_style = legacy_store->global.sync_style;
     runtime_config_store.global.display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT;
     runtime_config_store.global.backlight_brightness = legacy_store->global.backlight_brightness;
@@ -1356,7 +1357,7 @@ static void RuntimeConfig_ApplyLegacyV4Snapshot(const RuntimeConfigLegacyV4_t *l
                                          &legacy_store->devices[device_index]);
 
     runtime_config_store.global.startup_delay_seconds = legacy_store->global.startup_delay_seconds;
-    runtime_config_store.global.screensaver_timeout_minutes = legacy_store->global.screensaver_timeout_minutes;
+    runtime_config_store.global.legacy_idle_timeout_minutes = RUNTIME_CONFIG_GLOBAL_LEGACY_IDLE_TIMEOUT_DEFAULT;
     runtime_config_store.global.sync_style = legacy_store->global.sync_style;
     runtime_config_store.global.display_mode = RUNTIME_CONFIG_GLOBAL_DISPLAY_MODE_DEFAULT;
     runtime_config_store.global.backlight_brightness = legacy_store->global.backlight_brightness;

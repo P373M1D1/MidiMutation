@@ -78,26 +78,17 @@ void AppInputEncoderSwitches_ProcessPending(void)
 #endif
 }
 
-/* Marks the matching encoder sampler active when a switch EXTI fires. */
+/* Claims encoder-switch EXTI lines; debounced sampling queues the real press events. */
 uint8_t AppInputEncoderSwitches_HandleExti(uint16_t gpio_pin)
 {
     if (gpio_pin == ENC1_SW_Pin)
-    {
-        AppEncoderSampler_MarkActivity(APP_ENCODER_SAMPLER_ENCODER1);
         return 1U;
-    }
 
     if (gpio_pin == ENC2_SW_Pin)
-    {
-        AppEncoderSampler_MarkActivity(APP_ENCODER_SAMPLER_ENCODER2);
         return 1U;
-    }
 
     if (gpio_pin == ENC3_SW_Pin)
-    {
-        AppEncoderSampler_MarkActivity(APP_ENCODER_SAMPLER_ENCODER3);
         return 1U;
-    }
 
     return 0U;
 }
@@ -144,7 +135,6 @@ static void AppInputEncoderSwitches_UpdateSwitchState(uint8_t event_index,
     app_input_encoder_switch_stable_level[event_index] = raw_level;
     if (raw_level == 0U)
     {
-        AppEncoderSampler_MarkActivity((AppEncoderSamplerId_t)event_index);
         App_QueueEncoderPressEvent((uint8_t)(1U << event_index), now);
         AppInputEncoderSwitches_QueueButtonPressLog((uint8_t)(event_index + 1U));
     }

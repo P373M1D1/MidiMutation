@@ -378,22 +378,6 @@ void Display_MenuRefresh(void)
     if (!display_state.menu_mode_active)
         return;
 
-    /* Gallery is fullscreen: bypass all chrome (header, footbar, body clear)
-     * and let the gallery renderer own the entire 480×320 display. */
-    if (current_page == DISPLAY_MENU_PAGE_GALLERY)
-    {
-        display_state.main_layout_dirty = 0U;
-        Display_DrawCurrentMenuPageBody();
-        display_state.menu_last_drawn_page = (uint8_t)display_state.menu_page;
-        display_state.menu_draw_state_valid = 1U;
-        return;
-    }
-
-    /* If we are returning from the gallery page, the entire screen must be
-     * redrawn because the gallery wrote over the chrome areas. */
-    if (previous_page == DISPLAY_MENU_PAGE_GALLERY)
-        display_state.menu_draw_state_valid = 0U;
-
     display_state.main_layout_dirty = 0U;
 
     if (display_state.menu_draw_state_valid)

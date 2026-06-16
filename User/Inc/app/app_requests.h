@@ -11,11 +11,9 @@ void App_QueueEncoderPressEvent(uint8_t press_mask, uint32_t tick);
 void App_QueueEncoderTurnEvent(uint8_t encoder_source, int8_t delta, uint32_t tick);
 void App_QueueBankStepEvent(int8_t delta, uint8_t step_mode);
 void App_QueuePresetActivateEvent(uint8_t preset_index);
-uint8_t App_TakePendingPresetActivate(uint8_t *preset_index);
-void App_QueueScreensaverWakeEvent(void);
-void App_QueueScreensaverActivityEvent(void);
-void App_AcknowledgeScreensaverWakeEvent(void);
-void App_AcknowledgeScreensaverActivityEvent(void);
+void App_QueuePresetActivateEventWithSource(uint8_t preset_index,
+											uint8_t source,
+											uint32_t tick);
 void App_QueueUiTick100MsEvent(void);
 void App_AcknowledgeUiTick100MsEvent(void);
 void App_QueueRedrawMainScreenEvent(void);

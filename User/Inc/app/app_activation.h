@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 uint8_t AppActivation_HandleEvent(const AppEvent_t *event);
+void AppActivation_ServiceDeferredUiRefresh(uint32_t now);
 
 #ifdef __cplusplus
 }

@@ -452,8 +452,8 @@ MidiTransportEvent_t MidiTransportConsumeEvent(void);
 void Midi_LoadPreset(const Preset_t *preset);
 
 /**
- * @brief  Send a live-safety preset immediately, bypassing normal preset
- *         coalescing while still using the queued UART backend and retry path.
+ * @brief  Send a live-safety preset immediately while still using the queued
+ *         UART backend and retry path.
  */
 void Midi_LoadPresetUrgent(const Preset_t *preset);
 

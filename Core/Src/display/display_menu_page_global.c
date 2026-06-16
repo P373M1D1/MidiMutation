@@ -3,7 +3,6 @@
 #include "display_functions.h"
 #include "display/display_internal.h"
 #include "display/display_menu_page_global.h"
-#include "gallery_images.h"
 #include "display/display_menu_redraw_utils.h"
 #include "display/display_menu_row_render.h"
 #include "display/display_theme.h"
@@ -19,7 +18,6 @@
 
 static const char * const menu_global_labels[MENU_GLOBAL_ITEM_COUNT] = {
     "Startup Delay",
-    "Screen Saver",
     "Sync Style",
     "Clock Mode",
     "Live ENC2",
@@ -29,7 +27,6 @@ static const char * const menu_global_labels[MENU_GLOBAL_ITEM_COUNT] = {
     "Threshold",
     "Reduce",
     "Expression",
-    "Gallery",
     "Factory Reset",
 };
 
@@ -44,9 +41,6 @@ void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buff
     {
     case MENU_GLOBAL_ITEM_STARTUP_DELAY:
         (void)snprintf(buffer, buffer_size, "%u sec", global->startup_delay_seconds);
-        break;
-    case MENU_GLOBAL_ITEM_SCREEN_SAVER:
-        (void)snprintf(buffer, buffer_size, "%u min", global->screensaver_timeout_minutes);
         break;
     case MENU_GLOBAL_ITEM_SYNC_STYLE:
         (void)snprintf(buffer,
@@ -112,10 +106,6 @@ void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buff
         break;
     case MENU_GLOBAL_ITEM_EXPRESSION:
         (void)snprintf(buffer, buffer_size, "%s", "Open");
-        break;
-    case MENU_GLOBAL_ITEM_GALLERY:
-        /* Gallery is a navigation entry; value column shows image count. */
-        (void)snprintf(buffer, buffer_size, "%u img", (unsigned)gallery_image_count);
         break;
     case MENU_GLOBAL_ITEM_FACTORY_RESET:
         buffer[0] = '\0';

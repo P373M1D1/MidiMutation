@@ -16,8 +16,6 @@ extern "C" {
 #define RUNTIME_CONFIG_MIDI_CLOCK_BAR_COUNT_MAX       64U
 #define RUNTIME_CONFIG_GLOBAL_STARTUP_DELAY_MIN       0U
 #define RUNTIME_CONFIG_GLOBAL_STARTUP_DELAY_MAX       60U
-#define RUNTIME_CONFIG_GLOBAL_SCREENSAVER_MIN         1U
-#define RUNTIME_CONFIG_GLOBAL_SCREENSAVER_MAX         60U
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_UI_MAX       100U
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MIN      1606U /* legacy 100/255 mapped into 12-bit DAC space */
 #define RUNTIME_CONFIG_GLOBAL_BRIGHTNESS_RAW_MAX      4095U
@@ -173,7 +171,8 @@ typedef struct {
 
 typedef struct {
     uint8_t startup_delay_seconds;
-    uint8_t screensaver_timeout_minutes;
+    /* Reserved byte kept so existing persisted configs stay layout-compatible. */
+    uint8_t legacy_idle_timeout_minutes;
     RuntimeConfigSyncStyle_t sync_style;
     RuntimeConfigDisplayMode_t display_mode;
     uint16_t backlight_brightness;

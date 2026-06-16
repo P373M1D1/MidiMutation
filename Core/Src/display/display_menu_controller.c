@@ -6,7 +6,6 @@
 #include "display/display_menu_page_midi_monitor.h"
 #include "display/display_menu_pages.h"
 #include "display/display_value_helpers.h"
-#include "gallery_images.h"
 #include "midi/midi_monitor.h"
 #include "midi_devices.h"
 #include "presets.h"
@@ -432,7 +431,6 @@ void Display_MenuHome(void)
     case DISPLAY_MENU_PAGE_GLOBAL:
     case DISPLAY_MENU_PAGE_EXPRESSION:
     case DISPLAY_MENU_PAGE_USER_THEME:
-    case DISPLAY_MENU_PAGE_GALLERY:
         display_state.menu_root_selection_index = 2U;
         break;
     case DISPLAY_MENU_PAGE_METRONOME:
@@ -574,12 +572,6 @@ uint8_t Display_MenuBack(void)
         return 1U;
     case DISPLAY_MENU_PAGE_EXPRESSION:
         display_state.menu_global_selection_index = MENU_GLOBAL_ITEM_EXPRESSION;
-        display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
-        Display_MenuRefresh();
-        return 1U;
-    case DISPLAY_MENU_PAGE_GALLERY:
-        /* Return to GLOBAL with the Gallery item highlighted. */
-        display_state.menu_global_selection_index = MENU_GLOBAL_ITEM_GALLERY;
         display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GLOBAL;
         Display_MenuRefresh();
         return 1U;
@@ -804,16 +796,6 @@ uint8_t Display_MenuActivate(void)
             return 1U;
         }
 
-        if (display_state.menu_global_selection_index == MENU_GLOBAL_ITEM_GALLERY)
-        {
-            /* Enter gallery fullscreen viewer. Reset index to first image so
-             * each visit starts at the beginning. */
-            display_state.menu_gallery_index = 0U;
-            display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_GALLERY;
-            Display_MenuRefresh();
-            return 1U;
-        }
-
         return 0U;
     case DISPLAY_MENU_PAGE_METRONOME:
         return 0U;
@@ -979,50 +961,3 @@ void Display_MenuApplyMidiLearnIfPending(void)
     }
 }
 
-/**
- * Returns non-zero when the gallery fullscreen page is currently showing.
- *
- * Checked by the ENC2 input handler so encoder turns can be routed to
- * Display_MenuGalleryScroll rather than to the default menu-move path.
- */
-uint8_t Display_MenuGalleryIsActive(void)
-{
-    return (display_state.menu_mode_active
-         && (DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_GALLERY) ? 1U : 0U;
-}
-
-/**
- * Advances or rewinds the gallery image index by delta steps, then redraws.
- *
- * Clamping is wrapping: scrolling past the last image wraps to the first, and
- * vice versa, so the user can spin through all images continuously.
- *
- * delta is typically +1 or -1 from ENC2.  Larger values are clamped to ±1
- * internally so a single turn never skips more than one image.
- *
- * If the gallery is empty the function is a no-op.
- */
-void Display_MenuGalleryScroll(int8_t delta)
-{
-    uint8_t count;
-    int16_t next;
-
-    if (!Display_MenuGalleryIsActive())
-        return;
-
-    count = gallery_image_count;
-
-    if (count == 0U)
-        return;
-
-    next = (int16_t)display_state.menu_gallery_index + (int16_t)delta;
-
-    /* Wrap around in both directions. */
-    while (next < 0)
-        next += (int16_t)count;
-    while (next >= (int16_t)count)
-        next -= (int16_t)count;
-
-    display_state.menu_gallery_index = (uint8_t)next;
-    Display_MenuRefresh();
-}

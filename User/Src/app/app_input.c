@@ -10,7 +10,6 @@
 #include "app/app_input_sampling.h"
 #include "app/app_requests.h"
 #include "app_event.h"
-#include "display_functions.h"
 
 #include <stdio.h>
 
@@ -24,7 +23,6 @@ static void AppInput_EncoderCheckLogTurn(uint8_t encoder_index, int8_t delta);
 static void AppInput_EncoderProcessPendingMotion(AppEncoderSamplerId_t encoder_id,
                                                  uint8_t encoder_index,
                                                  uint8_t event_source);
-static void AppInput_RecordEncoderActivity(void);
 
 /* Initializes the input samplers, ADC path, and encoder switch handling. */
 void AppInput_Init(void)
@@ -122,36 +120,17 @@ static void AppInput_EncoderProcessPendingMotion(AppEncoderSamplerId_t encoder_i
                                                  uint8_t event_source)
 {
     uint32_t event_tick;
-    uint8_t activity_pending;
     int8_t pending_delta;
 
-    AppEncoderSampler_TakePendingMotion(encoder_id, &activity_pending, &pending_delta);
+    AppEncoderSampler_TakePendingMotion(encoder_id, &pending_delta);
 
     event_tick = HAL_GetTick();
 
     if (pending_delta != 0)
         AppInput_EncoderCheckLogTurn(encoder_index, pending_delta);
 
-    if (!activity_pending && (pending_delta == 0))
+    if (pending_delta == 0)
         return;
-
-    if (Display_ScreensaverIsActive())
-    {
-        AppInput_RecordEncoderActivity();
-        return;
-    }
-
-    App_QueueScreensaverActivityEvent();
 
     App_QueueEncoderTurnEvent(event_source, pending_delta, event_tick);
-}
-
-static void AppInput_RecordEncoderActivity(void)
-{
-    uint8_t screensaver_was_active = Display_ScreensaverIsActive();
-
-    App_QueueScreensaverWakeEvent();
-
-    if (screensaver_was_active)
-        App_QueueRedrawMainScreenEvent();
 }

@@ -15,10 +15,7 @@ typedef enum {
 
 void AppEncoderSampler_Init(void);
 void AppEncoderSampler_SampleInterrupt(void);
-void AppEncoderSampler_MarkActivity(AppEncoderSamplerId_t encoder_id);
-void AppEncoderSampler_TakePendingMotion(AppEncoderSamplerId_t encoder_id,
-                                         uint8_t *activity_pending,
-                                         int8_t *pending_delta);
+void AppEncoderSampler_TakePendingMotion(AppEncoderSamplerId_t encoder_id, int8_t *pending_delta);
 
 #ifdef __cplusplus
 }

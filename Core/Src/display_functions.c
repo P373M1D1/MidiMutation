@@ -13,12 +13,15 @@
 #include "display/display_row_compose.h"
 #include "display/display_theme.h"
 #include "display/display_value_helpers.h"
+#include "app/app_state.h"
 #include "app/app_special_functions.h"
+#include "midi/clock_engine.h"
 #include "midi/midi_monitor.h"
 #include "midi_devices.h"
 #include "runtime_config.h"
 #include "st7796.h"
 #include "fonts.h"
+#include "stm32f4xx_hal.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -33,7 +36,6 @@
  *   - display_loading_bar.c      startup progress UI
  *   - display_status_strip.c     BPM and transport strip
  *   - display_backlight.c        DAC backlight control
- *   - display_screensaver.c      inactivity dim/wake logic
  *   - display_menu_*.c           menu navigation, rendering, and value edits
  *   - display_main_title.c       preset and bank title lines
  *
@@ -77,7 +79,7 @@
 #define MAIN_INFO_PRESET_INIT_ROW_INDEX (PRESET_DEVICE_SLOTS + PRESET_CC_SLOT_COUNT) // left-column row index of the preset reset action beneath the CC rows
 #define MAIN_INFO_PRESET_INIT_TEXT     "INIT PRESET"      // action label shown after the CC rows in preset edit mode
 #define MAIN_INFO_PRESET_INIT_CONFIRM_TEXT "INIT PRESET?" // confirmation prompt shown after selecting the preset reset action
-#define MAIN_INFO_EDIT_FIELD_COUNT     (1U + PRESET_DEVICE_SLOTS + PRESET_RELAY_COUNT + 1U + (PRESET_CC_SLOT_COUNT * 3U) + 1U) // number of editable fields in preset edit mode, including the preset name, function button row, and preset reset action
+#define MAIN_INFO_EDIT_FIELD_COUNT     (1U + PRESET_DEVICE_SLOTS + 1U + (PRESET_CC_SLOT_COUNT * 3U) + 1U) // number of editable fields in preset edit mode, including the preset name, function button row, and preset reset action
 #define MAIN_INFO_SHARED_PAD_CHARS     2U                   // extra chars cleared when special-function text shrinks
 #define MAIN_UNUSED_PROGRAM            0xFFU                // sentinel meaning no MIDI program is assigned to that slot
 #define MAIN_PROGRAM_WET_VALUE         127U                 // incoming Mix1/Mix2 CC value that represents 100% wet
@@ -114,6 +116,10 @@
 #define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_ACTIVE_TEXT "active" // fallback text shown when the special-function button mode is active
 #define MAIN_SPECIAL_FUNCTION_BUTTON_DEFAULT_INACTIVE_TEXT "bypass"   // fallback text shown when the special-function button mode is inactive
 #define MAIN_INFO_HIGHLIGHT_BORDER_H   2U                   // thickness of the top and bottom highlight bars around active state text
+#define MAIN_INFO_RIGHT_ITEM_COUNT      3U
+#define MAIN_INFO_RIGHT_BARBEAT_ROW_INDEX 0U
+#define MAIN_INFO_RIGHT_STOPWATCH_ROW_INDEX 1U
+#define MAIN_INFO_RIGHT_FUNCTION_ROW_INDEX 2U
 
 #define MENU_ROOT_ITEM_COUNT            5U                   // number of top-level entries currently shown in the menu shell
 #define MENU_VISIBLE_ROW_COUNT          4U                   // number of menu rows visible at one time in the current shell layout
@@ -143,6 +149,9 @@ DisplayState display_state = {
 
 static uint8_t timebend_popup_visible = 0U;
 static uint8_t learning_popup_visible = 0U;
+static uint8_t display_transport_running_external_last = 0U;
+static uint8_t display_transport_seen_start = 0U;
+static uint32_t display_transport_start_tick_ms = 0U;
 
 /* Legacy compatibility aliases.
  *
@@ -282,14 +291,6 @@ static DisplayPresetEditField_t Display_GetPresetEditFieldForCursor(uint8_t curs
     }
 
     cursor_index = (uint8_t)(cursor_index - PRESET_DEVICE_SLOTS);
-    if (cursor_index < PRESET_RELAY_COUNT)
-    {
-        field.type = DISPLAY_PRESET_EDIT_FIELD_RELAY;
-        field.itemIndex = cursor_index;
-        return field;
-    }
-
-    cursor_index = (uint8_t)(cursor_index - PRESET_RELAY_COUNT);
     if (cursor_index == 0U)
     {
         field.type = DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON;
@@ -336,13 +337,6 @@ static uint8_t Display_GetPresetEditScrollFirstSlot(uint8_t cursor_index)
         return (uint8_t)(field.itemIndex - (MAIN_INFO_ROW_COUNT - 1U));
     }
 
-    if (field.type == DISPLAY_PRESET_EDIT_FIELD_RELAY)
-    {
-        return (PRESET_DEVICE_SLOTS > MAIN_INFO_ROW_COUNT)
-            ? (uint8_t)(PRESET_DEVICE_SLOTS - MAIN_INFO_ROW_COUNT)
-            : 0U;
-    }
-
     if (field.type == DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON)
     {
         return (PRESET_DEVICE_SLOTS > MAIN_INFO_ROW_COUNT)
@@ -369,6 +363,8 @@ static uint8_t Display_GetMainInfoProgramScrollMax(void)
         : 0U;
 }
 
+static void Display_DrawMainInfoComposedRow(const Preset_t *preset, uint8_t row_index);
+
 static uint8_t Display_GetMainInfoScrollMax(void)
 {
     uint8_t total_rows = (uint8_t)(PRESET_DEVICE_SLOTS + PRESET_CC_SLOT_COUNT + 2U);
@@ -381,7 +377,7 @@ static uint8_t Display_GetMainInfoScrollMax(void)
 static uint8_t Display_GetMainInfoRightFirstItemForFirstSlot(uint8_t first_slot)
 {
     uint8_t program_scroll_max = Display_GetMainInfoProgramScrollMax();
-    uint8_t right_item_count = PRESET_RELAY_COUNT + 1U;
+    uint8_t right_item_count = MAIN_INFO_RIGHT_ITEM_COUNT;
 
     if (first_slot <= program_scroll_max)
         return 0U;
@@ -707,23 +703,115 @@ static void Display_ComposeMainInfoCcField(const Preset_t *preset,
                                         background);
 }
 
-static void Display_ComposeMainInfoRelayField(const Preset_t *preset,
-                                              uint8_t relay_index,
-                                              uint8_t highlight_state)
+static void Display_UpdateTransportRunState(const ClockEngineSnapshot_t *snapshot)
 {
-    char state_text[8];
-    uint16_t state_x;
+    uint8_t running_external;
 
-    if (!preset || relay_index >= PRESET_RELAY_COUNT)
+    if (!snapshot)
         return;
 
-    snprintf(state_text, sizeof(state_text), "%-6s", preset->relay[relay_index] ? "closed" : "open");
-    state_x = (uint16_t)(MAIN_INFO_RIGHT_X + (strlen("Relay_0: ") * MAIN_INFO_FONT.width));
+    running_external = (uint8_t)((snapshot->running != 0U)
+        && (snapshot->source == CLOCK_ENGINE_SOURCE_EXTERNAL));
 
-    Display_MenuRowComposeTextSegment32(state_x,
-                                        state_text,
-                                        highlight_state ? MAIN_INFO_EDIT_CURSOR_TEXT_COLOUR : MAIN_INFO_TEXT_COLOUR,
-                                        highlight_state ? MAIN_INFO_EDIT_CURSOR_BG_COLOUR : MAIN_INFO_TEXT_BG_COLOUR);
+    if (running_external && !display_transport_running_external_last)
+    {
+        display_transport_seen_start = 1U;
+        display_transport_start_tick_ms = HAL_GetTick();
+    }
+
+    if (!running_external)
+    {
+        display_transport_seen_start = 0U;
+        display_transport_start_tick_ms = 0U;
+    }
+
+    display_transport_running_external_last = running_external;
+}
+
+static void Display_FormatTransportBarBeatText(const ClockEngineSnapshot_t *snapshot,
+                                               char *buffer,
+                                               size_t buffer_size)
+{
+    uint32_t bar;
+    uint8_t beat;
+
+    if (!buffer || buffer_size == 0U)
+        return;
+
+    if (!snapshot
+        || !display_transport_seen_start
+        || snapshot->source != CLOCK_ENGINE_SOURCE_EXTERNAL
+        || snapshot->running == 0U
+        || snapshot->beat_valid == 0U)
+    {
+        (void)snprintf(buffer, buffer_size, "0:0");
+        return;
+    }
+
+    bar = (snapshot->beat_quarter_note_count / 4U) + 1U;
+    beat = (uint8_t)((snapshot->beat_quarter_note_count % 4U) + 1U);
+
+    (void)snprintf(buffer, buffer_size, "%lu:%u",
+                   (unsigned long)bar,
+                   (unsigned)beat);
+}
+
+static void Display_FormatTransportElapsedText(char *buffer, size_t buffer_size)
+{
+    uint32_t elapsed_ms;
+    uint32_t elapsed_s;
+    uint32_t hours;
+    uint32_t minutes;
+    uint32_t seconds;
+
+    if (!buffer || buffer_size == 0U)
+        return;
+
+    if (!display_transport_seen_start || !display_transport_running_external_last)
+    {
+        (void)snprintf(buffer, buffer_size, "0:00:00");
+        return;
+    }
+
+    elapsed_ms = HAL_GetTick() - display_transport_start_tick_ms;
+    elapsed_s = elapsed_ms / 1000U;
+    hours = elapsed_s / 3600U;
+    minutes = (elapsed_s % 3600U) / 60U;
+    seconds = elapsed_s % 60U;
+
+    (void)snprintf(buffer, buffer_size, "%lu:%02lu:%02lu",
+                   (unsigned long)hours,
+                   (unsigned long)minutes,
+                   (unsigned long)seconds);
+}
+
+static void Display_DrawMainInfoTransportRow(const ClockEngineSnapshot_t *snapshot,
+                                             uint8_t right_item_index)
+{
+    char prefix[16];
+    char value[20];
+    uint16_t value_x;
+
+    if (right_item_index == MAIN_INFO_RIGHT_BARBEAT_ROW_INDEX)
+    {
+        (void)snprintf(prefix, sizeof(prefix), "Beat: ");
+        Display_FormatTransportBarBeatText(snapshot, value, sizeof(value));
+    }
+    else
+    {
+        (void)snprintf(prefix, sizeof(prefix), "Time: ");
+        Display_FormatTransportElapsedText(value, sizeof(value));
+    }
+
+    value_x = (uint16_t)(MAIN_INFO_RIGHT_X + (strlen(prefix) * MAIN_INFO_FONT.width));
+    Display_MenuRowComposeTextSegment32(MAIN_INFO_RIGHT_X,
+                                        prefix,
+                                        MAIN_INFO_TEXT_COLOUR,
+                                        MAIN_INFO_TEXT_BG_COLOUR);
+    Display_MenuRowComposeTextSegment32(value_x,
+                                        value,
+                                        MAIN_INFO_TEXT_COLOUR,
+                                        MAIN_INFO_TEXT_BG_COLOUR);
 }
 
 static void Display_DrawMainInfoCcRow(const Preset_t *preset,
@@ -823,30 +911,54 @@ static void Display_DrawMainInfoRightRow(const Preset_t *preset,
                                          uint8_t right_item_index,
                                          uint16_t row_y)
 {
+    ClockEngineSnapshot_t snapshot;
+
     (void)row_y;
+    (void)preset;
 
-    if (right_item_index < PRESET_RELAY_COUNT)
+    if (ClockEngine_GetSnapshot(&snapshot))
+        Display_UpdateTransportRunState(&snapshot);
+    else
+        memset(&snapshot, 0, sizeof(snapshot));
+
+    if (right_item_index == MAIN_INFO_RIGHT_BARBEAT_ROW_INDEX
+        || right_item_index == MAIN_INFO_RIGHT_STOPWATCH_ROW_INDEX)
     {
-        char prefix[16];
-        DisplayPresetEditField_t edit_field = Display_PresetEditGetField();
-        uint8_t highlight_state = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_RELAY && edit_field.itemIndex == right_item_index) ? 1U : 0U;
-
-        snprintf(prefix, sizeof(prefix), "Relay_%u: ", right_item_index + 1U);
-
-        Display_MenuRowComposeTextSegment32(MAIN_INFO_RIGHT_X,
-                                            prefix,
-                                            MAIN_INFO_TEXT_COLOUR,
-                                            MAIN_INFO_TEXT_BG_COLOUR);
-        Display_ComposeMainInfoRelayField(preset, right_item_index, highlight_state);
+        Display_DrawMainInfoTransportRow(&snapshot, right_item_index);
         return;
     }
 
-    if (right_item_index == PRESET_RELAY_COUNT)
+    if (right_item_index == MAIN_INFO_RIGHT_FUNCTION_ROW_INDEX)
     {
         DisplayPresetEditField_t edit_field = Display_PresetEditGetField();
         uint8_t highlight_state = (edit_field.type == DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON) ? 1U : 0U;
 
         Display_DrawMainInfoSpecialState(row_y, highlight_state);
+    }
+}
+
+void Display_RefreshTransportInfoRows(void)
+{
+    uint8_t right_first_item;
+    uint8_t row_index;
+
+    if (menu_mode_active && !menu_preview_active)
+        return;
+
+    right_first_item = Display_GetMainInfoRightFirstItem();
+
+    if (MAIN_INFO_RIGHT_BARBEAT_ROW_INDEX >= right_first_item
+        && MAIN_INFO_RIGHT_BARBEAT_ROW_INDEX < (uint8_t)(right_first_item + MAIN_INFO_ROW_COUNT))
+    {
+        row_index = (uint8_t)(MAIN_INFO_RIGHT_BARBEAT_ROW_INDEX - right_first_item);
+        Display_DrawMainInfoComposedRow(AppState_GetActivePreset(), row_index);
+    }
+
+    if (MAIN_INFO_RIGHT_STOPWATCH_ROW_INDEX >= right_first_item
+        && MAIN_INFO_RIGHT_STOPWATCH_ROW_INDEX < (uint8_t)(right_first_item + MAIN_INFO_ROW_COUNT))
+    {
+        row_index = (uint8_t)(MAIN_INFO_RIGHT_STOPWATCH_ROW_INDEX - right_first_item);
+        Display_DrawMainInfoComposedRow(AppState_GetActivePreset(), row_index);
     }
 }
 
@@ -1541,31 +1653,18 @@ uint8_t Display_PresetEditMoveCursorAndRefresh(const Preset_t *preset, int8_t de
                                             (uint8_t)(previous_field.itemIndex - previous_first_slot));
         break;
 
-    case DISPLAY_PRESET_EDIT_FIELD_RELAY:
-    {
-        uint8_t right_first_item = Display_GetMainInfoRightFirstItem();
-
-        if (previous_field.itemIndex >= right_first_item
-            && previous_field.itemIndex < (uint8_t)(right_first_item + MAIN_INFO_ROW_COUNT))
-        {
-            Display_DrawMainInfoComposedRow(preset,
-                                            (uint8_t)(previous_field.itemIndex - right_first_item));
-        }
-        break;
-    }
-
     case DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON:
     {
         uint8_t right_first_item = Display_GetMainInfoRightFirstItem();
 
-        if (PRESET_RELAY_COUNT < right_first_item
-            || PRESET_RELAY_COUNT >= (uint8_t)(right_first_item + MAIN_INFO_ROW_COUNT))
+        if (MAIN_INFO_RIGHT_FUNCTION_ROW_INDEX < right_first_item
+            || MAIN_INFO_RIGHT_FUNCTION_ROW_INDEX >= (uint8_t)(right_first_item + MAIN_INFO_ROW_COUNT))
         {
             break;
         }
 
         Display_DrawMainInfoComposedRow(preset,
-                                        (uint8_t)(PRESET_RELAY_COUNT - right_first_item));
+                                        (uint8_t)(MAIN_INFO_RIGHT_FUNCTION_ROW_INDEX - right_first_item));
         break;
     }
 
@@ -1634,30 +1733,14 @@ void Display_PresetEditRefreshCurrentField(const Preset_t *preset)
         Display_DrawMainInfoComposedRow(preset, row_index);
         return;
 
-    case DISPLAY_PRESET_EDIT_FIELD_RELAY:
-    {
-        uint8_t right_first_item = Display_GetMainInfoRightFirstItem();
-
-        if (field.itemIndex >= PRESET_RELAY_COUNT
-            || field.itemIndex < right_first_item)
-            return;
-
-        row_index = (uint8_t)(field.itemIndex - right_first_item);
-        if (row_index >= MAIN_INFO_ROW_COUNT)
-            return;
-
-        Display_DrawMainInfoComposedRow(preset, row_index);
-        return;
-    }
-
     case DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON:
     {
         uint8_t right_first_item = Display_GetMainInfoRightFirstItem();
 
-        if (PRESET_RELAY_COUNT < right_first_item)
+        if (MAIN_INFO_RIGHT_FUNCTION_ROW_INDEX < right_first_item)
             return;
 
-        row_index = (uint8_t)(PRESET_RELAY_COUNT - right_first_item);
+        row_index = (uint8_t)(MAIN_INFO_RIGHT_FUNCTION_ROW_INDEX - right_first_item);
         if (row_index >= MAIN_INFO_ROW_COUNT)
             return;
 
@@ -1735,7 +1818,7 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
     if (main_layout_dirty)
     {
         /* A dirty layout means static chrome may be stale after theme changes,
-         * screensaver wake, or mode transitions, so repaint the full backdrop. */
+         * menu redraws, or mode transitions, so repaint the full backdrop. */
         Display_DrawThemeBackgroundFull();
         bpm_display_valid = 0U;
         display_state.transport_status_valid = 0U;
@@ -1782,7 +1865,7 @@ void Display_RefreshPresetEditMode(const Preset_t *p, uint16_t bpm)
 
     /* LIVE/EDIT toggles only affect header text, footer state, the preset-name
      * highlight mode, and the three visible info rows. Fall back to a full draw
-     * only when the static layout really is dirty, e.g. after the screensaver. */
+     * only when the static layout really is dirty. */
     if (main_layout_dirty)
     {
         Display_DrawMainScreen(p, bpm);

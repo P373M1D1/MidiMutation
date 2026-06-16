@@ -33,7 +33,7 @@ MENU mode
 
 - Root branches currently implemented: BANKS, DEVICES, GLOBAL, and MIDI MONITOR.
 - BANKS and DEVICES are full editors rather than placeholders; both include init/reset confirmation flows.
-- GLOBAL includes startup delay, screensaver timeout, sync style, display mode, brightness, and factory reset.
+- GLOBAL includes startup delay, sync style, clock mode, live encoder behavior, display mode, brightness, expression, and factory reset.
 - GLOBAL -> Theme opens the dedicated USER theme editor when a USER theme is active.
 
 MIDI MONITOR page
@@ -95,7 +95,7 @@ Display architecture
 	- display_menu_redraw.c, display_menu_redraw_utils.c, and display_menu_row_render.c for targeted menu redraws and row/window math.
 	- display_menu_text_edit.c and display_menu_value.c for text/value editing logic.
 	- display_theme.c and display_palette_registry.c for theme lookup and palette-backed colour browsing.
-	- display_status_strip.c, display_main_title.c, display_loading_bar.c, display_backlight.c, and display_screensaver.c for the remaining display feature slices.
+	- display_status_strip.c, display_main_title.c, display_loading_bar.c, and display_backlight.c for the remaining display feature slices.
 - The display path is now intentionally modular, but still centered on shared display state plus row-level redraw helpers rather than a full scene graph.
 
 7. Data model
@@ -111,7 +111,7 @@ Runtime configuration
 - Bank layer: editable bank names, wet/dry enable, and MIDI clock bar count.
 - Function-button layer: editable name, active/inactive labels, and per-state program/CC message tables.
 - Device layer: editable short name, channel, max preset, and CC mappings for active, bypass, level, and tap tempo.
-- Global layer: startup delay, screensaver timeout, sync style, display mode, and brightness.
+- Global layer: startup delay, sync style, clock mode, live encoder behavior, display mode, brightness, and expression.
 - Theme layer: 3 editable USER themes, each storing raw RGB565 colour fields for the main display palette.
 - Display modes currently include DARK, BRIGHT, USER, BLUESCREEN, TRIPPING, and Starlight.
 
@@ -192,7 +192,7 @@ Display layering
 - display_menu_redraw.c, display_menu_redraw_utils.c, and display_menu_row_render.c own incremental redraw behavior, windowing, and row-surface composition.
 - display_menu_text_edit.c and display_menu_value.c own mutation logic for text editors, numeric fields, palette stepping, and USER-theme edit behavior.
 - display_theme.c owns theme lookup; display_palette_registry.c owns the deduped palette browse order used by the USER-theme editor.
-- display_backlight.c, display_screensaver.c, display_status_strip.c, display_loading_bar.c, and display_main_title.c are specialized slices pulled out of the older monolithic display implementation.
+- display_backlight.c, display_status_strip.c, display_loading_bar.c, and display_main_title.c are specialized slices pulled out of the older monolithic display implementation.
 
 State ownership and mutation rules
 

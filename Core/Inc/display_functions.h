@@ -23,7 +23,6 @@ typedef enum {
 	DISPLAY_PRESET_EDIT_FIELD_NONE = 0,
 	DISPLAY_PRESET_EDIT_FIELD_NAME,
 	DISPLAY_PRESET_EDIT_FIELD_PROGRAM,
-	DISPLAY_PRESET_EDIT_FIELD_RELAY,
 	DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON,
 	DISPLAY_PRESET_EDIT_FIELD_CC_CHANNEL,
 	DISPLAY_PRESET_EDIT_FIELD_CC_NUMBER,
@@ -55,6 +54,8 @@ void Display_RefreshMainScreenContent(const Preset_t *p, uint16_t bpm);
 void Display_UpdateBPM(uint16_t bpm);
 /** Updates only the transport bar/beat area used on beat-edge refresh paths. */
 void Display_UpdateTransportBarBeatFast(void);
+/** Refreshes right-column transport rows (bar/beat + elapsed time). */
+void Display_RefreshTransportInfoRows(void);
 /** Returns true when the BPM header is currently showing SYNC. */
 uint8_t Display_IsBpmHeaderSyncing(void);
 /** Emits the BPM diagnostic line. */
@@ -141,10 +142,6 @@ uint8_t Display_MenuPreviewIsActive(void);
 void Display_MenuPreviewEnter(const Preset_t *p, uint16_t bpm);
 /** Hides the menu preview overlay. */
 void Display_MenuPreviewExit(void);
-/** Returns true when the gallery fullscreen page is active. */
-uint8_t Display_MenuGalleryIsActive(void);
-/** Scrolls the gallery by delta steps (wraps around); redraws the image. */
-void Display_MenuGalleryScroll(int8_t delta);
 /** Returns true when a submenu is active. */
 uint8_t Display_MenuSubEditorIsActive(void);
 /** Returns true when the user-theme editor is active. */
@@ -177,7 +174,7 @@ uint8_t Display_MenuToggleLearn(void);
 /** Applies one-shot learn if armed and a new MIDI CC message arrived. */
 void Display_MenuApplyMidiLearnIfPending(void);
 
-/* -- Screensaver/loading ------------------------------------------------------- */
+/* -- Loading ------------------------------------------------------------------ */
 
 /** Draws a progress bar in the lower quarter and blocks for duration_ms.
  * The optional service_hook is called from the blocking loop so startup code
@@ -187,24 +184,6 @@ void Display_LoadingBar(uint32_t duration_ms, void (*service_hook)(void));
 /** Clears the loading bar area to the current theme background. */
 /** Clears the startup loading-bar area. */
 void Display_LoadingBarClear(void);
-
-/** Call on any user input to reset the inactivity timer. */
-/** Records recent activity so the screensaver stays deferred. */
-void Display_ScreensaverActivity(void);
-
-/** Returns 1 while the backlight idle mode is currently active. */
-/** Returns true while the screensaver is currently active. */
-uint8_t Display_ScreensaverIsActive(void);
-
-/** Immediately dismiss the backlight idle mode if active without drawing the main screen. */
-/** Dismisses the screensaver immediately without redrawing the main screen. */
-void Display_ScreensaverDismiss(void);
-
-/** Call every main-loop iteration. Activates after the inactivity timeout;
- *  fades the backlight out and returns 1 once when the next activity should
- *  wake the main screen so the caller can schedule the redraw. */
-/** Advances the screensaver state machine and reports wake requests. */
-uint8_t Display_ScreensaverUpdate(void);
 
 #ifdef __cplusplus
 }

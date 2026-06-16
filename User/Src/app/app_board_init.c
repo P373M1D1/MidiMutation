@@ -20,9 +20,6 @@
 #define APP_BOARD_TIMING_COUNTER_IRQ_PREEMPT_PRIORITY 1U
 #define APP_BOARD_TIMING_COUNTER_IRQ_SUBPRIORITY 0U
 
-#define APP_BOARD_RELAY1_GPIO_PORT GPIOG
-#define APP_BOARD_RELAY1_PIN GPIO_PIN_10
-
 #define APP_BOARD_METRONOME_PWM_GPIO_PORT GPIOB
 #define APP_BOARD_METRONOME_PWM_PIN GPIO_PIN_8
 #define APP_BOARD_METRONOME_PWM_AF GPIO_AF2_TIM4
@@ -59,7 +56,6 @@ static inline void AppBoard_ExitCritical(uint32_t primask)
 static void AppBoard_InitMidiOutputUart(void);
 static void AppBoard_InitMetronomePwm(void);
 static void AppBoard_InitTimingCounter(void);
-static void AppBoard_InitRelayOutputs(void);
 __attribute__((section(".RamFunc")))
 static uint8_t AppBoard_TimingCompareReached(uint32_t now_us, uint32_t due_us);
 __attribute__((section(".RamFunc")))
@@ -73,20 +69,9 @@ void AppBoard_InitStartupPeripherals(void)
 {
     AppBoard_InitTimingCounter();
     AppBoard_InitMetronomePwm();
-    AppBoard_InitRelayOutputs();
     MidiInitInput();
     AppBoard_InitMidiOutputUart();
     MidiSetOutputUart(&app_board_midi_output_uart);
-}
-
-void AppBoard_SetRelayState(uint8_t relay_index, uint8_t closed)
-{
-    if (relay_index != 0U)
-        return;
-
-    HAL_GPIO_WritePin(APP_BOARD_RELAY1_GPIO_PORT,
-                      APP_BOARD_RELAY1_PIN,
-                      closed ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
 static void AppBoard_InitMidiOutputUart(void)
@@ -293,22 +278,6 @@ static void AppBoard_InitMetronomePwm(void)
 
     __HAL_TIM_SET_COUNTER(&app_board_metronome_pwm_timer, 0U);
     app_board_metronome_pwm_initialized = 1U;
-}
-
-static void AppBoard_InitRelayOutputs(void)
-{
-    GPIO_InitTypeDef gpio_init = {0};
-
-    __HAL_RCC_GPIOG_CLK_ENABLE();
-
-    gpio_init.Pin = APP_BOARD_RELAY1_PIN;
-    gpio_init.Mode = GPIO_MODE_OUTPUT_PP;
-    gpio_init.Pull = GPIO_NOPULL;
-    gpio_init.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(APP_BOARD_RELAY1_GPIO_PORT, &gpio_init);
-
-    /* Default to open relay (transistor off) on startup. */
-    HAL_GPIO_WritePin(APP_BOARD_RELAY1_GPIO_PORT, APP_BOARD_RELAY1_PIN, GPIO_PIN_RESET);
 }
 
 __attribute__((section(".RamFunc")))

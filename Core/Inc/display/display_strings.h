@@ -45,7 +45,6 @@
 
 /* GLOBAL page labels. */
 #define MENU_GLOBAL_LABEL_STARTUP_DELAY  "Startup Delay"
-#define MENU_GLOBAL_LABEL_SCREENSAVER    "Screen Saver"
 #define MENU_GLOBAL_LABEL_SYNC_STYLE     "Sync Style"
 #define MENU_GLOBAL_LABEL_DISPLAY        "Display"
 #define MENU_GLOBAL_LABEL_BRIGHTNESS     "Brightness"

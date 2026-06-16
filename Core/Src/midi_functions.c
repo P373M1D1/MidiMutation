@@ -24,7 +24,6 @@
 #define MIDI_PROGRAM_CHANGE_STATUS         0xC0U
 #define MIDI_CONTROL_CHANGE_STATUS         0xB0U
 #define MIDI_PRESET_RETRY_MAX_ATTEMPTS     3U
-#define MIDI_PRESET_MIN_DISPATCH_MS      300U
 
 static uint8_t midi_channel_is_valid(uint8_t channel);
 static uint8_t midi_output_send_bytes(const uint8_t *bytes, uint16_t length);
@@ -36,16 +35,11 @@ static void Midi_ApplyFeedbackTaperForBypassedDevice(uint8_t device_index, uint8
 static uint8_t Midi_SendPresetCCsInternal(const Preset_t *preset);
 static uint8_t Midi_SendDeviceProgramSlotInternal(uint8_t device_index, uint8_t program);
 static uint8_t Midi_LoadPresetInternal(const Preset_t *preset, uint8_t allow_retry_schedule, uint8_t urgent_retry);
-static uint8_t Midi_PresetDispatchWindowOpen(uint32_t now_ms);
-static void Midi_PresetMarkDispatched(uint32_t now_ms);
 static void Midi_ClearPendingPresetRetry(void);
 
 static const Preset_t *midi_pending_retry_preset = NULL;
 static uint8_t midi_pending_retry_attempts_remaining = 0U;
 static uint8_t midi_pending_retry_urgent = 0U;
-static const Preset_t *midi_pending_coalesced_preset = NULL;
-static uint32_t midi_last_preset_dispatch_ms = 0U;
-static uint8_t midi_last_preset_dispatch_valid = 0U;
 static uint32_t midi_producer_preset_retry_successes = 0U;
 static uint32_t midi_producer_preset_retry_failures = 0U;
 static uint32_t midi_producer_tap_tempo_drop_count = 0U;
@@ -74,32 +68,12 @@ void MidiOutputSchedulerService(void)
 
 void MidiProducerService(void)
 {
-    uint32_t now = HAL_GetTick();
-
-    /* Coalesce rapid preset requests so only the newest selection is emitted,
-     * and only at a bounded rate that downstream pedals can safely digest. */
-    if (midi_pending_coalesced_preset)
-    {
-        if (!Midi_PresetDispatchWindowOpen(now))
-            return;
-
-        if (Midi_LoadPresetInternal(midi_pending_coalesced_preset, 1U, 0U))
-            Midi_PresetMarkDispatched(now);
-
-        midi_pending_coalesced_preset = NULL;
-        return;
-    }
-
     if (!midi_pending_retry_preset || midi_pending_retry_attempts_remaining == 0U)
-        return;
-
-    if (!midi_pending_retry_urgent && !Midi_PresetDispatchWindowOpen(now))
         return;
 
     if (Midi_LoadPresetInternal(midi_pending_retry_preset, 0U, midi_pending_retry_urgent))
     {
         Midi_ClearPendingPresetRetry();
-        Midi_PresetMarkDispatched(now);
         if (midi_producer_preset_retry_successes < UINT32_MAX)
             midi_producer_preset_retry_successes++;
         return;
@@ -410,57 +384,21 @@ static uint8_t Midi_LoadPresetInternal(const Preset_t *preset, uint8_t allow_ret
 
 void Midi_LoadPreset(const Preset_t *preset)
 {
-    uint32_t now;
-
     if (!preset)
         return;
 
-    now = HAL_GetTick();
-
-    if (!Midi_PresetDispatchWindowOpen(now))
-    {
-        midi_pending_coalesced_preset = preset;
-        Midi_ClearPendingPresetRetry();
-        return;
-    }
-
-    if (Midi_LoadPresetInternal(preset, 1U, 0U))
-        Midi_PresetMarkDispatched(now);
+    Midi_ClearPendingPresetRetry();
+    (void)Midi_LoadPresetInternal(preset, 1U, 0U);
 }
 
 void Midi_LoadPresetUrgent(const Preset_t *preset)
 {
-    uint32_t now;
-
     if (!preset)
         return;
 
-    now = HAL_GetTick();
-
-    /* Mute/bypass overlays are live-safety actions. They must not wait behind
-     * the normal preset coalescing window or get overwritten by stale traffic. */
-    midi_pending_coalesced_preset = NULL;
     Midi_ClearPendingPresetRetry();
 
-    if (Midi_LoadPresetInternal(preset, 1U, 1U))
-        Midi_PresetMarkDispatched(now);
-}
-
-static uint8_t Midi_PresetDispatchWindowOpen(uint32_t now_ms)
-{
-    uint32_t elapsed_ms;
-
-    if (!midi_last_preset_dispatch_valid)
-        return 1U;
-
-    elapsed_ms = now_ms - midi_last_preset_dispatch_ms;
-    return (uint8_t)(elapsed_ms >= MIDI_PRESET_MIN_DISPATCH_MS);
-}
-
-static void Midi_PresetMarkDispatched(uint32_t now_ms)
-{
-    midi_last_preset_dispatch_ms = now_ms;
-    midi_last_preset_dispatch_valid = 1U;
+    (void)Midi_LoadPresetInternal(preset, 1U, 1U);
 }
 
 static void Midi_ClearPendingPresetRetry(void)

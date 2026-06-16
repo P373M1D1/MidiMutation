@@ -64,7 +64,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Custom application sources
     Core/Src/display_compose.c
     Core/Src/starlight_image.c
-    Core/Src/gallery_images.c
     Core/Src/display/display_backlight.c
     Core/Src/display/display_compose_helpers.c
     Core/Src/display/display_palette_registry.c
@@ -83,7 +82,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/display/display_menu_page_metronome.c
     Core/Src/display/display_menu_page_midi_monitor.c
     Core/Src/display/display_menu_page_user_theme.c
-    Core/Src/display/display_menu_page_gallery.c
     Core/Src/display/display_menu_page_banks.c
     Core/Src/display/display_menu_page_function_button_text.c
     Core/Src/display/display_menu_page_function_button_compare.c
@@ -93,7 +91,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/display/display_value_helpers.c
     Core/Src/display/display_loading_bar.c
     Core/Src/display/display_status_strip.c
-    Core/Src/display/display_screensaver.c
     Core/Src/display_functions.c
     Core/Src/bpm_functions.c
     Core/Src/led_functions.c
@@ -119,6 +116,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     User/Src/app/app_button_combo.c
     User/Src/app/app_button_events.c
     User/Src/app/app_button_monitor.c
+    User/Src/app/app_preset_latency_diag.c
     User/Src/app/app_encoder_sampler.c
     User/Src/app/app_encoder_math.c
     User/Src/app/app_expression_input.c

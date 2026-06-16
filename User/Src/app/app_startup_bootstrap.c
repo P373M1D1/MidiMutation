@@ -27,7 +27,6 @@ void AppStartupBootstrap_Run(void)
     App_ActivatePreset(AppState_GetActivePresetIndex());
     Display_DrawMainScreen(AppUi_GetCurrentDisplayPreset(), AppState_GetTempoBpm());
     AppState_ClearRuntimeStateSaveSchedule();
-    Display_ScreensaverActivity();
     AppInputBoard_InitGpio();
     AppInput_Init();
     AppButtonMonitor_Init();

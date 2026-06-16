@@ -1,5 +1,6 @@
 #include "app/app_ui.h"
 
+#include "app/app_preset_latency_diag.h"
 #include "app/app_state.h"
 #include "display_functions.h"
 #include "midi/clock_engine.h"
@@ -170,6 +171,8 @@ uint8_t AppUi_ServiceBeatSynchronousStatusStrip(void)
     if (t_elapsed > app_ui_render_beat_max_us)
         app_ui_render_beat_max_us = t_elapsed;
 
+    Display_RefreshTransportInfoRows();
+
     return 1U;
 }
 
@@ -214,6 +217,7 @@ void AppUi_ServiceRender(void)
         t_elapsed = AppUiRender_TimerDiffUs(TIM2->CNT, t_start);
         if (t_elapsed > app_ui_render_main_max_us)
             app_ui_render_main_max_us = t_elapsed;
+        AppPresetLatencyDiag_OnDisplayRefreshComplete();
         return;
     }
 
@@ -227,6 +231,7 @@ void AppUi_ServiceRender(void)
         t_elapsed = AppUiRender_TimerDiffUs(TIM2->CNT, t_start);
         if (t_elapsed > app_ui_render_active_max_us)
             app_ui_render_active_max_us = t_elapsed;
+        AppPresetLatencyDiag_OnDisplayRefreshComplete();
         return;
     }
 
@@ -239,6 +244,7 @@ void AppUi_ServiceRender(void)
         t_elapsed = AppUiRender_TimerDiffUs(TIM2->CNT, t_start);
         if (t_elapsed > app_ui_render_live_max_us)
             app_ui_render_live_max_us = t_elapsed;
+        AppPresetLatencyDiag_OnDisplayRefreshComplete();
         return;
     }
 

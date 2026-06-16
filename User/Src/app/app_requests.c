@@ -3,13 +3,9 @@
 #include "app_event.h"
 #include "stm32f4xx_hal.h"
 
-static uint8_t app_screensaver_wake_event_pending = 0U;
-static uint8_t app_screensaver_activity_event_pending = 0U;
 static uint8_t app_ui_tick_100ms_event_pending = 0U;
-static uint8_t app_preset_activate_event_pending = 0U;
 static uint8_t app_redraw_main_screen_event_pending = 0U;
 static uint8_t app_save_request_pending_mask = 0U;
-static uint8_t app_pending_preset_activate_index = 0U;
 
 /* Maps each save kind to its pending-mask bit. */
 static uint8_t AppRequest_SaveMaskForKind(uint8_t save_kind)
@@ -75,79 +71,26 @@ void App_QueueBankStepEvent(int8_t delta, uint8_t step_mode)
     (void)AppEvent_Push(&event);
 }
 
-/* Queues a preset activation while coalescing repeated requests. */
+/* Queues a preset activation request. */
 void App_QueuePresetActivateEvent(uint8_t preset_index)
 {
-    AppEvent_t event;
+    App_QueuePresetActivateEventWithSource(preset_index,
+                                           APP_EVENT_SOURCE_NONE,
+                                           HAL_GetTick());
+}
 
-    app_pending_preset_activate_index = preset_index;
-    if (app_preset_activate_event_pending)
-        return;
+/* Queues a preset activation request with an explicit source and tick. */
+void App_QueuePresetActivateEventWithSource(uint8_t preset_index,
+                                            uint8_t source,
+                                            uint32_t tick)
+{
+    AppEvent_t event;
 
     event.type = APP_EVENT_TYPE_PRESET_ACTIVATE;
-    event.source = APP_EVENT_SOURCE_NONE;
-    event.value = 0;
-    event.tick = HAL_GetTick();
-    if (AppEvent_Push(&event))
-        app_preset_activate_event_pending = 1U;
-}
-
-/* Returns the coalesced preset activation index to the activation handler. */
-uint8_t App_TakePendingPresetActivate(uint8_t *preset_index)
-{
-    if (!app_preset_activate_event_pending)
-        return 0U;
-
-    app_preset_activate_event_pending = 0U;
-    if (preset_index)
-        *preset_index = app_pending_preset_activate_index;
-
-    return 1U;
-}
-
-/* Queues a one-shot screensaver wake request. */
-void App_QueueScreensaverWakeEvent(void)
-{
-    AppEvent_t event;
-
-    if (app_screensaver_wake_event_pending)
-        return;
-
-    event.type = APP_EVENT_TYPE_SCREENSAVER_WAKE;
-    event.source = APP_EVENT_SOURCE_NONE;
-    event.value = 0;
-    event.tick = HAL_GetTick();
-    if (AppEvent_Push(&event))
-        app_screensaver_wake_event_pending = 1U;
-}
-
-/* Queues a screensaver activity pulse while suppressing duplicates. */
-void App_QueueScreensaverActivityEvent(void)
-{
-    AppEvent_t event;
-
-    if (app_screensaver_wake_event_pending || app_screensaver_activity_event_pending)
-        return;
-
-    event.type = APP_EVENT_TYPE_SCREENSAVER_ACTIVITY;
-    event.source = APP_EVENT_SOURCE_NONE;
-    event.value = 0;
-    event.tick = HAL_GetTick();
-    if (AppEvent_Push(&event))
-        app_screensaver_activity_event_pending = 1U;
-}
-
-/* Clears the pending screensaver wake/activity flags after dispatch. */
-void App_AcknowledgeScreensaverWakeEvent(void)
-{
-    app_screensaver_wake_event_pending = 0U;
-    app_screensaver_activity_event_pending = 0U;
-}
-
-/* Clears the pending screensaver activity flag after dispatch. */
-void App_AcknowledgeScreensaverActivityEvent(void)
-{
-    app_screensaver_activity_event_pending = 0U;
+    event.source = source;
+    event.value = (int16_t)preset_index;
+    event.tick = tick;
+    (void)AppEvent_Push(&event);
 }
 
 /* Queues the coalesced 100 ms UI tick. */

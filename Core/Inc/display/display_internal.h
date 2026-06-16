@@ -26,21 +26,19 @@ extern "C" {
 /* Authoritative in display_layout.h; guard prevents redefinition when both
  * headers are included by the same translation unit. */
 #ifndef MENU_GLOBAL_ITEM_COUNT
-#define MENU_GLOBAL_ITEM_COUNT          13U
+#define MENU_GLOBAL_ITEM_COUNT          11U
 #endif
 #define MENU_GLOBAL_ITEM_STARTUP_DELAY  0U
-#define MENU_GLOBAL_ITEM_SCREEN_SAVER   1U
-#define MENU_GLOBAL_ITEM_SYNC_STYLE     2U
-#define MENU_GLOBAL_ITEM_CLOCK_MODE     3U
-#define MENU_GLOBAL_ITEM_LIVE_ENC2      4U
-#define MENU_GLOBAL_ITEM_THEME          5U
-#define MENU_GLOBAL_ITEM_BRIGHTNESS     6U
-#define MENU_GLOBAL_ITEM_FEEDBACK_TAPER 7U
-#define MENU_GLOBAL_ITEM_THRESHOLD      8U
-#define MENU_GLOBAL_ITEM_REDUCE         9U
-#define MENU_GLOBAL_ITEM_EXPRESSION     10U
-#define MENU_GLOBAL_ITEM_GALLERY        11U
-#define MENU_GLOBAL_ITEM_FACTORY_RESET  12U
+#define MENU_GLOBAL_ITEM_SYNC_STYLE     1U
+#define MENU_GLOBAL_ITEM_CLOCK_MODE     2U
+#define MENU_GLOBAL_ITEM_LIVE_ENC2      3U
+#define MENU_GLOBAL_ITEM_THEME          4U
+#define MENU_GLOBAL_ITEM_BRIGHTNESS     5U
+#define MENU_GLOBAL_ITEM_FEEDBACK_TAPER 6U
+#define MENU_GLOBAL_ITEM_THRESHOLD      7U
+#define MENU_GLOBAL_ITEM_REDUCE         8U
+#define MENU_GLOBAL_ITEM_EXPRESSION     9U
+#define MENU_GLOBAL_ITEM_FACTORY_RESET  10U
 #define MENU_EXPRESSION_ITEM_COUNT      (1U + RUNTIME_CONFIG_EXPRESSION_PEDAL_CC_SLOT_COUNT)
 #define MENU_METRONOME_ITEM_COUNT       4U
 #define MENU_USER_THEME_ITEM_COUNT      RUNTIME_CONFIG_USER_THEME_FIELD_COUNT
@@ -101,7 +99,6 @@ typedef struct DisplayState {
 	uint8_t menu_user_theme_selection_index;
 	uint8_t menu_active_user_theme_mode;
 	uint8_t menu_user_theme_edit_active;
-	uint8_t menu_gallery_index;
 	uint8_t menu_function_button_message_selection_index;
 	uint8_t menu_function_button_message_field_index;
 	uint8_t menu_function_button_message_field_edit_active;
@@ -132,7 +129,6 @@ typedef enum {
 	DISPLAY_MENU_PAGE_METRONOME,
 	DISPLAY_MENU_PAGE_MIDI_MONITOR,
 	DISPLAY_MENU_PAGE_USER_THEME,
-	DISPLAY_MENU_PAGE_GALLERY,
 } DisplayMenuPage_t;
 
 /* Editable text-field identities used by the menu text-edit helper path. */
@@ -147,7 +143,7 @@ typedef enum {
 
 extern DisplayState display_state;
 
-/* Internal helper used by the screensaver module to suppress stale layout redraws. */
+/* Internal helper used when full redraw ownership suppresses stale layout redraws. */
 void Display_ClearMainLayoutDirty(void);
 void Display_DrawFootbar(void);
 

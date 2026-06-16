@@ -144,9 +144,6 @@ void Error_Handler(void);
 #define MIDI_IN_LED_Pin GPIO_PIN_15 /* dedicated MIDI input activity LED pin number */
 #define MIDI_IN_LED_GPIO_Port GPIOF /* GPIO port for the MIDI input activity LED */
 
-#define BUILTIN_SD_CS_Pin GPIO_PIN_2 /* chip-select output for the TFT module BUILTIN SD card slot (SPI1 shared bus) */
-#define BUILTIN_SD_CS_GPIO_Port GPIOG /* GPIO port that drives the TFT module BUILTIN SD chip-select line */
-
 #define ENC1_CLK_Pin GPIO_PIN_11 /* encoder 1 quadrature A/CLK input on a free EXTI line */
 #define ENC1_CLK_GPIO_Port GPIOG /* GPIO port for encoder 1 quadrature A/CLK input */
 #define ENC1_DT_Pin GPIO_PIN_12 /* encoder 1 quadrature B/DT input on a free EXTI line */

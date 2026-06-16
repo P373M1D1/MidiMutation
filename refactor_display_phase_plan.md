@@ -19,9 +19,8 @@ Reduce architectural risk and improve maintainability by replacing monolithic mo
 3. Preset switching updates MIDI output and active preset LED.
 4. Preset edit mode enter/exit works and save popup appears.
 5. Menu enter, navigate, activate, back, home all work.
-6. Screensaver timeout fades out and wakes correctly on input.
-7. Encoder actions still match mode-dependent behavior.
-8. Build target `ChatTest` succeeds with no new warnings introduced by the phase.
+6. Encoder actions still match mode-dependent behavior.
+7. Build target `ChatTest` succeeds with no new warnings introduced by the phase.
 
 ---
 
@@ -37,7 +36,7 @@ Create a factual baseline so all later refactors can be verified quickly.
 
 ### Deliverables
 1. `docs/architecture/display-current-map.md` (or equivalent path if docs folder is not used).
-2. A one-page call-flow summary for Live, Menu, Preset Edit, Screensaver.
+2. A one-page call-flow summary for Live, Menu, and Preset Edit.
 
 ### Exit Criteria
 1. Team agrees baseline map reflects actual code.
@@ -55,7 +54,6 @@ Make ownership explicit before moving logic.
 2. Introduce internal headers for display-only internals.
 3. Group public API into clear sections:
    - backlight
-   - screensaver
    - main screen rendering
    - preset edit
    - menu control
@@ -71,21 +69,18 @@ Make ownership explicit before moving logic.
 
 ---
 
-## Phase 2 - Extract Backlight And Screensaver
+## Phase 2 - Extract Backlight
 
 ### Goal
 Move the least coupled logic out of `display_functions.c` first.
 
 ### Scope
 1. Move DAC backlight init/fade logic into dedicated module.
-2. Move screensaver timeout/activity/update logic into dedicated module.
-3. Preserve existing external function names via wrappers if needed.
+2. Preserve existing external function names via wrappers if needed.
 
 ### Suggested Files
 1. `Core/Src/display/display_backlight.c`
 2. `Core/Inc/display/display_backlight_internal.h`
-3. `Core/Src/display/display_screensaver.c`
-4. `Core/Inc/display/display_screensaver_internal.h`
 
 ### Exit Criteria
 1. No functional differences in fade timing/wake behavior.
@@ -221,7 +216,7 @@ Conclude with a minimal, coherent, documented API surface.
 
 ### Exit Criteria
 1. No stale/misleading comments remain.
-2. New contributor can find where to add menu/main/screensaver changes in under 5 minutes.
+2. New contributor can find where to add menu/main changes in under 5 minutes.
 
 ---
 

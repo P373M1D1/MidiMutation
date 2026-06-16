@@ -468,13 +468,6 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
                                               delta);
             break;
 
-        case MENU_GLOBAL_ITEM_SCREEN_SAVER:
-            changed = Display_AdjustClampedU8(&global->screensaver_timeout_minutes,
-                                              RUNTIME_CONFIG_GLOBAL_SCREENSAVER_MIN,
-                                              RUNTIME_CONFIG_GLOBAL_SCREENSAVER_MAX,
-                                              delta);
-            break;
-
         case MENU_GLOBAL_ITEM_SYNC_STYLE:
         {
             uint8_t sync_style = (uint8_t)global->sync_style;

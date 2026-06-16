@@ -20,7 +20,6 @@
 static uint8_t app_encoder_sampler_last_state[APP_ENCODER_SAMPLER_COUNT] = {0U, 0U, 0U};
 static int8_t app_encoder_sampler_transition_accum[APP_ENCODER_SAMPLER_COUNT] = {0, 0, 0};
 static volatile int8_t app_encoder_sampler_pending_delta[APP_ENCODER_SAMPLER_COUNT] = {0, 0, 0};
-static volatile uint8_t app_encoder_sampler_activity_pending[APP_ENCODER_SAMPLER_COUNT] = {0U, 0U, 0U};
 static uint32_t app_encoder_sampler_tempo_last_step_tick = 0U;
 
 static uint8_t AppEncoderSampler_ReadLevel(GPIO_TypeDef *gpio_port, uint16_t gpio_pin);
@@ -59,9 +58,6 @@ void AppEncoderSampler_Init(void)
     app_encoder_sampler_pending_delta[APP_ENCODER_SAMPLER_ENCODER1] = 0;
     app_encoder_sampler_pending_delta[APP_ENCODER_SAMPLER_ENCODER2] = 0;
     app_encoder_sampler_pending_delta[APP_ENCODER_SAMPLER_ENCODER3] = 0;
-    app_encoder_sampler_activity_pending[APP_ENCODER_SAMPLER_ENCODER1] = 0U;
-    app_encoder_sampler_activity_pending[APP_ENCODER_SAMPLER_ENCODER2] = 0U;
-    app_encoder_sampler_activity_pending[APP_ENCODER_SAMPLER_ENCODER3] = 0U;
     app_encoder_sampler_tempo_last_step_tick = 0U;
 }
 
@@ -84,24 +80,12 @@ void AppEncoderSampler_SampleInterrupt(void)
     AppEncoderSampler_SampleTempoInterrupt();
 }
 
-void AppEncoderSampler_MarkActivity(AppEncoderSamplerId_t encoder_id)
-{
-    if ((uint8_t)encoder_id >= APP_ENCODER_SAMPLER_COUNT)
-        return;
-
-    app_encoder_sampler_activity_pending[encoder_id] = 1U;
-}
-
-void AppEncoderSampler_TakePendingMotion(AppEncoderSamplerId_t encoder_id,
-                                         uint8_t *activity_pending,
-                                         int8_t *pending_delta)
+void AppEncoderSampler_TakePendingMotion(AppEncoderSamplerId_t encoder_id, int8_t *pending_delta)
 {
     uint32_t primask;
 
-    if (!activity_pending || !pending_delta || ((uint8_t)encoder_id >= APP_ENCODER_SAMPLER_COUNT))
+    if (!pending_delta || ((uint8_t)encoder_id >= APP_ENCODER_SAMPLER_COUNT))
     {
-        if (activity_pending)
-            *activity_pending = 0U;
         if (pending_delta)
             *pending_delta = 0;
         return;
@@ -109,9 +93,7 @@ void AppEncoderSampler_TakePendingMotion(AppEncoderSamplerId_t encoder_id,
 
     primask = __get_PRIMASK();
     __disable_irq();
-    *activity_pending = app_encoder_sampler_activity_pending[encoder_id];
     *pending_delta = app_encoder_sampler_pending_delta[encoder_id];
-    app_encoder_sampler_activity_pending[encoder_id] = 0U;
     app_encoder_sampler_pending_delta[encoder_id] = 0;
     if (primask == 0U)
         __enable_irq();
@@ -165,7 +147,6 @@ static void AppEncoderSampler_SampleSimple(AppEncoderSamplerId_t encoder_id,
     if (current_state == app_encoder_sampler_last_state[encoder_id])
         return;
 
-    app_encoder_sampler_activity_pending[encoder_id] = 1U;
     transition_delta = AppEncoderMath_TransitionDelta(app_encoder_sampler_last_state[encoder_id], current_state);
     app_encoder_sampler_transition_accum[encoder_id] = AppEncoderMath_AccumulateTransition(app_encoder_sampler_transition_accum[encoder_id],
                                                                                            transition_delta);
@@ -192,7 +173,6 @@ static void AppEncoderSampler_SampleTempoInterrupt(void)
     if (current_state == app_encoder_sampler_last_state[APP_ENCODER_SAMPLER_ENCODER3])
         return;
 
-    app_encoder_sampler_activity_pending[APP_ENCODER_SAMPLER_ENCODER3] = 1U;
     transition_delta = AppEncoderMath_TransitionDelta(app_encoder_sampler_last_state[APP_ENCODER_SAMPLER_ENCODER3],
                                                       current_state);
     app_encoder_sampler_transition_accum[APP_ENCODER_SAMPLER_ENCODER3] = AppEncoderMath_AccumulateTransition(app_encoder_sampler_transition_accum[APP_ENCODER_SAMPLER_ENCODER3],

@@ -171,7 +171,6 @@ Init Device confirmation page
 
 Global branch
 - Startup Delay
-- Screen Saver
 - Sync Style
 - Brightness
 
@@ -179,8 +178,6 @@ Global fields
 - Startup Delay
 	- Range: 0-60 sec.
 	- Purpose: wait for slower pedals to boot before normal behavior is expected.
-- Screen Saver
-	- Range: 1-60 min.
 - Sync Style
 	- Options:
 		- MIDI clock

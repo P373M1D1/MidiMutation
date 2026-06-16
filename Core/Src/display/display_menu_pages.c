@@ -13,7 +13,6 @@
 #include "display/display_menu_page_metronome.h"
 #include "display/display_menu_page_midi_monitor.h"
 #include "display/display_menu_page_user_theme.h"
-#include "display/display_menu_page_gallery.h"
 #include "display/display_menu_pages.h"
 #include "display/display_menu_redraw_utils.h"
 #include "display/display_menu_row_render.h"
@@ -383,8 +382,6 @@ static const char *Display_GetMenuHeaderTextForPage(DisplayMenuPage_t page, char
         return "MIDI MONITOR";
     case DISPLAY_MENU_PAGE_USER_THEME:
         return Display_GetThemeName((RuntimeConfigDisplayMode_t)display_state.menu_active_user_theme_mode);
-    case DISPLAY_MENU_PAGE_GALLERY:
-        return "GALLERY";
     case DISPLAY_MENU_PAGE_ROOT:
     default:
         return "MENU";
@@ -407,8 +404,7 @@ uint8_t Display_MenuPageUsesFreeformBody(DisplayMenuPage_t page)
     return (page == DISPLAY_MENU_PAGE_BANK_INIT_CONFIRM
          || page == DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM
          || page == DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM
-         || page == DISPLAY_MENU_PAGE_MIDI_MONITOR
-         || page == DISPLAY_MENU_PAGE_GALLERY) ? 1U : 0U;
+            || page == DISPLAY_MENU_PAGE_MIDI_MONITOR) ? 1U : 0U;
 }
 
 uint8_t Display_MenuHeaderChanged(DisplayMenuPage_t previous_page, DisplayMenuPage_t current_page)
@@ -571,8 +567,6 @@ static DisplayMenuPageSpec_t Display_GetMenuPageSpec(DisplayMenuPage_t page)
         return (DisplayMenuPageSpec_t){ NULL, 0U, Display_DrawMenuMidiMonitor, NULL };
     case DISPLAY_MENU_PAGE_USER_THEME:
         return (DisplayMenuPageSpec_t){ &display_state.menu_user_theme_selection_index, MENU_USER_THEME_ITEM_COUNT, Display_DrawMenuUserTheme, Display_DrawMenuUserThemeItem };
-    case DISPLAY_MENU_PAGE_GALLERY:
-        return (DisplayMenuPageSpec_t){ NULL, 0U, Display_DrawMenuGallery, NULL };
     default:
         return (DisplayMenuPageSpec_t){ NULL, 0U, NULL, NULL };
     }

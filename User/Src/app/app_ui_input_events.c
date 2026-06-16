@@ -1,6 +1,7 @@
 #include "app/app_ui_events.h"
 
 #include "app_event.h"
+#include "app/app_preset_latency_diag.h"
 #include "app/app_requests.h"
 #include "app/app_state.h"
 #include "app/app_tempo.h"
@@ -62,7 +63,16 @@ static void AppUiEvents_QueuePresetSlotStep(uint8_t current_bank,
     while (next_slot >= (int16_t)PRESETS_PER_BANK)
         next_slot -= (int16_t)PRESETS_PER_BANK;
 
-    App_QueuePresetActivateEvent((uint8_t)(bank_base + next_slot));
+    {
+        uint8_t target_index = (uint8_t)(bank_base + next_slot);
+
+        uint32_t now = HAL_GetTick();
+
+        AppPresetLatencyDiag_OnEnc2PresetStep(delta, target_index, now);
+        App_QueuePresetActivateEventWithSource(target_index,
+                                               APP_EVENT_SOURCE_ENC2,
+                                               now);
+    }
 }
 
 /* Routes one encoder turn event to the correct UI or tempo action. */
@@ -134,13 +144,6 @@ void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
          * or menu-home actions, never value editing. */
         if (Display_MenuIsActive())
         {
-            if (Display_MenuGalleryIsActive())
-            {
-                /* In gallery mode ENC2 scrolls through compiled images. */
-                Display_MenuGalleryScroll(delta);
-                return;
-            }
-
             if (Display_MenuUserThemeEditIsActive())
                 Display_MenuAdjustUserThemeHue(delta);
             return;
@@ -223,22 +226,13 @@ void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
     }
 }
 
-/* Routes encoder press events to menu, preset, and screensaver actions. */
+/* Routes encoder press events to menu and preset actions. */
 void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
 {
     const Preset_t *active_preset = AppState_GetActivePreset();
 
     if (press_mask == 0U)
         return;
-
-    if (Display_ScreensaverIsActive())
-    {
-        App_QueueScreensaverWakeEvent();
-        App_QueueRedrawMainScreenEvent();
-        return;
-    }
-
-    App_QueueScreensaverActivityEvent();
 
     if (Display_MenuPreviewIsActive() && Display_MenuIsActive())
         return;

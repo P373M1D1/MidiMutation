@@ -130,8 +130,7 @@ static void LED_UpdateUiSuppressionState(void)
     uint8_t menu_active = Display_MenuIsActive();
 
     led_all_outputs_suppressed = menu_active ? 1U : 0U;
-    led_beat_output_suppressed =
-        (menu_active || Display_PresetEditIsActive()) ? 1U : 0U;
+    led_beat_output_suppressed = menu_active ? 1U : 0U;
 }
 
 static uint8_t LED_AllOutputsAreSuppressed(void)

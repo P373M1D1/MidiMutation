@@ -1,6 +1,7 @@
 #include "presets.h"
 #include "app/app_state.h"
 #include "app/app_board_init.h"
+#include "app/app_preset_latency_diag.h"
 #include "led_functions.h"
 #include "midi_devices.h"
 #include "midi_functions.h"
@@ -322,611 +323,26 @@ static const Preset_t preset_table[PRESET_BANK_COUNT][PRESETS_PER_BANK] = {
         ),
     },
     {
-        PRESET_ROW(
-            "Yoooo",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "Paaaaaaaa ",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "triiickkk!!",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "was ",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "geeeeeeeeeht",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "aaaaaaaabb!!",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "Preset 7",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "Preset 8",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
+        PRESET_ROW_EMPTY("Yoooo"),
+        PRESET_ROW_EMPTY("Paaaaaaaa "),
+        PRESET_ROW_EMPTY("triiickkk!!"),
+        PRESET_ROW_EMPTY("was "),
+        PRESET_ROW_EMPTY("geeeeeeeeeht"),
+        PRESET_ROW_EMPTY("aaaaaaaabb!!"),
+        PRESET_ROW_EMPTY("Preset 7"),
+        PRESET_ROW_EMPTY("Preset 8"),
     },
     {
-        PRESET_ROW(
-            "und",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "ey",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "...",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "external tempo geht",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "sogar mit error",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "woohooo!!",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "Preset 7",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "Preset 8",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
+        PRESET_ROW_EMPTY("und"),
+        PRESET_ROW_EMPTY("ey"),
+        PRESET_ROW_EMPTY("..."),
+        PRESET_ROW_EMPTY("external tempo geht"),
+        PRESET_ROW_EMPTY("sogar mit error"),
+        PRESET_ROW_EMPTY("woohooo!!"),
+        PRESET_ROW_EMPTY("Preset 7"),
+        PRESET_ROW_EMPTY("Preset 8"),
     },
-    {
-        PRESET_ROW(
-            "Preset 1",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "Preset 2",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "Preset 3",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "Preset 4",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "Preset 5",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "Preset 6",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "Preset 7",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-        PRESET_ROW(
-            "Preset 8",
-            PRESET_PROGRAM_LIST_8(
-                PRESET_PROGRAM_NONE, /* CH 1 */
-                PRESET_PROGRAM_NONE, /* CH 2 */
-                PRESET_PROGRAM_NONE, /* CH 3 */
-                PRESET_PROGRAM_NONE, /* CH 4 */
-                PRESET_PROGRAM_NONE, /* CH 5 */
-                PRESET_PROGRAM_NONE, /* CH 6 */
-                PRESET_PROGRAM_NONE, /* CH 7 */
-                PRESET_PROGRAM_NONE  /* CH 8 */
-            ),
-            PRESET_CC_LIST_8(
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 1 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 2 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 3 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 4 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 5 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 6 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU), /* CC 7 */
-                PRESET_CC(0xFFU, 0xFFU, 0xFFU)  /* CC 8 */
-            ),
-            PRESET_RELAY_OPEN, /* Relay 1 */
-            PRESET_RELAY_OPEN  /* Relay 2 */
-        ),
-    },
+    PRESET_BANK_EMPTY,
     PRESET_BANK_EMPTY,
     PRESET_BANK_EMPTY,
     PRESET_BANK_EMPTY,
@@ -1446,15 +862,6 @@ static uint8_t Presets_CurrentBankUsesWetDry(void)
     return (bank && bank->wet_dry_enabled) ? 1U : 0U;
 }
 
-static void Presets_ApplyRelayOutputs(const Preset_t *preset)
-{
-    if (!preset)
-        return;
-
-    for (uint8_t relay_index = 0U; relay_index < PRESET_RELAY_COUNT; ++relay_index)
-        AppBoard_SetRelayState(relay_index, preset->relay[relay_index] ? 1U : 0U);
-}
-
 const Preset_t *Presets_GetGlobalBypassPreset(void)
 {
     return RuntimeConfig_GetGlobalBypassPreset();
@@ -1511,6 +918,7 @@ static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index,
          * rest of the UI treats as the "real" active preset. */
         AppState_ActivatePresetSelection(preset, idx);
         LED_SetPresetIndicator((uint8_t)(idx % PRESETS_PER_BANK));
+        AppPresetLatencyDiag_OnLedIndicatorUpdated();
     }
     else
     {
@@ -1523,7 +931,6 @@ static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index,
         Midi_LoadPresetUrgent(preset);
     else
         Midi_LoadPreset(preset);
-    Presets_ApplyRelayOutputs(preset);
 
     if (update_index) {
         AppState_ScheduleRuntimeStateSaveAt(HAL_GetTick() + BPM_SAVE_DELAY_MS);
@@ -1725,6 +1132,7 @@ void Presets_ActivateRandom(void)
 
     App_ActivatePresetData(&random_preset, 0U, 0U, 0U);
     LED_SetActiveButtonIndicator(8U);
+    AppPresetLatencyDiag_OnLedIndicatorUpdated();
 }
 
 void Presets_ActivateMute(void)
@@ -1734,6 +1142,8 @@ void Presets_ActivateMute(void)
     /* The LED still points at the physical button, but the payload comes from
      * whichever editable global preset applies to the current bank. */
     App_ActivatePresetData(overlay_preset, 0U, 0U, 1U);
+    AppPresetLatencyDiag_OnOverlayResolved(Presets_IsGlobalMutePreset(overlay_preset));
 
     LED_SetActiveButtonIndicator(10U);
+    AppPresetLatencyDiag_OnLedIndicatorUpdated();
 }

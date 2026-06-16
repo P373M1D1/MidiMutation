@@ -1,6 +1,7 @@
 #include "app/app_ui_events.h"
 
 #include "app_event.h"
+#include "app/app_activation.h"
 #include "app/app_requests.h"
 #include "app/app_special_functions.h"
 #include "app/app_state.h"
@@ -17,8 +18,6 @@ static void AppUiEvents_SendFunctionButtonProgramMessages(const RuntimeConfigPro
 static void AppUiEvents_SendFunctionButtonCcMessages(const PresetCCSlot_t *messages,
                                                      uint8_t message_count);
 static void AppUiEvents_HandleSpecialFunctionToggle(uint8_t state_active);
-static void AppUiEvents_HandleScreensaverWake(void);
-static void AppUiEvents_HandleScreensaverActivity(void);
 static void AppUiEvents_HandleUiTick100Ms(void);
 static void AppUiEvents_HandleMidiMonitorChanged(void);
 static void AppUiEvents_HandleRedrawActiveDisplay(void);
@@ -42,14 +41,6 @@ uint8_t AppUiEvents_HandleEvent(const AppEvent_t *event)
 
     case APP_EVENT_TYPE_SPECIAL_FUNCTION_TOGGLE:
         AppUiEvents_HandleSpecialFunctionToggle((uint8_t)event->value);
-        return 1U;
-
-    case APP_EVENT_TYPE_SCREENSAVER_WAKE:
-        AppUiEvents_HandleScreensaverWake();
-        return 1U;
-
-    case APP_EVENT_TYPE_SCREENSAVER_ACTIVITY:
-        AppUiEvents_HandleScreensaverActivity();
         return 1U;
 
     case APP_EVENT_TYPE_UI_TICK_100MS:
@@ -146,28 +137,15 @@ static void AppUiEvents_HandleSpecialFunctionToggle(uint8_t state_active)
     AppUiEvents_HandleRedrawActiveDisplay();
 }
 
-static void AppUiEvents_HandleScreensaverWake(void)
-{
-    App_AcknowledgeScreensaverWakeEvent();
-    Display_ScreensaverDismiss();
-    Display_ScreensaverActivity();
-}
-
-static void AppUiEvents_HandleScreensaverActivity(void)
-{
-    App_AcknowledgeScreensaverActivityEvent();
-    Display_ScreensaverActivity();
-}
-
 static void AppUiEvents_HandleUiTick100Ms(void)
 {
     App_AcknowledgeUiTick100MsEvent();
+    AppActivation_ServiceDeferredUiRefresh(HAL_GetTick());
+    Display_RefreshTransportInfoRows();
 
     Display_MenuMidiMonitorService();
     AppUi_PresetEditLearningService();
     LED_Update();
-    if (Display_ScreensaverUpdate())
-        App_QueueRedrawMainScreenEvent();
 }
 
 static void AppUiEvents_HandleMidiMonitorChanged(void)

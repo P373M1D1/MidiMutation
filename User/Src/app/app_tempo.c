@@ -2,12 +2,10 @@
 #include "app/app_tempo.h"
 
 #include "app_event.h"
-#include "app/app_requests.h"
 #include "app/app_state.h"
 #include "app/app_ui.h"
 #include "bpm_functions.h"
 #include "button_functions.h"
-#include "display_functions.h"
 #include "led_functions.h"
 #include "midi/clock_engine.h"
 #include "midi_devices.h"
@@ -46,21 +44,12 @@ uint8_t AppTempo_HandleEvent(const AppEvent_t *event)
 
 static void AppTempo_HandleTapPress(uint32_t now)
 {
-    uint8_t screensaver_was_active = Display_ScreensaverIsActive();
-
     LED_TapPressPulse();
-    App_QueueScreensaverWakeEvent();
 
     if (AppButtonCombo_HandleTapPress(now, Button_IsMuteHeld()))
         return;
 
     AppTempo_SendTapTempoCcToDevices();
-
-    if (screensaver_was_active)
-    {
-        App_QueueRedrawMainScreenEvent();
-        return;
-    }
 
     if (ClockEngine_IsExternalSignalPresent())
         return;

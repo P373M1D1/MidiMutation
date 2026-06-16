@@ -3,6 +3,7 @@
 #include "app/app_requests.h"
 #include "app/app_special_functions.h"
 #include "app/app_state.h"
+#include "app/app_preset_latency_diag.h"
 #include "app/app_ui.h"
 #include "button_functions.h"
 #include "display_functions.h"
@@ -51,10 +52,9 @@ static void AppButtonEvents_HandleFootswitchPress(uint8_t index, uint32_t now)
 {
     uint8_t target_preset_index;
 
-    App_QueueScreensaverWakeEvent();
-
     if (index == APP_BUTTON_EVENTS_RANDOM_BUTTON_INDEX)
     {
+        AppPresetLatencyDiag_OnRandomButtonPress(index, now);
         AppButtonEvents_PushSimpleEvent(APP_EVENT_TYPE_PRESET_ACTIVATE_RANDOM, 0, now);
         return;
     }
@@ -78,6 +78,7 @@ static void AppButtonEvents_HandleFootswitchPress(uint8_t index, uint32_t now)
         return;
     }
 
+    AppPresetLatencyDiag_OnPresetButtonPress(index, target_preset_index, now);
     App_QueuePresetActivateEvent(target_preset_index);
 }
 

@@ -45,7 +45,6 @@ uint8_t AppUi_MenuBackOutOneLevel(void)
 
     sub_editor_active = Display_MenuSubEditorIsActive();
     Display_MenuBack();
-    App_QueueScreensaverActivityEvent();
     if (!sub_editor_active)
         AppUi_MenuSaveIfDirty();
 
@@ -66,7 +65,6 @@ uint8_t AppUi_MenuEnter(void)
     if (Display_MenuIsActive() || Display_PresetEditIsActive())
         return 0U;
 
-    App_QueueScreensaverWakeEvent();
     Display_MenuEnter();
     return 1U;
 }
@@ -77,6 +75,5 @@ uint8_t AppUi_MenuEnterMetronomeQuickAccess(void)
     if (Display_PresetEditIsActive())
         return 0U;
 
-    App_QueueScreensaverWakeEvent();
     return Display_MenuEnterMetronomeQuickAccess();
 }

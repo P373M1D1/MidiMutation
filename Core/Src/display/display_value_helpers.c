@@ -88,11 +88,6 @@ uint8_t Display_GetGlobalBrightnessUiValue(uint16_t brightness)
 
 void Display_ApplyConfiguredBacklightBrightnessNow(void)
 {
-    /* Preserve the intentionally dark screensaver state; brightness changes are
-     * applied immediately only while the UI is actually awake. */
-    if (Display_ScreensaverIsActive())
-        return;
-
     DAC->DHR12R1 = Display_BacklightGetConfiguredBrightness();
 }
 

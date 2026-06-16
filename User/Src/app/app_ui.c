@@ -1,7 +1,6 @@
 #include "app/app_ui.h"
 
 #include "app_event.h"
-#include "app/app_board_init.h"
 #include "app/app_requests.h"
 #include "app/app_state.h"
 #include "display_functions.h"
@@ -311,21 +310,6 @@ uint8_t AppUi_PresetEditApplyDelta(int8_t delta)
     case DISPLAY_PRESET_EDIT_FIELD_PROGRAM:
         return AppUi_PresetEditAdjustProgramValue(preset, field.itemIndex, delta);
 
-    case DISPLAY_PRESET_EDIT_FIELD_RELAY:
-        if (field.itemIndex >= PRESET_RELAY_COUNT)
-            return 0U;
-
-        {
-            uint8_t next_state = (delta > 0) ? PRESET_RELAY_CLOSED : PRESET_RELAY_OPEN;
-
-            if (preset->relay[field.itemIndex] == next_state)
-                return 0U;
-
-            preset->relay[field.itemIndex] = next_state;
-            AppBoard_SetRelayState(field.itemIndex, next_state);
-            return 1U;
-        }
-
     case DISPLAY_PRESET_EDIT_FIELD_FUNCTION_BUTTON:
         return 0U;
 
@@ -369,7 +353,6 @@ uint8_t AppUi_PresetEditEnter(void)
     if (Display_MenuIsActive() || Display_PresetEditIsActive() || !AppUi_PresetEditCurrentPresetIsEditable())
         return 0U;
 
-    App_QueueScreensaverWakeEvent();
     Display_PresetEditEnter();
     AppUi_RequestPresetEditModeRefresh();
     return 1U;
@@ -383,7 +366,6 @@ void AppUi_PresetEditExit(void)
     AppUi_PresetEditStopLearningSession();
 
     Display_PresetEditExit();
-    App_QueueScreensaverActivityEvent();
     AppUi_RequestPresetEditModeRefresh();
 
     if (Presets_IsDirty() || RuntimeConfig_IsDirty())
@@ -600,7 +582,6 @@ uint8_t AppUi_PresetEditBackOutOneLevel(void)
         const Preset_t *active_preset = AppState_GetActivePreset();
 
         Display_PresetNameEditExit();
-        App_QueueScreensaverActivityEvent();
         if (active_preset)
             AppUi_RequestPresetEditFieldRefresh();
         return 1U;

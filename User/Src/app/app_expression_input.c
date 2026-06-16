@@ -2,7 +2,6 @@
 
 #include "app/app_requests.h"
 #include "app_event.h"
-#include "display_functions.h"
 #include "runtime_config.h"
 #include "stm32f4xx_hal.h"
 
@@ -152,14 +151,6 @@ void AppExpressionInput_ProcessPending(void)
 
     if (step_delta != 0)
     {
-        if (Display_ScreensaverIsActive())
-        {
-            App_QueueScreensaverWakeEvent();
-            App_QueueRedrawMainScreenEvent();
-            return;
-        }
-
-        App_QueueScreensaverActivityEvent();
         App_QueueEncoderTurnEvent(APP_EVENT_SOURCE_EXPRESSION, (int8_t)step_delta, HAL_GetTick());
     }
 }
