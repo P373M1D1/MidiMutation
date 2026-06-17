@@ -6,6 +6,7 @@
 #include "display/display_menu_page_midi_monitor.h"
 #include "display/display_menu_pages.h"
 #include "display/display_value_helpers.h"
+#include "app/app_expression_input.h"
 #include "midi/midi_monitor.h"
 #include "midi_devices.h"
 #include "presets.h"
@@ -156,7 +157,7 @@ static void Display_SetDeviceEditFocusIndex(uint16_t focus_index)
 
 static uint8_t Display_GetExpressionFocusFieldCount(uint8_t selection_index)
 {
-    return (selection_index == 0U) ? 1U : 3U;
+    return (selection_index < MENU_EXPRESSION_ITEM_CC_FIRST) ? 1U : 3U;
 }
 
 static uint16_t Display_GetExpressionFocusCount(void)
@@ -177,7 +178,7 @@ static uint16_t Display_GetExpressionFocusIndex(void)
         focus_index = (uint16_t)(focus_index + Display_GetExpressionFocusFieldCount(selection_index));
 
     if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_EXPRESSION
-        && display_state.menu_expression_selection_index > 0U)
+        && display_state.menu_expression_selection_index >= MENU_EXPRESSION_ITEM_CC_FIRST)
     {
         if (display_state.menu_expression_field_index >= 3U)
             display_state.menu_expression_field_index = 0U;
@@ -197,7 +198,7 @@ static void Display_SetExpressionFocusIndex(uint16_t focus_index)
         if (focus_index < field_count)
         {
             display_state.menu_expression_selection_index = selection_index;
-            display_state.menu_expression_field_index = (selection_index == 0U)
+            display_state.menu_expression_field_index = (selection_index < MENU_EXPRESSION_ITEM_CC_FIRST)
                 ? 0U
                 : (uint8_t)focus_index;
             return;
@@ -208,6 +209,49 @@ static void Display_SetExpressionFocusIndex(uint16_t focus_index)
 
     display_state.menu_expression_selection_index = (uint8_t)(MENU_EXPRESSION_ITEM_COUNT - 1U);
     display_state.menu_expression_field_index = 2U;
+}
+
+static uint8_t Display_SetExpressionRawBoundFromSample(RuntimeConfigGlobal_t *global, uint8_t set_heel)
+{
+    uint16_t raw_sample;
+    uint16_t previous_min;
+    uint16_t previous_max;
+    uint8_t update_min;
+
+    if (!global || !AppExpressionInput_TryGetLatestRawSample(&raw_sample))
+        return 0U;
+
+    previous_min = global->expression_pedal_min_raw;
+    previous_max = global->expression_pedal_max_raw;
+    update_min = set_heel
+        ? (global->expression_pedal_invert ? 0U : 1U)
+        : (global->expression_pedal_invert ? 1U : 0U);
+
+    if (update_min)
+    {
+        global->expression_pedal_min_raw = raw_sample;
+        if (global->expression_pedal_min_raw >= global->expression_pedal_max_raw)
+        {
+            if (global->expression_pedal_min_raw < RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MAX)
+                global->expression_pedal_max_raw = (uint16_t)(global->expression_pedal_min_raw + 1U);
+            else
+                global->expression_pedal_min_raw = (uint16_t)(RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MAX - 1U);
+        }
+    }
+    else
+    {
+        global->expression_pedal_max_raw = raw_sample;
+        if (global->expression_pedal_min_raw >= global->expression_pedal_max_raw)
+        {
+            if (global->expression_pedal_max_raw > RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MIN)
+                global->expression_pedal_min_raw = (uint16_t)(global->expression_pedal_max_raw - 1U);
+            else
+                global->expression_pedal_max_raw = (uint16_t)(RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MIN + 1U);
+        }
+    }
+
+    return (global->expression_pedal_min_raw != previous_min
+         || global->expression_pedal_max_raw != previous_max) ? 1U : 0U;
 }
 
 /* ── Existing transient-editor reset ──────────────────────────────────────── */
@@ -805,6 +849,36 @@ uint8_t Display_MenuActivate(void)
         display_state.menu_user_theme_edit_active = display_state.menu_user_theme_edit_active ? 0U : 1U;
         Display_DrawFootbar();
         return 1U;
+    case DISPLAY_MENU_PAGE_EXPRESSION:
+    {
+        RuntimeConfigGlobal_t *mutable_global = RuntimeConfig_GetMutableGlobal();
+
+        if (!mutable_global)
+            return 0U;
+
+        if (display_state.menu_expression_selection_index == MENU_EXPRESSION_ITEM_SET_HEEL
+         || display_state.menu_expression_selection_index == MENU_EXPRESSION_ITEM_SET_TOE)
+        {
+            if (!Display_SetExpressionRawBoundFromSample(
+                    mutable_global,
+                    (display_state.menu_expression_selection_index == MENU_EXPRESSION_ITEM_SET_HEEL) ? 1U : 0U))
+                return 0U;
+
+            RuntimeConfig_MarkDirty();
+            Display_MenuRedrawCurrentItem();
+            return 1U;
+        }
+
+        if (display_state.menu_expression_selection_index == MENU_EXPRESSION_ITEM_INVERT)
+        {
+            mutable_global->expression_pedal_invert = mutable_global->expression_pedal_invert ? 0U : 1U;
+            RuntimeConfig_MarkDirty();
+            Display_MenuRedrawCurrentItem();
+            return 1U;
+        }
+
+        return 0U;
+    }
     case DISPLAY_MENU_PAGE_BANKS:
         display_state.menu_active_bank_index = display_state.menu_bank_selection_index;
         display_state.menu_bank_edit_selection_index = 0U;
@@ -876,7 +950,7 @@ uint8_t Display_MenuCanToggleLearn(void)
         return Display_MenuDeviceCcRowIsSelected();
 
     if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_EXPRESSION)
-        return (display_state.menu_expression_selection_index >= 1U) ? 1U : 0U;
+        return (display_state.menu_expression_selection_index >= MENU_EXPRESSION_ITEM_CC_FIRST) ? 1U : 0U;
 
     return 0U;
 }
@@ -937,8 +1011,8 @@ void Display_MenuApplyMidiLearnIfPending(void)
 
     if (display_state.menu_expression_learn_armed
         && (DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_EXPRESSION
-        && display_state.menu_expression_selection_index >= 1U
-        && display_state.menu_expression_selection_index <= RUNTIME_CONFIG_EXPRESSION_PEDAL_CC_SLOT_COUNT)
+        && display_state.menu_expression_selection_index >= MENU_EXPRESSION_ITEM_CC_FIRST
+        && display_state.menu_expression_selection_index < MENU_EXPRESSION_ITEM_COUNT)
     {
         RuntimeConfigExpressionPedalCcSlot_t *slot;
 
@@ -946,7 +1020,8 @@ void Display_MenuApplyMidiLearnIfPending(void)
         if (!global)
             return;
 
-        slot = &global->expression_pedal_cc_slots[display_state.menu_expression_selection_index - 1U];
+        slot = &global->expression_pedal_cc_slots[
+            display_state.menu_expression_selection_index - MENU_EXPRESSION_ITEM_CC_FIRST];
         slot->cc = cc;
         if (display_state.menu_expression_field_index == 1U)
             slot->heel_value = value;

@@ -76,7 +76,6 @@ void AppRuntime_ServiceForeground(void)
 
     MidiTimebendSetEncoderEnabled(encoder_timebend_enabled);
     MidiTimebendSetExpressionEnabled(expression_timebend_enabled);
-    AppRuntime_ServiceTimebendPopup(global);
 
     /* Drain deferred TIM2 compare work outside IRQ context so timing ISR paths
      * remain minimal while metronome/LED behavior still updates at loop speed. */
@@ -93,6 +92,7 @@ void AppRuntime_ServiceForeground(void)
         /* Keep beat-edge status updates responsive while preserving the
          * feedback window rule that defers broader UI redraw work. */
         (void)AppUi_ServiceBeatSynchronousStatusStrip();
+        AppRuntime_ServiceTimebendPopup(global);
         AppRuntime_SleepIfIdle(queue_was_drained, feedback_active);
         return;
     }
@@ -100,6 +100,7 @@ void AppRuntime_ServiceForeground(void)
     AppRuntime_PumpEvents();
     (void)AppUi_ServiceBeatSynchronousStatusStrip();
     AppUi_ServiceRender();
+    AppRuntime_ServiceTimebendPopup(global);
 
     AppRuntime_SleepIfIdle(queue_was_drained, feedback_active);
 }
@@ -204,12 +205,17 @@ static void AppRuntime_ScheduleTimerEvents(void)
 /* Shows or hides the live timebend overlay from runtime engagement state. */
 static void AppRuntime_ServiceTimebendPopup(const RuntimeConfigGlobal_t *global)
 {
+    uint8_t timebend_engaged = 0U;
+    uint8_t ui_can_show;
     uint8_t should_show = 0U;
 
-    if (global
-        && MidiTimebendIsEngaged()
+    if (global)
+        timebend_engaged = MidiTimebendIsEngaged();
+
+    ui_can_show = (uint8_t)(global
         && !Display_MenuIsActive()
-        && !Display_PresetEditIsActive())
+        && !Display_PresetEditIsActive());
+    if (ui_can_show && timebend_engaged)
     {
         should_show = 1U;
     }

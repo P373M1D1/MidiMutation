@@ -363,6 +363,9 @@ static uint8_t Display_GetMainInfoProgramScrollMax(void)
         : 0U;
 }
 
+static uint16_t Display_GetTimebendPopupWidth(void);
+static uint16_t Display_GetTimebendPopupX(void);
+static void Display_ComposeTimebendPopupAt(uint16_t popup_x);
 static void Display_DrawMainInfoComposedRow(const Preset_t *preset, uint8_t row_index);
 
 static uint8_t Display_GetMainInfoScrollMax(void)
@@ -1020,6 +1023,9 @@ static void Display_DrawMainInfoComposedRow(const Preset_t *preset, uint8_t row_
                                                (main_info_first_slot < max_scroll) ? 1U : 0U);
     }
 
+    if (row_index == MAIN_TIMEBEND_POPUP_ROW_INDEX && timebend_popup_visible)
+        Display_ComposeTimebendPopupAt(Display_GetTimebendPopupX());
+
     Display_MenuRowComposeBlit(main_info_row_y[row_index]);
 }
 
@@ -1086,20 +1092,43 @@ static void Display_DrawSavingPopup(void)
 
 static void Display_DrawTimebendPopup(void)
 {
-    uint16_t popup_w = (uint16_t)(strlen(MAIN_TIMEBEND_POPUP_TEXT) * MAIN_INFO_FONT.width);
-    uint16_t popup_x = (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
+    uint16_t popup_w = Display_GetTimebendPopupWidth();
+    uint16_t popup_x = Display_GetTimebendPopupX();
     uint16_t popup_y = main_info_row_y[MAIN_TIMEBEND_POPUP_ROW_INDEX];
+
+    Display_ComposeTimebendPopupAt(0U);
+    Display_ComposeBlit(popup_x,
+                        popup_y,
+                        popup_w,
+                        MAIN_INFO_FONT.height);
+}
+
+static uint16_t Display_GetTimebendPopupWidth(void)
+{
+    return (uint16_t)(strlen(MAIN_TIMEBEND_POPUP_TEXT) * MAIN_INFO_FONT.width);
+}
+
+static uint16_t Display_GetTimebendPopupX(void)
+{
+    uint16_t popup_w = Display_GetTimebendPopupWidth();
+
+    return (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
+}
+
+static void Display_ComposeTimebendPopupAt(uint16_t popup_x)
+{
+    uint16_t popup_w = Display_GetTimebendPopupWidth();
 
     Display_ComposeFillRect(ST7796_WIDTH,
                             MAIN_INFO_FONT_CELL_HEIGHT,
-                            0U,
+                            popup_x,
                             0U,
                             popup_w,
                             MAIN_INFO_FONT.height,
                             MAIN_TIMEBEND_POPUP_BG_COLOUR);
     Display_ComposeString32(ST7796_WIDTH,
                             MAIN_INFO_FONT_CELL_HEIGHT,
-                            0U,
+                            popup_x,
                             0U,
                             MAIN_TIMEBEND_POPUP_TEXT,
                             MAIN_INFO_FONT,
@@ -1107,36 +1136,32 @@ static void Display_DrawTimebendPopup(void)
                             MAIN_TIMEBEND_POPUP_BG_COLOUR);
     Display_ComposeFillRect(ST7796_WIDTH,
                             MAIN_INFO_FONT_CELL_HEIGHT,
-                            0U,
+                            popup_x,
                             0U,
                             popup_w,
                             1U,
                             MAIN_TIMEBEND_POPUP_BORDER_COLOUR);
     Display_ComposeFillRect(ST7796_WIDTH,
                             MAIN_INFO_FONT_CELL_HEIGHT,
-                            0U,
+                            popup_x,
                             (uint16_t)(MAIN_INFO_FONT.height - 1U),
                             popup_w,
                             1U,
                             MAIN_TIMEBEND_POPUP_BORDER_COLOUR);
     Display_ComposeFillRect(ST7796_WIDTH,
                             MAIN_INFO_FONT_CELL_HEIGHT,
-                            0U,
+                            popup_x,
                             0U,
                             1U,
                             MAIN_INFO_FONT.height,
                             MAIN_TIMEBEND_POPUP_BORDER_COLOUR);
     Display_ComposeFillRect(ST7796_WIDTH,
                             MAIN_INFO_FONT_CELL_HEIGHT,
-                            (uint16_t)(popup_w - 1U),
+                            (uint16_t)(popup_x + popup_w - 1U),
                             0U,
                             1U,
                             MAIN_INFO_FONT.height,
                             MAIN_TIMEBEND_POPUP_BORDER_COLOUR);
-    Display_ComposeBlit(popup_x,
-                        popup_y,
-                        popup_w,
-                        MAIN_INFO_FONT.height);
 }
 
 static void Display_DrawLearningPopup(void)

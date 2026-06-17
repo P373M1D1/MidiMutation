@@ -95,7 +95,7 @@ Suggested layout:
 
 ```text
 Preset 03   [Strain I]
-Soft Reverb *
+Preset 3 *
 
 > Name
   Programs

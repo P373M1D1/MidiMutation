@@ -27,8 +27,6 @@
 #define MIDI_TIMEBEND_RELEASE_FORCE_ZERO_US 2800000UL
 #define MIDI_TIMEBEND_REST_PHASE_DEADBAND_US 24L
 #define MIDI_TIMEBEND_REST_VELOCITY_DEADBAND_US_PER_S 180L
-#define MIDI_TIMEBEND_POPUP_PHASE_THRESHOLD_US 40L
-#define MIDI_TIMEBEND_POPUP_VELOCITY_THRESHOLD_US_PER_S 260L
 #define MIDI_TIMEBEND_MAX_VELOCITY_US_PER_S 240000L
 #define MIDI_TIMEBEND_PHASE_STEP_Q24 (1ULL << 24)
 #define MIDI_TIMEBEND_TRUTH_TIMEOUT_MULTIPLIER 3U
@@ -441,18 +439,16 @@ void MidiOutput_TimebendInjectEncoderDelta(int8_t delta)
 uint8_t MidiOutput_TimebendIsEngaged(void)
 {
     uint32_t primask;
-    int32_t phase_us;
-    int32_t velocity_us_per_s;
     uint8_t engaged;
 
     primask = MidiOutput_EnterCritical();
-    phase_us = midi_output_timebend_phase_offset_us_q16 >> 16;
-    velocity_us_per_s = midi_output_timebend_velocity_us_per_s_q16 >> 16;
+
+    if (midi_output_timebend_active)
+        MidiOutput_TimebendUpdateModelLocked(TIM2->CNT);
+
     engaged = (uint8_t)(midi_output_timebend_active
-        && ((phase_us >= MIDI_TIMEBEND_POPUP_PHASE_THRESHOLD_US)
-            || (phase_us <= -MIDI_TIMEBEND_POPUP_PHASE_THRESHOLD_US)
-            || (velocity_us_per_s >= MIDI_TIMEBEND_POPUP_VELOCITY_THRESHOLD_US_PER_S)
-            || (velocity_us_per_s <= -MIDI_TIMEBEND_POPUP_VELOCITY_THRESHOLD_US_PER_S)));
+        && ((midi_output_timebend_phase_offset_us_q16 != 0)
+            || (midi_output_timebend_velocity_us_per_s_q16 != 0)));
     MidiOutput_ExitCritical(primask);
 
     return engaged;

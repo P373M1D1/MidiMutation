@@ -108,6 +108,10 @@ static const char *Display_GetFootbarLabel(uint8_t section_index)
                 if (display_state.menu_device_cc_learn_armed || display_state.menu_expression_learn_armed)
                     return "LEARN ON";
 
+                if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_EXPRESSION
+                 && display_state.menu_expression_selection_index < MENU_EXPRESSION_ITEM_CC_FIRST)
+                    return MAIN_FOOTBAR_MENU_CENTER_TEXT;
+
                 return "LEARN";
             }
             return MAIN_FOOTBAR_MENU_CENTER_TEXT;
