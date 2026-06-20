@@ -529,6 +529,10 @@ static RuntimeConfigMetronome_t runtime_config_persisted_metronome = RUNTIME_CON
 static RuntimeConfigPersistentStoreDiagnosticMode_t runtime_config_persistent_store_diag_mode = RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_DEFAULT;
 static uint8_t runtime_config_persistent_store_diag_slot = 0U;
 static uint32_t runtime_config_persistent_store_diag_generation = 0U;
+static uint8_t runtime_config_persistent_store_save_blocked = 0U;
+
+static uint8_t RuntimeConfig_FlashV3ImageIsValid(uint32_t slot_address,
+                                                 const PersistentStoreHeaderV3_t **header_out);
 
 static void RuntimeConfig_SeedGlobalMutePresetFromLegacyBehavior(Preset_t *preset)
 {
@@ -607,6 +611,52 @@ static void RuntimeConfig_ResetPersistentStoreDiagnostic(void)
     runtime_config_persistent_store_diag_mode = RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_DEFAULT;
     runtime_config_persistent_store_diag_slot = 0U;
     runtime_config_persistent_store_diag_generation = 0U;
+    runtime_config_persistent_store_save_blocked = 0U;
+}
+
+static const char *RuntimeConfig_PersistentStoreSlotStatus(uint32_t slot_address)
+{
+    const PersistentStoreHeaderV3_t *header = (const PersistentStoreHeaderV3_t *)slot_address;
+
+    if (RuntimeConfig_FlashV3ImageIsValid(slot_address, NULL))
+        return "valid";
+
+    if (header->magic == 0xFFFFFFFFUL
+     && header->version == 0xFFFFFFFFUL
+     && header->commit_marker == 0xFFFFFFFFUL)
+    {
+        return "erased";
+    }
+
+    if (header->magic == PERSISTENT_STORE_MAGIC_V1
+     || header->magic == PERSISTENT_STORE_MAGIC_V2)
+    {
+        return "legacy";
+    }
+
+    return "invalid";
+}
+
+static void RuntimeConfig_PrintPersistentStoreSlotDiagnostic(char slot_label,
+                                                             uint32_t slot_address)
+{
+    const PersistentStoreHeaderV3_t *header = (const PersistentStoreHeaderV3_t *)slot_address;
+
+    printf("PSTORE slot=%c status=%s magic=%08lX ver=%lu gen=%lu payload=%lu config=%lu commit=%08lX\r\n",
+           slot_label,
+           RuntimeConfig_PersistentStoreSlotStatus(slot_address),
+           (unsigned long)header->magic,
+           (unsigned long)header->version,
+           (unsigned long)header->generation,
+           (unsigned long)header->payload_size,
+           (unsigned long)header->config_size,
+           (unsigned long)header->commit_marker);
+}
+
+static uint8_t RuntimeConfig_PersistentStoreSlotsLookBlank(void)
+{
+    return (uint8_t)((RuntimeConfig_PersistentStoreSlotStatus(PERSISTENT_STORE_SLOT0_FLASH_ADDR)[0] == 'e')
+                 && (RuntimeConfig_PersistentStoreSlotStatus(PERSISTENT_STORE_SLOT1_FLASH_ADDR)[0] == 'e'));
 }
 
 static void RuntimeConfig_CopyLegacyDevice(RuntimeConfigDevice_t *destination,
@@ -1648,8 +1698,6 @@ static uint32_t RuntimeConfig_FlashChecksum(const uint8_t *data, size_t size)
 
 static uint8_t RuntimeConfig_FlashHeaderV2IsValid(const PersistentStoreHeaderV2_t *header)
 {
-    size_t preset_payload_size = sizeof(Preset_t) * PRESET_COUNT;
-
     if (!header)
         return 0U;
 
@@ -1658,7 +1706,7 @@ static uint8_t RuntimeConfig_FlashHeaderV2IsValid(const PersistentStoreHeaderV2_
      || header->bank_count != PRESET_BANK_COUNT
      || header->presets_per_bank != PRESETS_PER_BANK
      || header->preset_count != PRESET_COUNT
-     || header->payload_size != preset_payload_size
+     || !Presets_PersistentPayloadSizeIsSupported(header->payload_size)
             || !RuntimeConfig_PersistentConfigSizeIsSupported(header->config_size))
         return 0U;
 
@@ -1669,8 +1717,6 @@ static uint8_t RuntimeConfig_FlashHeaderV2IsValid(const PersistentStoreHeaderV2_
 
 static uint8_t RuntimeConfig_FlashHeaderV3IsValid(const PersistentStoreHeaderV3_t *header)
 {
-    size_t preset_payload_size = sizeof(Preset_t) * PRESET_COUNT;
-
     if (!header)
         return 0U;
 
@@ -1683,7 +1729,7 @@ static uint8_t RuntimeConfig_FlashHeaderV3IsValid(const PersistentStoreHeaderV3_
      || header->bank_count != PRESET_BANK_COUNT
      || header->presets_per_bank != PRESETS_PER_BANK
      || header->preset_count != PRESET_COUNT
-     || header->payload_size != preset_payload_size
+     || !Presets_PersistentPayloadSizeIsSupported(header->payload_size)
             || !RuntimeConfig_PersistentConfigSizeIsSupported(header->config_size))
         return 0U;
 
@@ -1890,7 +1936,11 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
     }
 
     if (!RuntimeConfig_FlashHeaderV2IsValid(header))
+    {
+        if (!RuntimeConfig_PersistentStoreSlotsLookBlank())
+            runtime_config_persistent_store_save_blocked = 1U;
         return;
+    }
 
     config_payload = (const uint8_t *)(PERSISTENT_STORE_FLASH_ADDR
                                      + sizeof(PersistentStoreHeaderV2_t)
@@ -2304,6 +2354,20 @@ uint8_t RuntimeConfig_SaveIfDirty(void)
     return Presets_SaveIfDirty();
 }
 
+uint8_t RuntimeConfig_PersistentStoreSaveIsBlocked(void)
+{
+    RuntimeConfig_EnsureInitialized();
+    return runtime_config_persistent_store_save_blocked;
+}
+
+uint8_t RuntimeConfig_PersistentSnapshotLooksFactoryDefault(const RuntimeConfig_t *snapshot)
+{
+    if (!snapshot)
+        return 0U;
+
+    return (memcmp(snapshot, &runtime_config_defaults, sizeof(runtime_config_defaults)) == 0) ? 1U : 0U;
+}
+
 void RuntimeConfig_CopyPersistentSaveSnapshot(RuntimeConfig_t *snapshot)
 {
     RuntimeConfig_EnsureInitialized();
@@ -2341,6 +2405,61 @@ void RuntimeConfig_FormatPersistentStoreStatusText(char *buffer, size_t buffer_s
         (void)snprintf(buffer, buffer_size, "img default");
         break;
     }
+}
+
+void RuntimeConfig_FormatPersistentStoreHealthText(char *buffer, size_t buffer_size)
+{
+    if (!buffer || buffer_size == 0U)
+        return;
+
+    RuntimeConfig_EnsureInitialized();
+
+    switch (runtime_config_persistent_store_diag_mode)
+    {
+    case RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_ATOMIC_V3:
+        (void)snprintf(buffer, buffer_size, "flash: valid crc");
+        break;
+
+    case RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_LEGACY_V2:
+        (void)snprintf(buffer, buffer_size, "flash: legacy ok");
+        break;
+
+    default:
+        if (runtime_config_persistent_store_save_blocked)
+            (void)snprintf(buffer, buffer_size, "flash: save blocked");
+        else
+            (void)snprintf(buffer, buffer_size, "flash: blank defaults");
+        break;
+    }
+}
+
+void RuntimeConfig_PrintPersistentStoreDiagnostics(void)
+{
+    RuntimeConfig_EnsureInitialized();
+
+    RuntimeConfig_PrintPersistentStoreSlotDiagnostic('A', PERSISTENT_STORE_SLOT0_FLASH_ADDR);
+    RuntimeConfig_PrintPersistentStoreSlotDiagnostic('B', PERSISTENT_STORE_SLOT1_FLASH_ADDR);
+
+    switch (runtime_config_persistent_store_diag_mode)
+    {
+    case RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_ATOMIC_V3:
+        printf("PSTORE loaded=atomic slot=%c gen=%lu reason=valid_crc\r\n",
+               runtime_config_persistent_store_diag_slot ? 'B' : 'A',
+               (unsigned long)runtime_config_persistent_store_diag_generation);
+        break;
+
+    case RUNTIME_CONFIG_PERSISTENT_STORE_DIAG_LEGACY_V2:
+        printf("PSTORE loaded=legacy reason=valid_crc\r\n");
+        break;
+
+    default:
+        printf("PSTORE loaded=default reason=%s\r\n",
+               runtime_config_persistent_store_save_blocked ? "unreadable_store" : "blank_store");
+        break;
+    }
+
+    if (runtime_config_persistent_store_save_blocked)
+        printf("PSTORE save=blocked reason=loaded_defaults\r\n");
 }
 
 void RuntimeConfig_ApplySnapshot(const RuntimeConfig_t *snapshot)

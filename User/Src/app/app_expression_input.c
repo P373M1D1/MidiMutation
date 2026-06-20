@@ -6,13 +6,11 @@
 #include "stm32f4xx_hal.h"
 
 #include <limits.h>
-#include <stdio.h>
 
 #define APP_EXPRESSION_INPUT_RAW_MAX                RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MAX
 #define APP_EXPRESSION_INPUT_RAW_DELTA_PER_STEP     64
 #define APP_EXPRESSION_INPUT_FILTER_NUMERATOR        3U
 #define APP_EXPRESSION_INPUT_FILTER_DENOMINATOR      4U
-#define APP_EXPRESSION_INPUT_RAW_DIAG_INTERVAL_MS  100U
 
 static uint8_t app_expression_input_sample_valid = 0U;
 static volatile uint16_t app_expression_input_pending_raw_sample = 0U;
@@ -27,7 +25,6 @@ static uint8_t app_expression_input_adc_initialized = 0U;
 static uint16_t AppExpressionInput_ClampRawSample(uint16_t raw_sample);
 static uint16_t AppExpressionInput_ApplyCalibration(uint16_t raw_sample, const RuntimeConfigGlobal_t *global);
 static void AppExpressionInput_ResetTrackingState(void);
-static void AppExpressionInput_ReportRawSample(uint16_t raw_sample, const RuntimeConfigGlobal_t *global);
 static void AppExpressionInput_InitAdc(void);
 static void AppExpressionInput_ServiceAdc(void);
 
@@ -106,8 +103,6 @@ void AppExpressionInput_ProcessPending(void)
     app_expression_input_pending_sample_ready = 0U;
     if (primask == 0U)
         __enable_irq();
-
-    AppExpressionInput_ReportRawSample(next_raw_sample, global);
 
     if (global->expression_pedal_mode == RUNTIME_CONFIG_EXPRESSION_PEDAL_MODE_DISABLED)
     {
@@ -226,41 +221,6 @@ static void AppExpressionInput_ResetTrackingState(void)
     app_expression_input_last_raw_sample = 0U;
     app_expression_input_filtered_raw_sample = 0U;
     app_expression_input_residual_delta = 0;
-}
-
-static void AppExpressionInput_ReportRawSample(uint16_t raw_sample, const RuntimeConfigGlobal_t *global)
-{
-    static uint8_t report_started = 0U;
-    static uint32_t last_report_tick = 0U;
-    static uint16_t observed_min_raw = APP_EXPRESSION_INPUT_RAW_MAX;
-    static uint16_t observed_max_raw = 0U;
-    uint32_t now = HAL_GetTick();
-    uint16_t calibrated_sample = AppExpressionInput_ApplyCalibration(raw_sample, global);
-    uint16_t config_min = global ? global->expression_pedal_min_raw : RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MIN;
-    uint16_t config_max = global ? global->expression_pedal_max_raw : RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MAX;
-    uint8_t invert = global ? global->expression_pedal_invert : 0U;
-
-    if (raw_sample < observed_min_raw)
-        observed_min_raw = raw_sample;
-    if (raw_sample > observed_max_raw)
-        observed_max_raw = raw_sample;
-
-    if (report_started
-     && (now - last_report_tick) < APP_EXPRESSION_INPUT_RAW_DIAG_INTERVAL_MS)
-        return;
-
-    report_started = 1U;
-    last_report_tick = now;
-
-    printf("EXPRRAW t_ms=%lu raw=%u cal=%u seen_min=%u seen_max=%u cfg_min=%u cfg_max=%u inv=%u\r\n",
-           (unsigned long)now,
-           (unsigned)raw_sample,
-           (unsigned)calibrated_sample,
-           (unsigned)observed_min_raw,
-           (unsigned)observed_max_raw,
-           (unsigned)config_min,
-           (unsigned)config_max,
-           (unsigned)invert);
 }
 
 static void AppExpressionInput_InitAdc(void)

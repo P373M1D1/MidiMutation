@@ -152,6 +152,13 @@ void Presets_MarkDirty(void);
 uint8_t Presets_IsDirty(void);
 
 /**
+ * @brief  Return whether a persisted preset payload size can be loaded by this firmware.
+ *         Used by the shared preset/config image loader so both halves accept
+ *         the same legacy image shapes.
+ */
+uint8_t Presets_PersistentPayloadSizeIsSupported(uint32_t payload_size);
+
+/**
  * @brief  Save the runtime preset store to flash when dirty.
  * @return 1 if the store is now persisted or did not need saving, 0 on write failure.
  */

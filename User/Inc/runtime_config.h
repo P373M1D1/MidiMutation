@@ -246,8 +246,12 @@ void RuntimeConfig_MarkMetronomeDirty(void);
 uint8_t RuntimeConfig_IsDirty(void);
 void RuntimeConfig_ClearDirty(void);
 uint8_t RuntimeConfig_SaveIfDirty(void);
+uint8_t RuntimeConfig_PersistentStoreSaveIsBlocked(void);
+uint8_t RuntimeConfig_PersistentSnapshotLooksFactoryDefault(const RuntimeConfig_t *snapshot);
 void RuntimeConfig_CopyPersistentSaveSnapshot(RuntimeConfig_t *snapshot);
 void RuntimeConfig_FormatPersistentStoreStatusText(char *buffer, size_t buffer_size);
+void RuntimeConfig_FormatPersistentStoreHealthText(char *buffer, size_t buffer_size);
+void RuntimeConfig_PrintPersistentStoreDiagnostics(void);
 void RuntimeConfig_ApplySnapshot(const RuntimeConfig_t *snapshot);
 
 void RuntimeConfig_ResetToDefaults(void);

@@ -2,6 +2,7 @@
 
 #include "app/app_input.h"
 #include "app/app_metronome.h"
+#include "app/app_preset_latency_diag.h"
 #include "app/app_requests.h"
 #include "app/app_save_service.h"
 #include "app/app_state.h"
@@ -192,6 +193,7 @@ static void AppTimerEvents_Handle100MsTick(void)
     }
 
     AppTimerEvents_ServiceTimebendBacklogVisibility(diagnostics_guard_active);
+    AppPresetLatencyDiag_DiagnosticService();
 
     /* Spread heavy UART diagnostic prints across the 1s window so one loop
      * iteration does not block for multiple long printf calls back-to-back. */
@@ -243,6 +245,7 @@ static void AppTimerEvents_Handle100MsTick(void)
             Display_BpmDiagnosticService();
         break;
     case 8U:
+        LED_DiagnosticService();
         if (!diagnostics_guard_active)
             AppMetronome_DiagnosticService();
         break;

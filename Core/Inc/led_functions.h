@@ -91,6 +91,7 @@ void LED_TickUpdate(uint32_t now);
 void LED_HandleTimingCounterIrq(void);
 void LED_FlagTimingCounterIrq(void);
 void LED_ServiceDeferredTimingWork(void);
+void LED_DiagnosticService(void);
 
 /**
  * @brief  Return whether any transient visible feedback pulse is still active.

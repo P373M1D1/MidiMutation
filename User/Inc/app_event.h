@@ -62,6 +62,16 @@ typedef struct {
 
 void AppEvent_Init(void);
 uint8_t AppEvent_Push(const AppEvent_t *event);
+uint8_t AppEvent_CoalesceDelta(AppEventType_t type,
+                               uint8_t source,
+                               int16_t delta,
+                               uint32_t tick,
+                               int16_t min_value,
+                               int16_t max_value);
+uint8_t AppEvent_ReplacePending(AppEventType_t type,
+                                 uint8_t source,
+                                 int16_t value,
+                                 uint32_t tick);
 uint8_t AppEvent_Pop(AppEvent_t *event);
 uint32_t AppEvent_GetDroppedCount(void);
 void AppEvent_DiagnosticService(void);

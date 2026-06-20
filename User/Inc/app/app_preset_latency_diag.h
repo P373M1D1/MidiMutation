@@ -22,6 +22,7 @@ void AppPresetLatencyDiag_OnActivationApplied(void);
 void AppPresetLatencyDiag_OnOverlayResolved(uint8_t is_mute_overlay);
 void AppPresetLatencyDiag_OnLedIndicatorUpdated(void);
 void AppPresetLatencyDiag_OnDisplayRefreshComplete(void);
+void AppPresetLatencyDiag_DiagnosticService(void);
 
 #ifdef __cplusplus
 }

@@ -63,6 +63,20 @@ function Get-LineFieldInt
     return [int]$match.Groups[1].Value
 }
 
+function Get-LineFieldMap
+{
+    param([string]$Line)
+
+    $fieldMap = @{}
+    $allMatches = [regex]::Matches($Line, "([A-Za-z0-9_]+)=(-?\d+)")
+    foreach ($m in $allMatches)
+    {
+        $fieldMap[$m.Groups[1].Value] = [long]$m.Groups[2].Value
+    }
+
+    return $fieldMap
+}
+
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $resolvedLogCandidate = Resolve-RepoPath -PathValue $LogPath -RepoRoot $repoRoot
 $resolvedProfileCandidate = Resolve-RepoPath -PathValue $ProfilePath -RepoRoot $repoRoot
@@ -85,6 +99,10 @@ $thresholds = @{
     max_jitter_settle_us = 600
     jitter_exit_decay_ratio = 0.85
     min_tbpress_windows_for_jitter_check = 1
+    max_led_beat_on_us = 1000
+    max_clock_beat_service_us = 1000
+    max_enc2_event_drop_delta = 0
+    max_enc2_ui_us = 100000
 }
 
 if (Test-Path $resolvedProfileCandidate)
@@ -100,6 +118,9 @@ $allLines = Get-Content -Path $resolvedLogCandidate
 $lineCount = $allLines.Count
 
 $tbEvents = @()
+$enc2TurnEvents = @()
+$ledSamples = @()
+$presetLatEnc2Samples = @()
 $clkdiagLines = @()
 $lockedSamples = @()
 
@@ -111,17 +132,43 @@ for ($index = 0; $index -lt $allLines.Count; $index++)
     if ($line -match "^TBPRESS\s+(ENTER|UPDATE|EXIT)\s+")
     {
         $eventType = $Matches[1]
-        $fieldMap = @{}
-        $allMatches = [regex]::Matches($line, "([A-Za-z0-9_]+)=(-?\d+)")
-        foreach ($m in $allMatches)
-        {
-            $fieldMap[$m.Groups[1].Value] = [int]$m.Groups[2].Value
-        }
+        $fieldMap = Get-LineFieldMap -Line $line
 
         $tbEvents += [pscustomobject]@{
             Type = $eventType
             LineNumber = $lineNumber
             Fields = $fieldMap
+            RawLine = $line
+        }
+    }
+
+    if ($line -match "^ENC2(?:TURN|PRESS)\s+(ENTER|UPDATE|EXIT)\s+")
+    {
+        $eventType = $Matches[1]
+        $fieldMap = Get-LineFieldMap -Line $line
+
+        $enc2TurnEvents += [pscustomobject]@{
+            Type = $eventType
+            LineNumber = $lineNumber
+            Fields = $fieldMap
+            RawLine = $line
+        }
+    }
+
+    if ($line -match "^LEDDIAG\s+")
+    {
+        $ledSamples += [pscustomobject]@{
+            LineNumber = $lineNumber
+            Fields = Get-LineFieldMap -Line $line
+            RawLine = $line
+        }
+    }
+
+    if ($line -match "^PRESETLAT\s+.*kind=enc2")
+    {
+        $presetLatEnc2Samples += [pscustomobject]@{
+            LineNumber = $lineNumber
+            Fields = Get-LineFieldMap -Line $line
             RawLine = $line
         }
     }
@@ -142,6 +189,8 @@ for ($index = 0; $index -lt $allLines.Count; $index++)
                 tb_cross_backlog_now = Get-LineFieldInt -Line $line -FieldName "tb_cross_backlog_now"
                 tb_drop = Get-LineFieldInt -Line $line -FieldName "tb_drop"
                 tb_miss = Get-LineFieldInt -Line $line -FieldName "tb_miss"
+                beat_service_max_us = Get-LineFieldInt -Line $line -FieldName "beat_service_max_us"
+                beat_service_samples = Get-LineFieldInt -Line $line -FieldName "beat_service_samples"
             }
         }
     }
@@ -158,6 +207,19 @@ $tbWindowSizeCurrent = 0
 $tbWindowSizeMax = 0
 $tbWindows = @()
 $tbUnmatchedEnterCount = 0
+$enc2DropDeltaTotal = 0
+$enc2MaxDropDelta = 0
+$enc2MaxStepsDelta = 0
+$enc2MaxActUs = 0
+$enc2MaxLedUs = 0
+$enc2MaxUiUs = 0
+$enc2UiSamples = 0
+$enc2LastType = "none"
+$enc2OpenWindow = $null
+$enc2WindowSizeCurrent = 0
+$enc2WindowSizeMax = 0
+$enc2Windows = @()
+$enc2UnmatchedEnterCount = 0
 
 foreach ($event in $tbEvents)
 {
@@ -240,10 +302,117 @@ if ($null -ne $tbOpenWindow)
     }
 }
 
+foreach ($event in $enc2TurnEvents)
+{
+    $fields = $event.Fields
+    $stepsDelta = if ($fields.ContainsKey("steps_d")) { [long]$fields["steps_d"] } else { 0 }
+    $dropDelta = if ($fields.ContainsKey("drop_d")) { [long]$fields["drop_d"] } else { 0 }
+    $actMaxUs = if ($fields.ContainsKey("act_max_us")) { [long]$fields["act_max_us"] } else { 0 }
+    $ledMaxUs = if ($fields.ContainsKey("led_max_us")) { [long]$fields["led_max_us"] } else { 0 }
+    $uiMaxUs = if ($fields.ContainsKey("ui_max_us")) { [long]$fields["ui_max_us"] } else { 0 }
+    $uiSamples = if ($fields.ContainsKey("ui_samp")) { [long]$fields["ui_samp"] } else { 0 }
+
+    if ($stepsDelta -gt $enc2MaxStepsDelta) { $enc2MaxStepsDelta = $stepsDelta }
+    if ($dropDelta -gt $enc2MaxDropDelta) { $enc2MaxDropDelta = $dropDelta }
+    if ($actMaxUs -gt $enc2MaxActUs) { $enc2MaxActUs = $actMaxUs }
+    if ($ledMaxUs -gt $enc2MaxLedUs) { $enc2MaxLedUs = $ledMaxUs }
+    if ($uiMaxUs -gt $enc2MaxUiUs) { $enc2MaxUiUs = $uiMaxUs }
+
+    $enc2DropDeltaTotal += $dropDelta
+    $enc2UiSamples += $uiSamples
+    $enc2LastType = $event.Type
+
+    if ($event.Type -eq "ENTER")
+    {
+        if ($null -ne $enc2OpenWindow)
+        {
+            $enc2UnmatchedEnterCount++
+        }
+
+        $enc2OpenWindow = [pscustomobject]@{
+            enter_line = $event.LineNumber
+            enter_steps = $stepsDelta
+        }
+        $enc2WindowSizeCurrent = 1
+    }
+    elseif ($event.Type -eq "UPDATE")
+    {
+        if ($null -ne $enc2OpenWindow)
+        {
+            $enc2WindowSizeCurrent++
+        }
+    }
+    elseif ($event.Type -eq "EXIT")
+    {
+        if ($null -ne $enc2OpenWindow)
+        {
+            $enc2WindowSizeCurrent++
+            if ($enc2WindowSizeCurrent -gt $enc2WindowSizeMax)
+            {
+                $enc2WindowSizeMax = $enc2WindowSizeCurrent
+            }
+
+            $enc2Windows += [pscustomobject]@{
+                enter_line = $enc2OpenWindow.enter_line
+                exit_line = $event.LineNumber
+                event_count = $enc2WindowSizeCurrent
+            }
+
+            $enc2OpenWindow = $null
+            $enc2WindowSizeCurrent = 0
+        }
+    }
+}
+
+if ($null -ne $enc2OpenWindow)
+{
+    $enc2UnmatchedEnterCount++
+    if ($enc2WindowSizeCurrent -gt $enc2WindowSizeMax)
+    {
+        $enc2WindowSizeMax = $enc2WindowSizeCurrent
+    }
+}
+
+$ledBeatMaxUs = 0
+$ledBeatSamplesTotal = 0
+$ledBeatRequestsTotal = 0
+$ledBeatDuplicatesTotal = 0
+$ledBeatSuppressedTotal = 0
+
+foreach ($sample in $ledSamples)
+{
+    $fields = $sample.Fields
+    $beatMaxUs = if ($fields.ContainsKey("beat_on_max_us")) { [long]$fields["beat_on_max_us"] } else { 0 }
+    $beatSamples = if ($fields.ContainsKey("beat_on_samples")) { [long]$fields["beat_on_samples"] } else { 0 }
+    $beatReq = if ($fields.ContainsKey("beat_req")) { [long]$fields["beat_req"] } else { 0 }
+    $beatDup = if ($fields.ContainsKey("beat_dup")) { [long]$fields["beat_dup"] } else { 0 }
+    $beatSupp = if ($fields.ContainsKey("beat_supp")) { [long]$fields["beat_supp"] } else { 0 }
+
+    if ($beatMaxUs -gt $ledBeatMaxUs) { $ledBeatMaxUs = $beatMaxUs }
+    $ledBeatSamplesTotal += $beatSamples
+    $ledBeatRequestsTotal += $beatReq
+    $ledBeatDuplicatesTotal += $beatDup
+    $ledBeatSuppressedTotal += $beatSupp
+}
+
+foreach ($sample in $presetLatEnc2Samples)
+{
+    $fields = $sample.Fields
+    $actUs = if ($fields.ContainsKey("act_us")) { [long]$fields["act_us"] } else { 0 }
+    $ledUs = if ($fields.ContainsKey("led_us")) { [long]$fields["led_us"] } else { 0 }
+    $uiUs = if ($fields.ContainsKey("ui_us")) { [long]$fields["ui_us"] } else { 0 }
+
+    if ($actUs -gt $enc2MaxActUs) { $enc2MaxActUs = $actUs }
+    if ($ledUs -gt $enc2MaxLedUs) { $enc2MaxLedUs = $ledUs }
+    if ($uiUs -gt $enc2MaxUiUs) { $enc2MaxUiUs = $uiUs }
+}
+
 $maxLockedPkPk = 0
 $lastLockedBacklog = $null
 $clkdiagDropMax = 0
 $clkdiagMissMax = 0
+$clockBeatServiceMaxUs = 0
+$clockBeatServiceSamples = 0
 
 foreach ($sample in $lockedSamples)
 {
@@ -266,15 +435,27 @@ foreach ($sample in $lockedSamples)
     {
         $clkdiagMissMax = $sample.tb_miss
     }
+
+    if ($null -ne $sample.beat_service_max_us -and $sample.beat_service_max_us -gt $clockBeatServiceMaxUs)
+    {
+        $clockBeatServiceMaxUs = $sample.beat_service_max_us
+    }
+
+    if ($null -ne $sample.beat_service_samples)
+    {
+        $clockBeatServiceSamples += $sample.beat_service_samples
+    }
 }
 
 $stressSeen = (($tbMaxBackNow -ge [int]$thresholds.stress_backlog_trigger) `
-    -or ($tbMaxJitter -ge [int]$thresholds.stress_jitter_trigger_us))
+    -or ($tbMaxJitter -ge [int]$thresholds.stress_jitter_trigger_us) `
+    -or ($enc2TurnEvents.Count -gt 0))
 
 $rows = @()
 
 $requireTbpressSignals = [bool]$thresholds.require_tbpress_signals
-if ($requireTbpressSignals)
+$enc2MonitorPresent = ($lineCount -gt 0 -and $enc2TurnEvents.Count -gt 0)
+if ($requireTbpressSignals -and -not $enc2MonitorPresent)
 {
     $volumePass = ($lineCount -gt 0 -and $tbEvents.Count -gt 0 -and $clkdiagLines.Count -gt 0)
     $volumeCheckName = "Monitor volume present (TBPRESS + CLKDIAG)"
@@ -282,9 +463,9 @@ if ($requireTbpressSignals)
 else
 {
     $volumePass = ($lineCount -gt 0 -and $clkdiagLines.Count -gt 0)
-    $volumeCheckName = "Monitor volume present (CLKDIAG required, TBPRESS optional)"
+    $volumeCheckName = "Monitor volume present (CLKDIAG required, turn stress optional)"
 }
-$rows += New-Row -Check $volumeCheckName -Result ($(if ($volumePass) { "PASS" } else { "FAIL" })) -Evidence (("lines={0}, TBPRESS={1}, CLKDIAG={2}") -f $lineCount, $tbEvents.Count, $clkdiagLines.Count)
+$rows += New-Row -Check $volumeCheckName -Result ($(if ($volumePass) { "PASS" } else { "FAIL" })) -Evidence (("lines={0}, TBPRESS={1}, ENC2TURN={2}, CLKDIAG={3}") -f $lineCount, $tbEvents.Count, $enc2TurnEvents.Count, $clkdiagLines.Count)
 
 $lockedCoveragePass = ($lockedSamples.Count -ge [int]$thresholds.min_locked_samples)
 $rows += New-Row -Check "LOCKED diagnostic coverage" -Result ($(if ($lockedCoveragePass) { "PASS" } else { "FAIL" })) -Evidence (("locked_samples={0}, min_required={1}") -f $lockedSamples.Count, [int]$thresholds.min_locked_samples)
@@ -359,6 +540,56 @@ if ($tbWindows.Count -ge [int]$thresholds.min_tbpress_windows_for_jitter_check)
     $jitterEvidence = (("enter_jit={0}, exit_jit={1}, settle_threshold={2}, decay_limit={3}") -f $lastWindow.enter_jitter, $lastWindow.exit_jitter, $maxSettle, $decayLimit)
 }
 $rows += New-Row -Check "Scheduling jitter settles after stress" -Result $jitterResult -Evidence $jitterEvidence
+
+$enc2WindowResult = "WARN"
+$enc2WindowEvidence = "No ENC2 turn windows observed"
+if ($enc2TurnEvents.Count -gt 0)
+{
+    $enc2WindowPass = ($enc2UnmatchedEnterCount -eq 0 -and $enc2Windows.Count -gt 0)
+    $enc2WindowResult = if ($enc2WindowPass) { "PASS" } else { "FAIL" }
+    $enc2WindowEvidence = (("windows={0}, unmatched_enters={1}, last_event={2}, max_steps_d={3}, max_events_while_active={4}") -f $enc2Windows.Count, $enc2UnmatchedEnterCount, $enc2LastType, $enc2MaxStepsDelta, $enc2WindowSizeMax)
+}
+$rows += New-Row -Check "ENC2 turn preset-change window observed" -Result $enc2WindowResult -Evidence $enc2WindowEvidence
+
+$enc2DropResult = "WARN"
+$enc2DropEvidence = "No ENC2 turn samples to score queue drops"
+if ($enc2TurnEvents.Count -gt 0)
+{
+    $enc2DropPass = ($enc2DropDeltaTotal -le [int]$thresholds.max_enc2_event_drop_delta)
+    $enc2DropResult = if ($enc2DropPass) { "PASS" } else { "FAIL" }
+    $enc2DropEvidence = (("drop_delta_sum={0}, max_drop_delta={1}, threshold={2}") -f $enc2DropDeltaTotal, $enc2MaxDropDelta, [int]$thresholds.max_enc2_event_drop_delta)
+}
+$rows += New-Row -Check "ENC2 turn event queue drops bounded" -Result $enc2DropResult -Evidence $enc2DropEvidence
+
+$enc2LatencyResult = "WARN"
+$enc2LatencyEvidence = "No ENC2 turn preset latency samples captured"
+if ($enc2UiSamples -gt 0 -or $presetLatEnc2Samples.Count -gt 0)
+{
+    $enc2LatencyPass = ($enc2MaxUiUs -le [int]$thresholds.max_enc2_ui_us)
+    $enc2LatencyResult = if ($enc2LatencyPass) { "PASS" } else { "FAIL" }
+    $enc2LatencyEvidence = (("act_max_us={0}, led_max_us={1}, ui_max_us={2}, ui_threshold={3}, presetlat_samples={4}") -f $enc2MaxActUs, $enc2MaxLedUs, $enc2MaxUiUs, [int]$thresholds.max_enc2_ui_us, $presetLatEnc2Samples.Count)
+}
+$rows += New-Row -Check "ENC2 turn preset activation metrics captured" -Result $enc2LatencyResult -Evidence $enc2LatencyEvidence
+
+$ledBeatResult = "WARN"
+$ledBeatEvidence = "No LEDDIAG beat samples captured"
+if ($ledBeatSamplesTotal -gt 0 -or $ledBeatRequestsTotal -gt 0)
+{
+    $ledBeatPass = ($ledBeatMaxUs -le [int]$thresholds.max_led_beat_on_us)
+    $ledBeatResult = if ($ledBeatPass) { "PASS" } else { "FAIL" }
+    $ledBeatEvidence = (("beat_on_max_us={0}, threshold={1}, samples={2}, requests={3}, duplicate={4}, suppressed={5}") -f $ledBeatMaxUs, [int]$thresholds.max_led_beat_on_us, $ledBeatSamplesTotal, $ledBeatRequestsTotal, $ledBeatDuplicatesTotal, $ledBeatSuppressedTotal)
+}
+$rows += New-Row -Check "Beat LED on-edge latency bounded" -Result $ledBeatResult -Evidence $ledBeatEvidence
+
+$clockBeatResult = "WARN"
+$clockBeatEvidence = "No LOCKED beat_service samples captured"
+if ($clockBeatServiceSamples -gt 0)
+{
+    $clockBeatPass = ($clockBeatServiceMaxUs -le [int]$thresholds.max_clock_beat_service_us)
+    $clockBeatResult = if ($clockBeatPass) { "PASS" } else { "FAIL" }
+    $clockBeatEvidence = (("beat_service_max_us={0}, threshold={1}, samples={2}") -f $clockBeatServiceMaxUs, [int]$thresholds.max_clock_beat_service_us, $clockBeatServiceSamples)
+}
+$rows += New-Row -Check "MIDI beat service latency bounded" -Result $clockBeatResult -Evidence $clockBeatEvidence
 
 $failCount = @($rows | Where-Object { $_.Result -eq "FAIL" }).Count
 $warnCount = @($rows | Where-Object { $_.Result -eq "WARN" }).Count

@@ -11,10 +11,12 @@
 #include "display_functions.h"
 #include "midi_functions.h"
 #include "presets.h"
+#include "runtime_config.h"
 
 void AppStartupBootstrap_Run(void)
 {
     AppBoard_InitStartupPeripherals();
+    RuntimeConfig_PrintPersistentStoreDiagnostics();
 
     AppState_SetTempoBpm(BPM_Flash_Load());
     if (!BPM_Flash_IsValid())

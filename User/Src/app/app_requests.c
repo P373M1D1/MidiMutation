@@ -7,6 +7,9 @@ static uint8_t app_ui_tick_100ms_event_pending = 0U;
 static uint8_t app_redraw_main_screen_event_pending = 0U;
 static uint8_t app_save_request_pending_mask = 0U;
 
+#define APP_REQUEST_ENCODER_TURN_MIN_VALUE (-127)
+#define APP_REQUEST_ENCODER_TURN_MAX_VALUE 127
+
 /* Maps each save kind to its pending-mask bit. */
 static uint8_t AppRequest_SaveMaskForKind(uint8_t save_kind)
 {
@@ -49,6 +52,17 @@ void App_QueueEncoderTurnEvent(uint8_t encoder_source, int8_t delta, uint32_t ti
     if (delta == 0)
         return;
 
+    if (encoder_source == APP_EVENT_SOURCE_ENC2
+     && AppEvent_CoalesceDelta(APP_EVENT_TYPE_ENCODER_TURN,
+                               encoder_source,
+                               (int16_t)delta,
+                               tick,
+                               APP_REQUEST_ENCODER_TURN_MIN_VALUE,
+                               APP_REQUEST_ENCODER_TURN_MAX_VALUE))
+    {
+        return;
+    }
+
     event.type = APP_EVENT_TYPE_ENCODER_TURN;
     event.source = encoder_source;
     event.value = (int16_t)delta;
@@ -90,6 +104,16 @@ void App_QueuePresetActivateEventWithSource(uint8_t preset_index,
     event.source = source;
     event.value = (int16_t)preset_index;
     event.tick = tick;
+
+    if (source == APP_EVENT_SOURCE_ENC2
+     && AppEvent_ReplacePending(APP_EVENT_TYPE_PRESET_ACTIVATE,
+                                source,
+                                event.value,
+                                event.tick))
+    {
+        return;
+    }
+
     (void)AppEvent_Push(&event);
 }
 

@@ -8,5 +8,9 @@
   "require_drop_on_stress": true,
   "max_jitter_settle_us": 450,
   "jitter_exit_decay_ratio": 0.75,
-  "min_tbpress_windows_for_jitter_check": 1
+  "min_tbpress_windows_for_jitter_check": 1,
+  "max_led_beat_on_us": 500,
+  "max_clock_beat_service_us": 500,
+  "max_enc2_event_drop_delta": 0,
+  "max_enc2_ui_us": 80000
 }

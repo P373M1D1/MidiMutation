@@ -10,6 +10,7 @@
 #include "runtime_config.h"
 #include "stm32f4xx_hal.h"
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 /* ── Bank names ─────────────────────────────────────────────────────────────
@@ -121,6 +122,26 @@ static uint8_t Presets_PayloadSizeIsSupported(size_t payload_size)
         return 1U;
 
     return Presets_TryInferLegacyRecordStride(payload_size, &inferred_stride);
+}
+
+uint8_t Presets_PersistentPayloadSizeIsSupported(uint32_t payload_size)
+{
+    return Presets_PayloadSizeIsSupported((size_t)payload_size);
+}
+
+static uint8_t Presets_RuntimeStoreLooksFactoryDefault(void)
+{
+    for (uint8_t bank_index = 0U; bank_index < PRESET_BANK_COUNT; ++bank_index)
+    {
+        if (memcmp(&preset_store[(size_t)bank_index * PRESETS_PER_BANK],
+                   preset_empty_bank,
+                   sizeof(preset_empty_bank)) != 0)
+        {
+            return 0U;
+        }
+    }
+
+    return 1U;
 }
 
 static void Presets_SetFunctionButtonDefaults(RuntimeConfigFunctionButton_t *function_button)
@@ -451,6 +472,22 @@ static uint8_t Presets_FlashSaveRuntimeStore(void)
 
     target_address = preset_flash_slot_addresses[target_slot_index];
     target_sector = preset_flash_slot_sectors[target_slot_index];
+
+    if (RuntimeConfig_PersistentStoreSaveIsBlocked())
+    {
+        printf("PSTORE save=blocked reason=loaded_defaults target=%c\r\n",
+               target_slot_index ? 'B' : 'A');
+        return 0U;
+    }
+
+    if (Presets_FlashV3ImageIsValid(target_address, NULL)
+     && Presets_RuntimeStoreLooksFactoryDefault()
+     && RuntimeConfig_PersistentSnapshotLooksFactoryDefault(config))
+    {
+        printf("PSTORE save=blocked reason=factory_default_over_valid_fallback target=%c\r\n",
+               target_slot_index ? 'B' : 'A');
+        return 0U;
+    }
 
     header.magic = PERSISTENT_STORE_MAGIC_V3;
     header.version = PERSISTENT_STORE_VERSION_PRESETS_AND_CONFIG_ATOMIC_METRONOME;

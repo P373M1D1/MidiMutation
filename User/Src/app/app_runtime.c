@@ -46,6 +46,10 @@ static uint8_t AppRuntime_PumpEvents(void);
 static void AppRuntime_ServiceTimebendPopup(const RuntimeConfigGlobal_t *global);
 static void AppRuntime_SleepIfIdle(uint8_t queue_was_drained, uint8_t feedback_active);
 static void AppRuntime_ScheduleTimerEvents(void);
+static void AppRuntime_QueueTimerEventIfDue(AppEventType_t type,
+                                            uint32_t *last_tick,
+                                            uint32_t interval_ms,
+                                            uint32_t now);
 static uint32_t AppRuntime_TimerDiffUs(uint32_t end, uint32_t start);
 
 /* Runs one foreground iteration of the application queue pump and idle scheduler. */
@@ -177,29 +181,48 @@ static void AppRuntime_ScheduleTimerEvents(void)
     if (app_runtime_last_timer_1000ms_tick == 0U)
         app_runtime_last_timer_1000ms_tick = now;
 
-    while ((uint32_t)(now - app_runtime_last_timer_10ms_tick) >= APP_RUNTIME_TIMER_10MS_INTERVAL_MS)
-    {
-        AppEvent_t event = { APP_EVENT_TYPE_TIMER_10MS, APP_EVENT_SOURCE_NONE, 0, now };
+    AppRuntime_QueueTimerEventIfDue(APP_EVENT_TYPE_TIMER_10MS,
+                                    &app_runtime_last_timer_10ms_tick,
+                                    APP_RUNTIME_TIMER_10MS_INTERVAL_MS,
+                                    now);
+    AppRuntime_QueueTimerEventIfDue(APP_EVENT_TYPE_TIMER_100MS,
+                                    &app_runtime_last_timer_100ms_tick,
+                                    APP_RUNTIME_TIMER_100MS_INTERVAL_MS,
+                                    now);
+    AppRuntime_QueueTimerEventIfDue(APP_EVENT_TYPE_TIMER_1000MS,
+                                    &app_runtime_last_timer_1000ms_tick,
+                                    APP_RUNTIME_TIMER_1000MS_INTERVAL_MS,
+                                    now);
+}
 
-        app_runtime_last_timer_10ms_tick += APP_RUNTIME_TIMER_10MS_INTERVAL_MS;
-        (void)AppEvent_Push(&event);
-    }
+static void AppRuntime_QueueTimerEventIfDue(AppEventType_t type,
+                                            uint32_t *last_tick,
+                                            uint32_t interval_ms,
+                                            uint32_t now)
+{
+    AppEvent_t event;
+    uint32_t elapsed_ms;
+    uint32_t elapsed_ticks;
 
-    while ((uint32_t)(now - app_runtime_last_timer_100ms_tick) >= APP_RUNTIME_TIMER_100MS_INTERVAL_MS)
-    {
-        AppEvent_t event = { APP_EVENT_TYPE_TIMER_100MS, APP_EVENT_SOURCE_NONE, 0, now };
+    if (last_tick == NULL || interval_ms == 0U)
+        return;
 
-        app_runtime_last_timer_100ms_tick += APP_RUNTIME_TIMER_100MS_INTERVAL_MS;
-        (void)AppEvent_Push(&event);
-    }
+    elapsed_ms = now - *last_tick;
+    if (elapsed_ms < interval_ms)
+        return;
 
-    while ((uint32_t)(now - app_runtime_last_timer_1000ms_tick) >= APP_RUNTIME_TIMER_1000MS_INTERVAL_MS)
-    {
-        AppEvent_t event = { APP_EVENT_TYPE_TIMER_1000MS, APP_EVENT_SOURCE_NONE, 0, now };
+    elapsed_ticks = elapsed_ms / interval_ms;
+    *last_tick += elapsed_ticks * interval_ms;
 
-        app_runtime_last_timer_1000ms_tick += APP_RUNTIME_TIMER_1000MS_INTERVAL_MS;
-        (void)AppEvent_Push(&event);
-    }
+    event.type = type;
+    event.source = APP_EVENT_SOURCE_NONE;
+    event.value = 0;
+    event.tick = now;
+
+    if (AppEvent_ReplacePending(type, APP_EVENT_SOURCE_NONE, 0, now))
+        return;
+
+    (void)AppEvent_Push(&event);
 }
 
 /* Shows or hides the live timebend overlay from runtime engagement state. */

@@ -14,9 +14,10 @@
 #define APP_STARTUP_STATUS_TEXT_X 10U
 #define APP_STARTUP_STATUS_TEXT_Y 10U
 #define APP_STARTUP_STATUS_FONT Font_7x10
-#define APP_STARTUP_STATUS_SUBTEXT_Y (APP_STARTUP_STATUS_TEXT_Y + APP_STARTUP_STATUS_FONT.height + 2U)
+#define APP_STARTUP_STATUS_HEALTH_Y (APP_STARTUP_STATUS_TEXT_Y + APP_STARTUP_STATUS_FONT.height + 2U)
+#define APP_STARTUP_STATUS_SUBTEXT_Y (APP_STARTUP_STATUS_HEALTH_Y + APP_STARTUP_STATUS_FONT.height + 2U)
 #define APP_STARTUP_STATUS_FG_COLOUR WHITE
-#define APP_STARTUP_STATUS_TEXT_BUFFER_SIZE 16U
+#define APP_STARTUP_STATUS_TEXT_BUFFER_SIZE 32U
 #define APP_STARTUP_LOADING_BAR_MS_DEFAULT 1000U
 
 #define APP_STARTUP_SYSTEM_CLOCK_PROMOTION_RETRY_MS 50U
@@ -43,6 +44,13 @@ static void AppStartupDisplay_DrawPersistentStoreStatus(void)
     RuntimeConfig_FormatPersistentStoreStatusText(status_text, sizeof(status_text));
     ST7796_WriteStringTransparent(APP_STARTUP_STATUS_TEXT_X,
                                   APP_STARTUP_STATUS_TEXT_Y,
+                                  status_text,
+                                  APP_STARTUP_STATUS_FONT,
+                                  APP_STARTUP_STATUS_FG_COLOUR);
+
+    RuntimeConfig_FormatPersistentStoreHealthText(status_text, sizeof(status_text));
+    ST7796_WriteStringTransparent(APP_STARTUP_STATUS_TEXT_X,
+                                  APP_STARTUP_STATUS_HEALTH_Y,
                                   status_text,
                                   APP_STARTUP_STATUS_FONT,
                                   APP_STARTUP_STATUS_FG_COLOUR);

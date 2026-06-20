@@ -4,10 +4,13 @@
 #include "stm32f4xx_hal.h"
 #include "midi/clock_engine.h"
 
+#include <stdio.h>
+
 #define LED_PULSE_MS  50U  /* pulse width for all LED blinks */
 #define LED_PULSE_US ((uint32_t)LED_PULSE_MS * 1000UL)
 #define LED_TIMING_COMPARE_GUARD_US 20UL //
 #define LED_BEAT_DUPLICATE_GUARD_US 80000UL
+#define LED_DIAGNOSTIC_PERIOD_MS 1000U
 #define BUTTON_MONITOR_LED_PINS_MASK (PRESET_LED1_Pin | PRESET_LED2_Pin | PRESET_LED3_Pin | PRESET_LED4_Pin \
                                     | PRESET_LED5_Pin | PRESET_LED6_Pin | PRESET_LED7_Pin | PRESET_LED8_Pin \
                                     | PRESET_LED9_Pin | PRESET_LED10_Pin | PRESET_LED11_Pin)
@@ -20,10 +23,19 @@ static volatile uint32_t midi_in_off_tick = 0U; /* PF15      – MIDI in start  
 static volatile uint8_t beat_pulse_compare_active = 0U;
 static volatile uint32_t beat_pulse_compare_on_us = 0U;
 static volatile uint32_t beat_pulse_compare_off_us = 0U;
+static volatile uint32_t beat_pulse_compare_anchor_us = 0U;
+static volatile uint8_t beat_pulse_compare_anchor_valid = 0U;
 static volatile uint32_t beat_pulse_last_due_us = 0U;
 static volatile uint8_t led_timing_compare_pending = 0U;
 static volatile uint8_t led_all_outputs_suppressed = 0U;
 static volatile uint8_t led_beat_output_suppressed = 0U;
+static volatile uint32_t led_beat_latency_sum_us = 0U;
+static volatile uint32_t led_beat_latency_max_us = 0U;
+static volatile uint32_t led_beat_latency_count = 0U;
+static volatile uint32_t led_beat_request_count = 0U;
+static volatile uint32_t led_beat_duplicate_count = 0U;
+static volatile uint32_t led_beat_suppressed_count = 0U;
+static uint32_t led_last_diagnostic_tick_ms = 0U;
 static uint16_t active_button_led_pin = 0U; /* one active selection LED across preset/random/mute */
 static uint8_t special_function_led_active = 0U; /* sticky state for button 10 mode */
 
@@ -37,6 +49,8 @@ __attribute__((section(".RamFunc")))
 static uint32_t LED_TimingNowUs(void);
 __attribute__((section(".RamFunc")))
 static uint8_t LED_TimeReachedUs(uint32_t now_us, uint32_t due_us);
+__attribute__((section(".RamFunc")))
+static uint32_t LED_ElapsedNonnegativeUs(uint32_t now_us, uint32_t anchor_us);
 __attribute__((section(".RamFunc")))
 static void LED_ArmBeatPulseCompare(uint32_t due_us);
 __attribute__((section(".RamFunc")))
@@ -236,6 +250,14 @@ static uint8_t LED_TimeReachedUs(uint32_t now_us, uint32_t due_us)
 }
 
 __attribute__((section(".RamFunc")))
+static uint32_t LED_ElapsedNonnegativeUs(uint32_t now_us, uint32_t anchor_us)
+{
+    return LED_TimeReachedUs(now_us, anchor_us)
+        ? (now_us - anchor_us)
+        : 0U;
+}
+
+__attribute__((section(".RamFunc")))
 static void LED_ArmBeatPulseCompare(uint32_t due_us)
 {
     uint32_t now_us = LED_TimingNowUs();
@@ -255,6 +277,8 @@ static void LED_DisarmBeatPulseCompare(void)
     beat_pulse_compare_active = 0U;
     beat_pulse_compare_on_us = 0U;
     beat_pulse_compare_off_us = 0U;
+    beat_pulse_compare_anchor_us = 0U;
+    beat_pulse_compare_anchor_valid = 0U;
     TIM2->DIER &= ~TIM_DIER_CC3IE;
     TIM2->SR = ~TIM_SR_CC3IF;
     HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
@@ -287,10 +311,21 @@ void LED_ServiceDeferredTimingWork(void)
 
     if (!beat_pulse_compare_active)
     {
+        uint32_t beat_latency_us;
+
         /* Pulse width must be measured from the actual ON edge. Anchors can
          * legitimately arrive in the past under load, so deriving OFF from the
          * anchor shortens/lengthens visible pulse width. */
         now_us = LED_TimingNowUs();
+        if (beat_pulse_compare_anchor_valid)
+        {
+            beat_latency_us = LED_ElapsedNonnegativeUs(now_us,
+                                                       beat_pulse_compare_anchor_us);
+            led_beat_latency_sum_us += beat_latency_us;
+            if (beat_latency_us > led_beat_latency_max_us)
+                led_beat_latency_max_us = beat_latency_us;
+            led_beat_latency_count++;
+        }
         HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_SET);
         beat_pulse_compare_on_us = now_us;
         beat_pulse_compare_off_us = now_us + LED_PULSE_US;
@@ -364,6 +399,7 @@ void LED_BeatPulseAtUs(uint32_t start_us)
     {
         primask = __get_PRIMASK();
         __disable_irq();
+        led_beat_suppressed_count++;
         LED_DisarmBeatPulseCompare();
         if (primask == 0U)
             __enable_irq();
@@ -386,6 +422,7 @@ void LED_BeatPulseAtUs(uint32_t start_us)
         elapsed_since_last_due_us = due_us - beat_pulse_last_due_us;
         if (elapsed_since_last_due_us < LED_BEAT_DUPLICATE_GUARD_US)
         {
+            led_beat_duplicate_count++;
             if (primask == 0U)
                 __enable_irq();
             return;
@@ -395,7 +432,10 @@ void LED_BeatPulseAtUs(uint32_t start_us)
     beat_pulse_compare_active = 0U;
     beat_pulse_compare_on_us = due_us;
     beat_pulse_compare_off_us = 0U;
+    beat_pulse_compare_anchor_us = start_us;
+    beat_pulse_compare_anchor_valid = 1U;
     beat_pulse_last_due_us = due_us;
+    led_beat_request_count++;
     HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
     LED_ArmBeatPulseCompare(due_us);
     if (primask == 0U)
@@ -592,4 +632,48 @@ void LED_Update(void)
 
     /* Re-apply button indicator state in case mode changed */
     LED_ApplyButtonIndicatorState();
+}
+
+void LED_DiagnosticService(void)
+{
+    uint32_t now_ms = HAL_GetTick();
+    uint32_t latency_sum_us;
+    uint32_t latency_max_us;
+    uint32_t latency_count;
+    uint32_t request_count;
+    uint32_t duplicate_count;
+    uint32_t suppressed_count;
+    uint32_t primask;
+
+    if ((now_ms - led_last_diagnostic_tick_ms) < LED_DIAGNOSTIC_PERIOD_MS)
+        return;
+
+    led_last_diagnostic_tick_ms = now_ms;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    latency_sum_us = led_beat_latency_sum_us;
+    latency_max_us = led_beat_latency_max_us;
+    latency_count = led_beat_latency_count;
+    request_count = led_beat_request_count;
+    duplicate_count = led_beat_duplicate_count;
+    suppressed_count = led_beat_suppressed_count;
+    led_beat_latency_sum_us = 0U;
+    led_beat_latency_max_us = 0U;
+    led_beat_latency_count = 0U;
+    led_beat_request_count = 0U;
+    led_beat_duplicate_count = 0U;
+    led_beat_suppressed_count = 0U;
+    if (primask == 0U)
+        __enable_irq();
+
+    printf("LEDDIAG beat_on_avg_us=%lu beat_on_max_us=%lu beat_on_samples=%lu beat_req=%lu beat_dup=%lu beat_supp=%lu\r\n",
+           (unsigned long)((latency_count != 0U)
+               ? (latency_sum_us / latency_count)
+               : 0U),
+           (unsigned long)latency_max_us,
+           (unsigned long)latency_count,
+           (unsigned long)request_count,
+           (unsigned long)duplicate_count,
+           (unsigned long)suppressed_count);
 }
