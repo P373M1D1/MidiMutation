@@ -42,6 +42,9 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | **MIDI UART Ports**                                                                           |
 | PD0         | UART4_RX (AF11) — Morpho CN11                         | MIDI In 2 monitor input |
 | PD1         | UART4_TX (AF11) — Morpho CN11                         | MIDI Out 1 — smart output (preset MIDI + internal/external clock) |
+| PD2         | UART5_RX (AF8)                                        | MIDI In 3 opto-isolated input |
+| PC7         | USART6_RX (AF8)                                       | MIDI In 4 opto-isolated input |
+| PG0         | UART9_RX (AF11)                                       | MIDI In 5 opto-isolated input |
 | PC12        | Repurposed from UART5_TX spare route                  | Now used by USER SD SPI3 MOSI |
 | PD5         | USART2_TX (AF7) — Morpho CN11                         | MIDI Thru — soft-thru copy of MIDI In |
 | PD6         | USART2_RX (AF7) — Morpho CN11                         | MIDI In (opto-isolated input) |
@@ -73,7 +76,7 @@ Reference: https://os.mbed.com/platforms/ST-Nucleo-F413ZH/
 | PF13        | Button 13 LED output                                  | Pushbutton 13 LED             |
 | **Encoder button LEDs — GPIO output**                                                         |
 | PF15        | MIDI In activity LED output                           | MIDI In indicator LED         |
-| PG0         | MIDI Out activity LED output                          | MIDI Out indicator LED        |
+| PG0         | Reassigned to UART9_RX (AF11)                         | Not available for MIDI Out indicator LED |
 | **Metronome PWM Output**                                                                         |
 | PB8         | TIM4_CH3 PWM output (AF2), manually configured in firmware | Metronome click output    |
 | **Tap Tempo Input**                                                                           |

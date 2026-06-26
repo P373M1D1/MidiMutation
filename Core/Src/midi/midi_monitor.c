@@ -29,6 +29,9 @@ static volatile uint32_t midi_monitor_revision = 0U;
 static volatile uint8_t midi_monitor_changed_event_pending = 0U;
 static MidiMonitorParserState_t midi_monitor_uart2_parser = { 0U };
 static MidiMonitorParserState_t midi_monitor_uart4_parser = { 0U };
+static MidiMonitorParserState_t midi_monitor_uart5_parser = { 0U };
+static MidiMonitorParserState_t midi_monitor_usart6_parser = { 0U };
+static MidiMonitorParserState_t midi_monitor_uart9_parser = { 0U };
 
 static void MidiMonitor_ResetParser(MidiMonitorParserState_t *parser);
 static uint8_t MidiMonitor_ExpectedDataCount(uint8_t status);
@@ -48,6 +51,9 @@ void MidiMonitor_Init(void)
     midi_monitor_changed_event_pending = 0U;
     MidiMonitor_ResetParser(&midi_monitor_uart2_parser);
     MidiMonitor_ResetParser(&midi_monitor_uart4_parser);
+    MidiMonitor_ResetParser(&midi_monitor_uart5_parser);
+    MidiMonitor_ResetParser(&midi_monitor_usart6_parser);
+    MidiMonitor_ResetParser(&midi_monitor_uart9_parser);
 }
 
 void MidiMonitor_ReceiveByte(uint8_t source_uart, uint8_t byte)
@@ -434,6 +440,15 @@ static MidiMonitorParserState_t *MidiMonitor_GetParser(uint8_t source_uart)
 
     case MIDI_MONITOR_SOURCE_UART4:
         return &midi_monitor_uart4_parser;
+
+    case MIDI_MONITOR_SOURCE_UART5:
+        return &midi_monitor_uart5_parser;
+
+    case MIDI_MONITOR_SOURCE_USART6:
+        return &midi_monitor_usart6_parser;
+
+    case MIDI_MONITOR_SOURCE_UART9:
+        return &midi_monitor_uart9_parser;
 
     default:
         return NULL;

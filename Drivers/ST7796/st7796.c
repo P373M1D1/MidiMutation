@@ -489,6 +489,32 @@ void ST7796_DrawImageSwapRB(uint16_t x, uint16_t y, uint16_t w, uint16_t h, cons
     ST7796_CS_Set();
 }
 
+uint8_t ST7796_BeginImageWrite(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
+{
+    if (x + w > ST7796_WIDTH || y + h > ST7796_HEIGHT) return 0U;
+
+    ST7796_SetAddressWindow(x, y, x + w - 1, y + h - 1);
+    return 1U;
+}
+
+void ST7796_WriteImagePixels(const uint16_t *data, uint32_t pixel_count)
+{
+    if (!data || pixel_count == 0U) return;
+
+    ST7796_CS_Clr();
+    ST7796_DC_Set();
+
+    ST7796_TransmitImagePixels(data, pixel_count);
+
+    ST7796_CS_Set();
+}
+
+void ST7796_EndImageWrite(void)
+{
+    ST7796_CS_Set();
+    ST7796_DC_Set();
+}
+
 void ST7796_FadeIn(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                    const uint16_t *data, uint8_t steps, uint16_t step_delay_ms)
 {

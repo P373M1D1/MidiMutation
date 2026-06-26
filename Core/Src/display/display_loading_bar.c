@@ -79,11 +79,11 @@ void Display_LoadingBar(uint32_t duration_ms, void (*service_hook)(void))
 
     Display_LoadingBarSetText(Display_LoadingBarSelectStartupLine(), LOADING_SCREEN_TEXT_COLOUR);
 
-    ST7796_DrawRectangle(LOADING_BAR_X,
-                         LOADING_BAR_Y,
-                         (uint16_t)(LOADING_BAR_X + LOADING_BAR_W - 1U),
-                         (uint16_t)(LOADING_BAR_Y + LOADING_BAR_H - 1U),
-                         LOADING_SCREEN_BAR_COLOUR);
+    //ST7796_DrawRectangle(LOADING_BAR_X,
+    //                     LOADING_BAR_Y,
+    //                     (uint16_t)(LOADING_BAR_X + LOADING_BAR_W - 1U),
+    //                     (uint16_t)(LOADING_BAR_Y + LOADING_BAR_H - 1U),
+    //                     LOADING_SCREEN_BAR_COLOUR);
 
     uint32_t start = HAL_GetTick();
     uint16_t prev_fill = 0U;

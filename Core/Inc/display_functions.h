@@ -107,6 +107,10 @@ void Display_PresetEditRefreshCurrentField(const Preset_t *p);
 void Display_ShowSavingPopup(void);
 /** Hides the saving popup overlay and restores the obscured content. */
 void Display_HideSavingPopup(const Preset_t *p);
+/** Shows the manual BACKUP TO SD progress popup. */
+void Display_ShowBackupPopup(void);
+/** Shows a manual backup status popup using the same badge area. */
+void Display_ShowBackupPopupMessage(const char *message);
 /** Shows the timebend popup overlay. */
 void Display_ShowTimebendPopup(void);
 /** Hides the timebend popup overlay and restores the obscured content. */

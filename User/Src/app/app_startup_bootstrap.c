@@ -16,7 +16,6 @@
 void AppStartupBootstrap_Run(void)
 {
     AppBoard_InitStartupPeripherals();
-    RuntimeConfig_PrintPersistentStoreDiagnostics();
 
     AppState_SetTempoBpm(BPM_Flash_Load());
     if (!BPM_Flash_IsValid())
@@ -32,4 +31,6 @@ void AppStartupBootstrap_Run(void)
     AppInputBoard_InitGpio();
     AppInput_Init();
     AppButtonMonitor_Init();
+
+    RuntimeConfig_PrintPersistentStoreDiagnostics();
 }

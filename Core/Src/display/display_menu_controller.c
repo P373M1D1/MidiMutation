@@ -6,11 +6,15 @@
 #include "display/display_menu_page_midi_monitor.h"
 #include "display/display_menu_pages.h"
 #include "display/display_value_helpers.h"
+#include "app/app_config_backup.h"
 #include "app/app_expression_input.h"
 #include "midi/midi_monitor.h"
 #include "midi_devices.h"
 #include "presets.h"
 #include "runtime_config.h"
+#include "stm32f4xx_hal.h"
+
+#define DISPLAY_BACKUP_RESULT_POPUP_MS 1200U
 
 /* Menu controller and focus/navigation logic.
  *
@@ -24,6 +28,48 @@
 static uint8_t Display_GetFunctionButtonMessageFieldCount(uint8_t row_index)
 {
     return (row_index < RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT) ? 4U : 6U;
+}
+
+static const char *Display_GetBackupResultPopupText(AppConfigBackupResult_t result)
+{
+    switch (result)
+    {
+    case APP_CONFIG_BACKUP_RESULT_OK:
+        return "BACKUP DONE";
+    case APP_CONFIG_BACKUP_RESULT_PARTIAL:
+        return "BACKUP PARTIAL";
+    case APP_CONFIG_BACKUP_RESULT_NO_SD_CARD:
+        return "NO SD CARD";
+    case APP_CONFIG_BACKUP_RESULT_SD_UNAVAILABLE:
+        return "SD NOT READY";
+    case APP_CONFIG_BACKUP_RESULT_BLOCKED_DEFAULTS:
+        return "LOADED DEFAULTS";
+    case APP_CONFIG_BACKUP_RESULT_FACTORY_DEFAULT:
+        return "FACTORY DEFAULTS";
+    case APP_CONFIG_BACKUP_RESULT_FAILED:
+    default:
+        return "BACKUP FAILED";
+    }
+}
+
+static const char *Display_GetRestoreResultPopupText(AppConfigRestoreResult_t result)
+{
+    switch (result)
+    {
+    case APP_CONFIG_RESTORE_RESULT_OK:
+        return "RESTORE DONE";
+    case APP_CONFIG_RESTORE_RESULT_NO_SD_CARD:
+        return "NO SD CARD";
+    case APP_CONFIG_RESTORE_RESULT_SD_UNAVAILABLE:
+        return "SD NOT READY";
+    case APP_CONFIG_RESTORE_RESULT_FILE_NOT_FOUND:
+        return "NO BACKUP";
+    case APP_CONFIG_RESTORE_RESULT_BAD_FORMAT:
+        return "BAD BACKUP";
+    case APP_CONFIG_RESTORE_RESULT_FAILED:
+    default:
+        return "RESTORE FAILED";
+    }
 }
 
 static uint8_t Display_GetFunctionButtonFocusFieldCount(uint8_t selection_index)
@@ -95,10 +141,7 @@ static void Display_SetFunctionButtonFocusIndex(uint16_t focus_index)
 
 static uint8_t Display_GetDeviceEditFocusFieldCount(uint8_t selection_index)
 {
-    if (selection_index >= 3U && selection_index <= 5U)
-        return 2U;
-
-    return 1U;
+    return Display_GetMenuDeviceEditFocusFieldCount(selection_index);
 }
 
 static uint16_t Display_GetDeviceEditFocusCount(void)
@@ -118,9 +161,7 @@ static uint16_t Display_GetDeviceEditFocusIndex(void)
     for (uint8_t selection_index = 0U; selection_index < display_state.menu_device_edit_selection_index; ++selection_index)
         focus_index = (uint16_t)(focus_index + Display_GetDeviceEditFocusFieldCount(selection_index));
 
-    if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_DEVICE_EDIT
-     && display_state.menu_device_edit_selection_index >= 3U
-        && display_state.menu_device_edit_selection_index <= 11U)
+    if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_DEVICE_EDIT)
     {
         uint8_t field_count = Display_GetDeviceEditFocusFieldCount(display_state.menu_device_edit_selection_index);
 
@@ -142,9 +183,7 @@ static void Display_SetDeviceEditFocusIndex(uint16_t focus_index)
         if (focus_index < field_count)
         {
             display_state.menu_device_edit_selection_index = selection_index;
-            display_state.menu_device_cc_field_index = (selection_index >= 3U && selection_index <= 11U)
-                ? (uint8_t)focus_index
-                : 0U;
+            display_state.menu_device_cc_field_index = (uint8_t)focus_index;
             return;
         }
 
@@ -810,6 +849,35 @@ uint8_t Display_MenuActivate(void)
         }
         break;
     case DISPLAY_MENU_PAGE_GLOBAL:
+        if (display_state.menu_global_selection_index == MENU_GLOBAL_ITEM_BACKUP_TO_SD)
+        {
+            AppConfigBackupResult_t backup_result;
+
+            Display_ShowBackupPopup();
+            backup_result = AppConfigBackup_WriteSdSnapshotDetailed("manual");
+            Display_ShowBackupPopupMessage(Display_GetBackupResultPopupText(backup_result));
+            HAL_Delay(DISPLAY_BACKUP_RESULT_POPUP_MS);
+            display_state.menu_draw_state_valid = 0U;
+            Display_MenuRefresh();
+            return 1U;
+        }
+
+        if (display_state.menu_global_selection_index == MENU_GLOBAL_ITEM_RESTORE_FROM_SD)
+        {
+            AppConfigRestoreResult_t restore_result;
+
+            Display_ShowBackupPopupMessage("restoring");
+            restore_result = AppConfigBackup_RestoreSdSnapshotDetailed();
+            Display_ShowBackupPopupMessage(Display_GetRestoreResultPopupText(restore_result));
+            HAL_Delay(DISPLAY_BACKUP_RESULT_POPUP_MS);
+            display_state.menu_draw_state_valid = 0U;
+            display_state.main_layout_dirty = 1U;
+            display_state.bpm_display_valid = 0U;
+            display_state.transport_status_valid = 0U;
+            Display_MenuRefresh();
+            return 1U;
+        }
+
         if (display_state.menu_global_selection_index == MENU_GLOBAL_ITEM_FACTORY_RESET)
         {
             display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_FACTORY_RESET_CONFIRM;
@@ -918,7 +986,7 @@ uint8_t Display_MenuActivate(void)
             return 1U;
         }
 
-        if (display_state.menu_device_edit_selection_index == 12U)
+        if (display_state.menu_device_edit_selection_index == MENU_DEVICE_EDIT_ITEM_INIT_DEVICE)
         {
             display_state.menu_page = (uint8_t)DISPLAY_MENU_PAGE_DEVICE_INIT_CONFIRM;
             Display_MenuRefresh();
@@ -947,7 +1015,7 @@ uint8_t Display_MenuCanToggleLearn(void)
         return 0U;
 
     if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_DEVICE_EDIT)
-        return Display_MenuDeviceCcRowIsSelected();
+        return (Display_MenuDeviceCcRowIsSelected() || Display_MenuDeviceAutoCcRowIsSelected()) ? 1U : 0U;
 
     if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_EXPRESSION)
         return (display_state.menu_expression_selection_index >= MENU_EXPRESSION_ITEM_CC_FIRST) ? 1U : 0U;
@@ -989,11 +1057,25 @@ void Display_MenuApplyMidiLearnIfPending(void)
     if (display_state.menu_device_cc_learn_armed
         && (DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_DEVICE_EDIT)
     {
+        PresetCCSlot_t *selected_auto_cc;
         MidiCC_t *selected_cc;
 
         device = RuntimeConfig_GetMutableDevice(display_state.menu_active_device_index);
         if (!device)
             return;
+
+        selected_auto_cc = Display_GetSelectedDeviceAutoCc(device);
+        if (selected_auto_cc)
+        {
+            selected_auto_cc->channel = channel;
+            selected_auto_cc->cc_number = cc;
+            selected_auto_cc->value = value;
+            display_state.menu_device_cc_learn_armed = 0U;
+            RuntimeConfig_MarkDirty();
+            Display_DrawFootbar();
+            Display_MenuRedrawCurrentItem();
+            return;
+        }
 
         selected_cc = Display_GetSelectedDeviceCc(device);
         if (!selected_cc)

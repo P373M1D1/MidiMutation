@@ -34,7 +34,14 @@ static void Midi_MaybeSendFeedbackTaperCc(uint8_t channel,
 static void Midi_ApplyFeedbackTaperForBypassedDevice(uint8_t device_index, uint8_t program);
 static uint8_t Midi_SendPresetCCsInternal(const Preset_t *preset);
 static uint8_t Midi_SendDeviceProgramSlotInternal(uint8_t device_index, uint8_t program);
-static uint8_t Midi_LoadPresetInternal(const Preset_t *preset, uint8_t allow_retry_schedule, uint8_t urgent_retry);
+static uint8_t Midi_SendDeviceProgramSlotTransitionInternal(uint8_t device_index,
+                                                           uint8_t previous_program,
+                                                           uint8_t program);
+static uint8_t Midi_LoadPresetInternal(const Preset_t *preset,
+                                       const Preset_t *previous_preset,
+                                       uint8_t send_auto_transitions,
+                                       uint8_t allow_retry_schedule,
+                                       uint8_t urgent_retry);
 static void Midi_ClearPendingPresetRetry(void);
 
 static const Preset_t *midi_pending_retry_preset = NULL;
@@ -71,7 +78,7 @@ void MidiProducerService(void)
     if (!midi_pending_retry_preset || midi_pending_retry_attempts_remaining == 0U)
         return;
 
-    if (Midi_LoadPresetInternal(midi_pending_retry_preset, 0U, midi_pending_retry_urgent))
+    if (Midi_LoadPresetInternal(midi_pending_retry_preset, NULL, 0U, 0U, midi_pending_retry_urgent))
     {
         Midi_ClearPendingPresetRetry();
         if (midi_producer_preset_retry_successes < UINT32_MAX)
@@ -313,6 +320,60 @@ static uint8_t Midi_SendPresetCCsInternal(const Preset_t *preset)
     return all_sent;
 }
 
+static uint8_t Midi_PresetProgramIsActive(uint8_t program)
+{
+    return (program == PRESET_PROGRAM_NONE) ? 0U : 1U;
+}
+
+static uint8_t Midi_SendDeviceAutoCcMessages(const PresetCCSlot_t *messages)
+{
+    uint8_t all_sent = 1U;
+
+    if (!messages)
+        return 1U;
+
+    for (uint8_t index = 0U; index < RUNTIME_CONFIG_DEVICE_AUTO_CC_COUNT; ++index)
+    {
+        const PresetCCSlot_t *message = &messages[index];
+
+        if (message->channel == PRESET_CC_CHANNEL_UNUSED
+         || message->cc_number == PRESET_CC_NUMBER_UNUSED
+         || message->value == PRESET_CC_VALUE_UNUSED)
+        {
+            continue;
+        }
+
+        if (!MIDI_SendCC(message->channel, message->cc_number, message->value))
+            all_sent = 0U;
+    }
+
+    return all_sent;
+}
+
+static uint8_t Midi_SendDeviceStateTransitionAutos(uint8_t device_index,
+                                                   uint8_t previous_program,
+                                                   uint8_t program)
+{
+    const RuntimeConfigDevice_t *device;
+    uint8_t previous_active;
+    uint8_t next_active;
+
+    if (device_index >= MIDI_DEVICE_COUNT)
+        return 1U;
+
+    previous_active = Midi_PresetProgramIsActive(previous_program);
+    next_active = Midi_PresetProgramIsActive(program);
+    if (previous_active == next_active)
+        return 1U;
+
+    device = RuntimeConfig_GetDevice(device_index);
+    if (!device)
+        return 1U;
+
+    return Midi_SendDeviceAutoCcMessages(next_active ? device->active_auto_cc
+                                                     : device->bypass_auto_cc);
+}
+
 void Midi_SendPresetCCs(const Preset_t *preset)
 {
     (void)Midi_SendPresetCCsInternal(preset);
@@ -343,15 +404,38 @@ static uint8_t Midi_SendDeviceProgramSlotInternal(uint8_t device_index, uint8_t 
     return all_sent;
 }
 
+static uint8_t Midi_SendDeviceProgramSlotTransitionInternal(uint8_t device_index,
+                                                           uint8_t previous_program,
+                                                           uint8_t program)
+{
+    uint8_t all_sent = Midi_SendDeviceProgramSlotInternal(device_index, program);
+
+    if (!Midi_SendDeviceStateTransitionAutos(device_index, previous_program, program))
+        all_sent = 0U;
+
+    return all_sent;
+}
+
 void Midi_SendDeviceProgramSlot(uint8_t device_index, uint8_t program)
 {
     (void)Midi_SendDeviceProgramSlotInternal(device_index, program);
 }
 
+void Midi_SendDeviceProgramSlotTransition(uint8_t device_index,
+                                          uint8_t previous_program,
+                                          uint8_t program)
+{
+    (void)Midi_SendDeviceProgramSlotTransitionInternal(device_index, previous_program, program);
+}
+
 /**
  * Sends the full preset state to every configured MIDI device.
  */
-static uint8_t Midi_LoadPresetInternal(const Preset_t *preset, uint8_t allow_retry_schedule, uint8_t urgent_retry)
+static uint8_t Midi_LoadPresetInternal(const Preset_t *preset,
+                                       const Preset_t *previous_preset,
+                                       uint8_t send_auto_transitions,
+                                       uint8_t allow_retry_schedule,
+                                       uint8_t urgent_retry)
 {
     uint8_t all_sent = 1U;
 
@@ -363,9 +447,17 @@ static uint8_t Midi_LoadPresetInternal(const Preset_t *preset, uint8_t allow_ret
     for (uint8_t i = 0U; i < PRESET_DEVICE_SLOTS; i++)
     {
         uint8_t program = preset->prg[i].program;
+        uint8_t previous_program = previous_preset ? previous_preset->prg[i].program : PRESET_PROGRAM_NONE;
 
-        if (!Midi_SendDeviceProgramSlotInternal(i, program))
+        if (send_auto_transitions)
+        {
+            if (!Midi_SendDeviceProgramSlotTransitionInternal(i, previous_program, program))
+                all_sent = 0U;
+        }
+        else if (!Midi_SendDeviceProgramSlotInternal(i, program))
+        {
             all_sent = 0U;
+        }
         Midi_ApplyFeedbackTaperForBypassedDevice(i, program);
     }
 
@@ -388,7 +480,7 @@ void Midi_LoadPreset(const Preset_t *preset)
         return;
 
     Midi_ClearPendingPresetRetry();
-    (void)Midi_LoadPresetInternal(preset, 1U, 0U);
+    (void)Midi_LoadPresetInternal(preset, NULL, 0U, 1U, 0U);
 }
 
 void Midi_LoadPresetUrgent(const Preset_t *preset)
@@ -398,7 +490,25 @@ void Midi_LoadPresetUrgent(const Preset_t *preset)
 
     Midi_ClearPendingPresetRetry();
 
-    (void)Midi_LoadPresetInternal(preset, 1U, 1U);
+    (void)Midi_LoadPresetInternal(preset, NULL, 0U, 1U, 1U);
+}
+
+void Midi_LoadPresetTransition(const Preset_t *preset, const Preset_t *previous_preset)
+{
+    if (!preset)
+        return;
+
+    Midi_ClearPendingPresetRetry();
+    (void)Midi_LoadPresetInternal(preset, previous_preset, 1U, 1U, 0U);
+}
+
+void Midi_LoadPresetTransitionUrgent(const Preset_t *preset, const Preset_t *previous_preset)
+{
+    if (!preset)
+        return;
+
+    Midi_ClearPendingPresetRetry();
+    (void)Midi_LoadPresetInternal(preset, previous_preset, 1U, 1U, 1U);
 }
 
 static void Midi_ClearPendingPresetRetry(void)

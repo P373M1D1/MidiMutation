@@ -107,6 +107,9 @@ void     ST7796_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uint16_t col
 
 void     ST7796_DrawImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t *data);
 void     ST7796_DrawImageSwapRB(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t *data);
+uint8_t  ST7796_BeginImageWrite(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
+void     ST7796_WriteImagePixels(const uint16_t *data, uint32_t pixel_count);
+void     ST7796_EndImageWrite(void);
 void     ST7796_FadeIn(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t *data, uint8_t steps, uint16_t step_delay_ms);
 void     ST7796_WriteChar(uint16_t x, uint16_t y, char ch, FontDef font, uint16_t color, uint16_t bgcolor);
 void     ST7796_WriteString(uint16_t x, uint16_t y, const char *str, FontDef font, uint16_t color, uint16_t bgcolor);

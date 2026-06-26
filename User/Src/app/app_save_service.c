@@ -13,6 +13,8 @@
 #include "presets.h"
 #include "runtime_config.h"
 
+#define APP_SAVE_SERVICE_MIN_POPUP_MS 500U
+
 typedef enum {
     APP_SAVE_SERVICE_STATE_IDLE = 0,
     APP_SAVE_SERVICE_STATE_SHOW_COMBINED_POPUP,
@@ -23,12 +25,14 @@ typedef enum {
 
 static uint8_t app_save_service_requested_mask = 0U;
 static AppSaveServiceState_t app_save_service_state = APP_SAVE_SERVICE_STATE_IDLE;
+static uint32_t app_save_service_popup_shown_tick = 0UL;
 
 static uint8_t AppSaveService_RequestMaskForKind(uint8_t save_kind);
 static uint8_t AppSaveService_CombinedRequestMask(void);
 static void AppSaveService_HandleRequestEvent(uint8_t save_kind);
 static void AppSaveService_HandleTimeoutEvent(void);
 static uint8_t AppSaveService_ShouldDeferFlashWrite(void);
+static uint8_t AppSaveService_PopupMinimumTimeElapsed(void);
 
 static uint8_t AppSaveService_ShouldDeferFlashWrite(void)
 {
@@ -36,6 +40,12 @@ static uint8_t AppSaveService_ShouldDeferFlashWrite(void)
      * a short post-pulse timeout window, which makes it the right low-cost
      * guard for "do not start flash work during live sync". */
     return ClockEngine_IsExternalSignalPresent();
+}
+
+static uint8_t AppSaveService_PopupMinimumTimeElapsed(void)
+{
+    return ((HAL_GetTick() - app_save_service_popup_shown_tick)
+            >= APP_SAVE_SERVICE_MIN_POPUP_MS) ? 1U : 0U;
 }
 
 /* Collects save requests from the event queue into the deferred save service. */
@@ -127,22 +137,24 @@ static void AppSaveService_HandleTimeoutEvent(void)
             return;
 
         Display_ShowSavingPopup();
+        app_save_service_popup_shown_tick = HAL_GetTick();
         app_save_service_state = APP_SAVE_SERVICE_STATE_SAVE_COMBINED;
         return;
 
     case APP_SAVE_SERVICE_STATE_SAVE_COMBINED:
         if (AppSaveService_ShouldDeferFlashWrite())
-        {
-            app_save_service_state = APP_SAVE_SERVICE_STATE_HIDE_COMBINED_POPUP;
             return;
-        }
 
         (void)Presets_SaveIfDirty();
+
         app_save_service_requested_mask &= (uint8_t)~combined_mask;
         app_save_service_state = APP_SAVE_SERVICE_STATE_HIDE_COMBINED_POPUP;
         return;
 
     case APP_SAVE_SERVICE_STATE_HIDE_COMBINED_POPUP:
+        if (!AppSaveService_PopupMinimumTimeElapsed())
+            return;
+
         Display_HideSavingPopup(AppUi_GetCurrentDisplayPreset());
         app_save_service_state = APP_SAVE_SERVICE_STATE_IDLE;
         return;

@@ -27,6 +27,8 @@ static const char * const menu_global_labels[MENU_GLOBAL_ITEM_COUNT] = {
     "Threshold",
     "Reduce",
     "Expression",
+    "Backup to SD",
+    "Restore from SD",
     "Factory Reset",
 };
 
@@ -106,6 +108,10 @@ void Display_FormatGlobalMenuValue(uint8_t item_index, char *buffer, size_t buff
         break;
     case MENU_GLOBAL_ITEM_EXPRESSION:
         (void)snprintf(buffer, buffer_size, "%s", "Open");
+        break;
+    case MENU_GLOBAL_ITEM_BACKUP_TO_SD:
+    case MENU_GLOBAL_ITEM_RESTORE_FROM_SD:
+        buffer[0] = '\0';
         break;
     case MENU_GLOBAL_ITEM_FACTORY_RESET:
         buffer[0] = '\0';

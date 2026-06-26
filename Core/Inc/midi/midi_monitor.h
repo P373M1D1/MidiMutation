@@ -14,6 +14,9 @@ typedef enum
 {
     MIDI_MONITOR_SOURCE_UART2 = 2,
     MIDI_MONITOR_SOURCE_UART4 = 4,
+    MIDI_MONITOR_SOURCE_UART5 = 5,
+    MIDI_MONITOR_SOURCE_USART6 = 6,
+    MIDI_MONITOR_SOURCE_UART9 = 9,
 } MidiMonitorSource_t;
 
 typedef enum

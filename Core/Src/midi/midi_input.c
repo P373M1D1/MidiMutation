@@ -21,6 +21,7 @@ void Error_Handler(void);
 #define MIDI_THRU_BUFFER_SIZE         64U
 #define MIDI_REALTIME_QUEUE_SIZE      64U
 #define MIDI_REALTIME_STATUS_FIRST    0xF8U
+#define MIDI_INPUT_RX_GPIO_SPEED      GPIO_SPEED_FREQ_VERY_HIGH
 
 typedef struct {
     uint8_t byte;
@@ -36,6 +37,9 @@ static inline uint16_t MidiInput_RealtimeQueueDepth(uint8_t head, uint8_t tail)
 }
 
 static UART_HandleTypeDef midi_input_uart;
+static UART_HandleTypeDef midi_input_uart5;
+static UART_HandleTypeDef midi_input_usart6;
+static UART_HandleTypeDef midi_input_uart9;
 static uint8_t midi_thru_buffer[MIDI_THRU_BUFFER_SIZE];
 static uint8_t midi_thru_head = 0U;
 static uint8_t midi_thru_tail = 0U;
@@ -57,6 +61,14 @@ static uint8_t MidiInput_IsFlashBusy(void);
 static void MidiInput_ApplyStandardConfig(UART_HandleTypeDef *uart_handle,
                                           USART_TypeDef *instance,
                                           uint32_t mode);
+static void MidiInput_InitAdditionalRxUarts(void);
+static void MidiInput_InitRxOnlyUart(UART_HandleTypeDef *uart_handle,
+                                     USART_TypeDef *instance,
+                                     IRQn_Type irq);
+__attribute__((section(".RamFunc")))
+static uint32_t MidiInput_HandleRxIrq(USART_TypeDef *instance,
+                                      uint8_t source_uart,
+                                      uint8_t enable_soft_thru);
 __attribute__((section(".RamFunc")))
 static void MidiInput_QueueThruByte(uint8_t byte);
 __attribute__((section(".RamFunc")))
@@ -85,56 +97,42 @@ void MidiInitInput(void)
     midi_realtime_interval_latency_max_us = 0U;
     midi_realtime_interval_latency_sample_count = 0U;
     MidiMonitor_Init();
+
     HAL_NVIC_SetPriority(USART2_IRQn, MIDI_UART_IRQ_PREEMPT_PRIORITY, MIDI_UART_IRQ_SUBPRIORITY);
     HAL_NVIC_EnableIRQ(USART2_IRQn);
     __HAL_UART_ENABLE_IT(&midi_input_uart, UART_IT_RXNE);
     __HAL_UART_ENABLE_IT(&midi_input_uart, UART_IT_ERR);
     __HAL_UART_DISABLE_IT(&midi_input_uart, UART_IT_TXE);
+
+    MidiInput_InitAdditionalRxUarts();
     MidiClockUseInternalTempo();
 }
 
 __attribute__((section(".RamFunc")))
 void USART2_IRQHandler(void)
 {
-    uint32_t status = USART2->SR;
-
-    /* Read RX data first to clear UART error conditions and keep the receive
-     * side draining promptly. Transport realtime bytes are handled immediately
-     * from the captured TIM2 timestamp so quarter-note scheduling does not wait
-     * on the foreground loop under UI load. */
-    if (status & (USART_SR_RXNE | USART_SR_ORE | USART_SR_NE | USART_SR_FE | USART_SR_PE))
-    {
-        uint8_t byte = (uint8_t)USART2->DR;
-        uint8_t flash_busy = MidiInput_IsFlashBusy();
-        uint32_t now_us = TIM2->CNT;
-
-        if (status & USART_SR_RXNE)
-        {
-            MidiInput_QueueThruByte(byte);
-
-            if (byte >= MIDI_REALTIME_STATUS_FIRST)
-            {
-                if (byte == MIDI_REALTIME_STATUS_FIRST)
-                    midi_clock_last_captured_pulse_us = now_us;
-
-                if (!ClockEngine_ISR_OnExternalRealtime(byte, now_us))
-                    MidiInput_QueueRealtimeByte(byte, now_us);
-
-                if (!flash_busy)
-                    MidiMonitor_ReceiveByte(MIDI_MONITOR_SOURCE_UART2, byte);
-            }
-            else if (!flash_busy)
-            {
-                MidiMonitor_ReceiveByte(MIDI_MONITOR_SOURCE_UART2, byte);
-                MidiReceive(byte);
-            }
-        }
-
-        status = USART2->SR;
-    }
+    uint32_t status = MidiInput_HandleRxIrq(USART2, MIDI_MONITOR_SOURCE_UART2, 1U);
 
     if ((status & USART_SR_TXE) && ((USART2->CR1 & USART_CR1_TXEIE) != 0U))
         MidiInput_ServiceThruTx();
+}
+
+__attribute__((section(".RamFunc")))
+void UART5_IRQHandler(void)
+{
+    (void)MidiInput_HandleRxIrq(UART5, MIDI_MONITOR_SOURCE_UART5, 0U);
+}
+
+__attribute__((section(".RamFunc")))
+void USART6_IRQHandler(void)
+{
+    (void)MidiInput_HandleRxIrq(USART6, MIDI_MONITOR_SOURCE_USART6, 0U);
+}
+
+__attribute__((section(".RamFunc")))
+void UART9_IRQHandler(void)
+{
+    (void)MidiInput_HandleRxIrq(UART9, MIDI_MONITOR_SOURCE_UART9, 0U);
 }
 
 void MidiInput_ServiceRealtimeRx(void)
@@ -206,6 +204,96 @@ static void MidiInput_ApplyStandardConfig(UART_HandleTypeDef *uart_handle,
     uart_handle->Init.Mode = mode;
     uart_handle->Init.HwFlowCtl = UART_HWCONTROL_NONE;
     uart_handle->Init.OverSampling = UART_OVERSAMPLING_16;
+}
+
+static void MidiInput_InitAdditionalRxUarts(void)
+{
+    GPIO_InitTypeDef gpio_init = {0};
+
+    gpio_init.Mode = GPIO_MODE_AF_PP;
+    gpio_init.Pull = GPIO_PULLUP;
+    gpio_init.Speed = MIDI_INPUT_RX_GPIO_SPEED;
+
+    __HAL_RCC_GPIOD_CLK_ENABLE();
+    __HAL_RCC_UART5_CLK_ENABLE();
+    gpio_init.Pin = GPIO_PIN_2;
+    gpio_init.Alternate = GPIO_AF8_UART5;
+    HAL_GPIO_Init(GPIOD, &gpio_init);
+    MidiInput_InitRxOnlyUart(&midi_input_uart5, UART5, UART5_IRQn);
+
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+    __HAL_RCC_USART6_CLK_ENABLE();
+    gpio_init.Pin = GPIO_PIN_7;
+    gpio_init.Alternate = GPIO_AF8_USART6;
+    HAL_GPIO_Init(GPIOC, &gpio_init);
+    MidiInput_InitRxOnlyUart(&midi_input_usart6, USART6, USART6_IRQn);
+
+    __HAL_RCC_GPIOG_CLK_ENABLE();
+    __HAL_RCC_UART9_CLK_ENABLE();
+    gpio_init.Pin = GPIO_PIN_0;
+    gpio_init.Alternate = GPIO_AF11_UART9;
+    HAL_GPIO_Init(GPIOG, &gpio_init);
+    MidiInput_InitRxOnlyUart(&midi_input_uart9, UART9, UART9_IRQn);
+}
+
+static void MidiInput_InitRxOnlyUart(UART_HandleTypeDef *uart_handle,
+                                     USART_TypeDef *instance,
+                                     IRQn_Type irq)
+{
+    MidiInput_ApplyStandardConfig(uart_handle, instance, UART_MODE_RX);
+    if (HAL_UART_Init(uart_handle) != HAL_OK)
+        Error_Handler();
+
+    HAL_NVIC_SetPriority(irq, MIDI_UART_IRQ_PREEMPT_PRIORITY, MIDI_UART_IRQ_SUBPRIORITY);
+    HAL_NVIC_EnableIRQ(irq);
+    __HAL_UART_ENABLE_IT(uart_handle, UART_IT_RXNE);
+    __HAL_UART_ENABLE_IT(uart_handle, UART_IT_ERR);
+}
+
+__attribute__((section(".RamFunc")))
+static uint32_t MidiInput_HandleRxIrq(USART_TypeDef *instance,
+                                      uint8_t source_uart,
+                                      uint8_t enable_soft_thru)
+{
+    uint32_t status = instance->SR;
+
+    /* Read RX data first to clear UART error conditions and keep the receive
+     * side draining promptly. Transport realtime bytes are handled immediately
+     * from the captured TIM2 timestamp so quarter-note scheduling does not wait
+     * on the foreground loop under UI load. */
+    if (status & (USART_SR_RXNE | USART_SR_ORE | USART_SR_NE | USART_SR_FE | USART_SR_PE))
+    {
+        uint8_t byte = (uint8_t)instance->DR;
+        uint8_t flash_busy = MidiInput_IsFlashBusy();
+        uint32_t now_us = TIM2->CNT;
+
+        if (status & USART_SR_RXNE)
+        {
+            if (enable_soft_thru)
+                MidiInput_QueueThruByte(byte);
+
+            if (byte >= MIDI_REALTIME_STATUS_FIRST)
+            {
+                if (byte == MIDI_REALTIME_STATUS_FIRST)
+                    midi_clock_last_captured_pulse_us = now_us;
+
+                if (!ClockEngine_ISR_OnExternalRealtime(byte, now_us))
+                    MidiInput_QueueRealtimeByte(byte, now_us);
+
+                if (!flash_busy)
+                    MidiMonitor_ReceiveByte(source_uart, byte);
+            }
+            else if (!flash_busy)
+            {
+                MidiMonitor_ReceiveByte(source_uart, byte);
+                MidiReceive(byte);
+            }
+        }
+
+        status = instance->SR;
+    }
+
+    return status;
 }
 
 __attribute__((section(".RamFunc")))

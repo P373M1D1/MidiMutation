@@ -86,6 +86,11 @@
 #define MAIN_EMPTY_RIGHT_INFO_TEXT     "                "   // blank filler used to clear an unused right-side row
 #define MAIN_SAVING_POPUP_TEXT         " SAVING "          // temporary overlay shown while preset edits are being committed to flash
 #define MAIN_SAVING_POPUP_ROW_INDEX    1U                   // center the saving overlay on the middle info row
+#define MAIN_BACKUP_POPUP_TEXT         "backing up"        // manual backup overlay shown while writing config to SD
+#define MAIN_BACKUP_POPUP_ROW_INDEX    MAIN_SAVING_POPUP_ROW_INDEX
+#define MAIN_BACKUP_POPUP_TEXT_COLOUR  BLACK
+#define MAIN_BACKUP_POPUP_BG_COLOUR    WHITE
+#define MAIN_BACKUP_POPUP_BORDER_COLOUR BLACK
 #define MAIN_TIMEBEND_POPUP_TEXT       " TIMEBEND ACTIVE " // live overlay shown when outbound timebend is engaged
 #define MAIN_TIMEBEND_POPUP_ROW_INDEX  1U                   // center the timebend overlay on the middle info row
 #define MAIN_LEARNING_POPUP_TEXT       " LEARNING "        // transient overlay shown while preset-edit learn capture is active
@@ -129,7 +134,7 @@
 #define MENU_FUNCTION_BUTTON_CC_FIRST_INDEX (MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX + RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT) // first logical row index of the CC compare section
 #define MENU_FUNCTION_BUTTON_ITEM_COUNT (MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT + MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT) // total rows in the combined function-button editor page
 #define MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT (RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT + RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT) // total rows shown on the dense function-button message pages
-#define MENU_DEVICE_EDIT_ITEM_COUNT     13U                  // number of items on the device edit page
+#define MENU_DEVICE_EDIT_ITEM_COUNT     (13U + (2U * RUNTIME_CONFIG_DEVICE_AUTO_CC_COUNT)) // number of items on the device edit page
 #define MENU_ITEM_X                     24U                  // left edge of the menu row content area
 #define MENU_ITEM_W                     (ST7796_WIDTH - (MENU_ITEM_X * 2U)) // width of the menu row content area
 #define MENU_PLACEHOLDER_TEXT           "COMING SOON"       // placeholder body text for menu branches not implemented yet
@@ -365,6 +370,9 @@ static uint8_t Display_GetMainInfoProgramScrollMax(void)
 
 static uint16_t Display_GetTimebendPopupWidth(void);
 static uint16_t Display_GetTimebendPopupX(void);
+static uint16_t Display_GetSavingPopupWidth(void);
+static uint16_t Display_GetSavingPopupX(void);
+static void Display_ComposeSavingPopupAt(uint16_t popup_x);
 static void Display_ComposeTimebendPopupAt(uint16_t popup_x);
 static void Display_DrawMainInfoComposedRow(const Preset_t *preset, uint8_t row_index);
 
@@ -1026,6 +1034,9 @@ static void Display_DrawMainInfoComposedRow(const Preset_t *preset, uint8_t row_
     if (row_index == MAIN_TIMEBEND_POPUP_ROW_INDEX && timebend_popup_visible)
         Display_ComposeTimebendPopupAt(Display_GetTimebendPopupX());
 
+    if (row_index == MAIN_SAVING_POPUP_ROW_INDEX && saving_popup_visible)
+        Display_ComposeSavingPopupAt(Display_GetSavingPopupX());
+
     Display_MenuRowComposeBlit(main_info_row_y[row_index]);
 }
 
@@ -1037,20 +1048,43 @@ static void Display_DrawMainInfoRows(const Preset_t *preset)
 
 static void Display_DrawSavingPopup(void)
 {
-    uint16_t popup_w = (uint16_t)(strlen(MAIN_SAVING_POPUP_TEXT) * MAIN_INFO_FONT.width);
-    uint16_t popup_x = (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
+    uint16_t popup_w = Display_GetSavingPopupWidth();
+    uint16_t popup_x = Display_GetSavingPopupX();
     uint16_t popup_y = main_info_row_y[MAIN_SAVING_POPUP_ROW_INDEX];
+
+    Display_ComposeSavingPopupAt(0U);
+    Display_ComposeBlit(popup_x,
+                        popup_y,
+                        popup_w,
+                        MAIN_INFO_FONT.height);
+}
+
+static uint16_t Display_GetSavingPopupWidth(void)
+{
+    return (uint16_t)(strlen(MAIN_SAVING_POPUP_TEXT) * MAIN_INFO_FONT.width);
+}
+
+static uint16_t Display_GetSavingPopupX(void)
+{
+    uint16_t popup_w = Display_GetSavingPopupWidth();
+
+    return (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
+}
+
+static void Display_ComposeSavingPopupAt(uint16_t popup_x)
+{
+    uint16_t popup_w = Display_GetSavingPopupWidth();
 
     Display_ComposeFillRect(ST7796_WIDTH,
                             MAIN_INFO_FONT_CELL_HEIGHT,
-                            0U,
+                            popup_x,
                             0U,
                             popup_w,
                             MAIN_INFO_FONT.height,
                             MAIN_SAVING_POPUP_BG_COLOUR);
     Display_ComposeString32(ST7796_WIDTH,
                             MAIN_INFO_FONT_CELL_HEIGHT,
-                            0U,
+                            popup_x,
                             0U,
                             MAIN_SAVING_POPUP_TEXT,
                             MAIN_INFO_FONT,
@@ -1058,36 +1092,32 @@ static void Display_DrawSavingPopup(void)
                             MAIN_SAVING_POPUP_BG_COLOUR);
     Display_ComposeFillRect(ST7796_WIDTH,
                             MAIN_INFO_FONT_CELL_HEIGHT,
-                            0U,
+                            popup_x,
                             0U,
                             popup_w,
                             1U,
                             MAIN_SAVING_POPUP_BORDER_COLOUR);
     Display_ComposeFillRect(ST7796_WIDTH,
                             MAIN_INFO_FONT_CELL_HEIGHT,
-                            0U,
+                            popup_x,
                             (uint16_t)(MAIN_INFO_FONT.height - 1U),
                             popup_w,
                             1U,
                             MAIN_SAVING_POPUP_BORDER_COLOUR);
     Display_ComposeFillRect(ST7796_WIDTH,
                             MAIN_INFO_FONT_CELL_HEIGHT,
-                            0U,
+                            popup_x,
                             0U,
                             1U,
                             MAIN_INFO_FONT.height,
                             MAIN_SAVING_POPUP_BORDER_COLOUR);
     Display_ComposeFillRect(ST7796_WIDTH,
                             MAIN_INFO_FONT_CELL_HEIGHT,
-                            (uint16_t)(popup_w - 1U),
+                            (uint16_t)(popup_x + popup_w - 1U),
                             0U,
                             1U,
                             MAIN_INFO_FONT.height,
                             MAIN_SAVING_POPUP_BORDER_COLOUR);
-    Display_ComposeBlit(popup_x,
-                        popup_y,
-                        popup_w,
-                        MAIN_INFO_FONT.height);
 }
 
 static void Display_DrawTimebendPopup(void)
@@ -1219,10 +1249,81 @@ static void Display_DrawLearningPopup(void)
                         MAIN_INFO_FONT.height);
 }
 
+static void Display_DrawBackupPopupMessage(const char *message)
+{
+    char popup_text[32];
+    const char *body = (message && message[0] != '\0') ? message : MAIN_BACKUP_POPUP_TEXT;
+    uint16_t popup_w;
+    uint16_t popup_x;
+    uint16_t popup_y = main_info_row_y[MAIN_BACKUP_POPUP_ROW_INDEX];
+
+    (void)snprintf(popup_text, sizeof(popup_text), " %s ", body);
+    popup_w = (uint16_t)(strlen(popup_text) * MAIN_INFO_FONT.width);
+    popup_x = (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
+
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            popup_w,
+                            MAIN_INFO_FONT.height,
+                            MAIN_BACKUP_POPUP_BG_COLOUR);
+    Display_ComposeString32(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            popup_text,
+                            MAIN_INFO_FONT,
+                            MAIN_BACKUP_POPUP_TEXT_COLOUR,
+                            MAIN_BACKUP_POPUP_BG_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            popup_w,
+                            1U,
+                            MAIN_BACKUP_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            (uint16_t)(MAIN_INFO_FONT.height - 1U),
+                            popup_w,
+                            1U,
+                            MAIN_BACKUP_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            0U,
+                            0U,
+                            1U,
+                            MAIN_INFO_FONT.height,
+                            MAIN_BACKUP_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            (uint16_t)(popup_w - 1U),
+                            0U,
+                            1U,
+                            MAIN_INFO_FONT.height,
+                            MAIN_BACKUP_POPUP_BORDER_COLOUR);
+    Display_ComposeBlit(popup_x,
+                        popup_y,
+                        popup_w,
+                        MAIN_INFO_FONT.height);
+}
+
 void Display_ShowSavingPopup(void)
 {
     saving_popup_visible = 1U;
     Display_DrawSavingPopup();
+}
+
+void Display_ShowBackupPopup(void)
+{
+    Display_ShowBackupPopupMessage(MAIN_BACKUP_POPUP_TEXT);
+}
+
+void Display_ShowBackupPopupMessage(const char *message)
+{
+    Display_DrawBackupPopupMessage(message);
 }
 
 void Display_HideSavingPopup(const Preset_t *preset)

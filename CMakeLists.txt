@@ -116,7 +116,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     User/Src/app/app_button_combo.c
     User/Src/app/app_button_events.c
     User/Src/app/app_button_monitor.c
+    User/Src/app/app_config_backup.c
     User/Src/app/app_preset_latency_diag.c
+    User/Src/app/app_sd_card.c
     User/Src/app/app_encoder_sampler.c
     User/Src/app/app_encoder_math.c
     User/Src/app/app_expression_input.c

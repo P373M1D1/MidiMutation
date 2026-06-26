@@ -437,26 +437,38 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
     }
     else if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_DEVICE_EDIT)
     {
-        MidiCC_t *device_cc = Display_GetSelectedDeviceCc(device);
-
         if (!device)
             return 0U;
 
-        if (Display_MenuDeviceCcRowIsSelected() && device_cc)
+        if (Display_MenuDeviceAutoCcRowIsSelected())
         {
-            /* DEVICE_EDIT CC rows expose two editable sub-fields on one row,
-             * unlike the single-value rows elsewhere in the menu system. */
+            PresetCCSlot_t *auto_cc = Display_GetSelectedDeviceAutoCc(device);
+
+            if (!auto_cc)
+                return 0U;
+
             switch (display_state.menu_device_cc_field_index)
             {
             case 0U:
-                changed = Display_AdjustWrappedOptionalU8(&device_cc->cc,
+                changed = Display_AdjustWrappedOptionalU8(&auto_cc->channel,
+                                                          PRESET_CC_CHANNEL_UNUSED,
+                                                          1U,
+                                                          16U,
+                                                          delta);
+                break;
+            case 1U:
+                changed = Display_AdjustWrappedOptionalU8(&auto_cc->cc_number,
                                                           PRESET_CC_NUMBER_UNUSED,
                                                           0U,
                                                           127U,
                                                           delta);
                 break;
-            case 1U:
-                changed = Display_AdjustWrappedU8(&device_cc->value, 0U, 127U, delta);
+            case 2U:
+                changed = Display_AdjustWrappedOptionalU8(&auto_cc->value,
+                                                          PRESET_CC_VALUE_UNUSED,
+                                                          0U,
+                                                          127U,
+                                                          delta);
                 break;
             default:
                 break;
@@ -464,16 +476,41 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
         }
         else
         {
-            switch (display_state.menu_device_edit_selection_index)
+            MidiCC_t *device_cc = Display_GetSelectedDeviceCc(device);
+
+            if (Display_MenuDeviceCcRowIsSelected() && device_cc)
             {
-            case 1U:
-                changed = Display_AdjustWrappedU8(&device->max_preset, 1U, 127U, delta);
-                break;
-            case 2U:
-                changed = Display_AdjustWrappedU8(&device->channel, 1U, 16U, delta);
-                break;
-            default:
-                break;
+                /* DEVICE_EDIT CC rows expose multiple editable sub-fields on
+                 * one row, unlike the single-value rows elsewhere. */
+                switch (display_state.menu_device_cc_field_index)
+                {
+                case 0U:
+                    changed = Display_AdjustWrappedOptionalU8(&device_cc->cc,
+                                                              PRESET_CC_NUMBER_UNUSED,
+                                                              0U,
+                                                              127U,
+                                                              delta);
+                    break;
+                case 1U:
+                    changed = Display_AdjustWrappedU8(&device_cc->value, 0U, 127U, delta);
+                    break;
+                default:
+                    break;
+                }
+            }
+            else
+            {
+                switch (display_state.menu_device_edit_selection_index)
+                {
+                case MENU_DEVICE_EDIT_ITEM_MAX_PRESET:
+                    changed = Display_AdjustWrappedU8(&device->max_preset, 1U, 127U, delta);
+                    break;
+                case MENU_DEVICE_EDIT_ITEM_CHANNEL:
+                    changed = Display_AdjustWrappedU8(&device->channel, 1U, 16U, delta);
+                    break;
+                default:
+                    break;
+                }
             }
         }
     }

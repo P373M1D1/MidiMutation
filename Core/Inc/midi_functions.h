@@ -13,7 +13,7 @@
  *   GND               → MIDI OUT pin 2
  *
  * Usage:
- *   MidiInitInput();              // USART2 RX + TX soft-thru
+ *   MidiInitInput();              // USART2 RX + TX soft-thru, plus extra RX-only MIDI inputs
  *   AppBoard_InitStartupPeripherals();
  *   MIDI_SendCC(channel, cc, value);
  */
@@ -127,9 +127,9 @@ typedef struct
 } MidiTimebendBacklogSnapshot_t;
 
 /**
- * @brief  Initialise MIDI input on USART2 and enable its soft-thru output.
- *         RX bytes are echoed on USART2 TX while the parser still filters
- *         sync traffic for the firmware's own clock handling.
+ * @brief  Initialise MIDI inputs. USART2 RX is echoed on USART2 TX for
+ *         soft-thru; additional RX-only UARTs feed the same parser and MIDI
+ *         monitor without soft-thru output.
  */
 void MidiInitInput(void);
 
@@ -165,6 +165,14 @@ uint8_t MIDI_SendCC(uint8_t channel, uint8_t cc_number, uint8_t value);
  * @param  program       Program number (0..127) or PRESET_PROGRAM_NONE.
  */
 void Midi_SendDeviceProgramSlot(uint8_t device_index, uint8_t program);
+
+/**
+ * @brief  Apply one device program slot and send configured auto CCs only when
+ *         the slot crosses between PRESET_PROGRAM_NONE and an active program.
+ */
+void Midi_SendDeviceProgramSlotTransition(uint8_t device_index,
+                                          uint8_t previous_program,
+                                          uint8_t program);
 
 /**
  * @brief  Consume one received MIDI byte from the dedicated MIDI input UART.
@@ -452,10 +460,21 @@ MidiTransportEvent_t MidiTransportConsumeEvent(void);
 void Midi_LoadPreset(const Preset_t *preset);
 
 /**
+ * @brief  Send a preset while also emitting per-device auto CCs for slots that
+ *         changed between inactive (---) and active.
+ */
+void Midi_LoadPresetTransition(const Preset_t *preset, const Preset_t *previous_preset);
+
+/**
  * @brief  Send a live-safety preset immediately while still using the queued
  *         UART backend and retry path.
  */
 void Midi_LoadPresetUrgent(const Preset_t *preset);
+
+/**
+ * @brief  Urgent variant of Midi_LoadPresetTransition().
+ */
+void Midi_LoadPresetTransitionUrgent(const Preset_t *preset, const Preset_t *previous_preset);
 
 /**
  * @brief  Send all valid CC messages from a preset.

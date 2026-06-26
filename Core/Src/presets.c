@@ -91,6 +91,8 @@ static Preset_t preset_store[PRESET_COUNT];
 static uint8_t preset_store_initialized = 0U;
 static uint8_t preset_store_dirty = 0U;
 
+static void Presets_EnsureRuntimeStore(void);
+
 static size_t Presets_GetLegacyPayloadSize(void)
 {
     return sizeof(PresetLegacy_t) * PRESET_COUNT;
@@ -129,8 +131,10 @@ uint8_t Presets_PersistentPayloadSizeIsSupported(uint32_t payload_size)
     return Presets_PayloadSizeIsSupported((size_t)payload_size);
 }
 
-static uint8_t Presets_RuntimeStoreLooksFactoryDefault(void)
+uint8_t Presets_RuntimeStoreLooksFactoryDefault(void)
 {
+    Presets_EnsureRuntimeStore();
+
     for (uint8_t bank_index = 0U; bank_index < PRESET_BANK_COUNT; ++bank_index)
     {
         if (memcmp(&preset_store[(size_t)bank_index * PRESETS_PER_BANK],
@@ -641,6 +645,8 @@ static const Preset_t *Presets_GetButton11PresetForCurrentBank(void)
  * "current preset" or just temporarily repaint/run an overlay preset. */
 static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index, uint8_t idx, uint8_t urgent_midi)
 {
+    const Preset_t *previous_preset = AppState_GetActivePreset();
+
     if (!preset)
         return;
 
@@ -660,9 +666,9 @@ static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index,
     }
 
     if (urgent_midi)
-        Midi_LoadPresetUrgent(preset);
+        Midi_LoadPresetTransitionUrgent(preset, previous_preset);
     else
-        Midi_LoadPreset(preset);
+        Midi_LoadPresetTransition(preset, previous_preset);
 
     if (update_index) {
         AppState_ScheduleRuntimeStateSaveAt(HAL_GetTick() + BPM_SAVE_DELAY_MS);

@@ -275,7 +275,7 @@ static uint8_t AppUi_PresetEditAdjustProgramValue(Preset_t *preset, uint8_t slot
     /* Preview program changes immediately so the user hears the new selection
      * while still inside the edit field. */
     if (preset->prg[slot].program != previous_program && device != NULL)
-        Midi_SendDeviceProgramSlot(slot, preset->prg[slot].program);
+        Midi_SendDeviceProgramSlotTransition(slot, previous_program, preset->prg[slot].program);
 
     return 1U;
 }

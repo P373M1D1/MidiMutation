@@ -157,6 +157,7 @@ uint8_t Presets_IsDirty(void);
  *         the same legacy image shapes.
  */
 uint8_t Presets_PersistentPayloadSizeIsSupported(uint32_t payload_size);
+uint8_t Presets_RuntimeStoreLooksFactoryDefault(void);
 
 /**
  * @brief  Save the runtime preset store to flash when dirty.

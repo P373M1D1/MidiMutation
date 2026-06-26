@@ -22,6 +22,7 @@ extern "C" {
 #define RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MIN       0U
 #define RUNTIME_CONFIG_GLOBAL_EXPRESSION_RAW_MAX       4095U
 #define RUNTIME_CONFIG_EXPRESSION_PEDAL_CC_SLOT_COUNT  8U
+#define RUNTIME_CONFIG_DEVICE_AUTO_CC_COUNT             4U
 #define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_THRESHOLD_MAX 127U
 #define RUNTIME_CONFIG_GLOBAL_FEEDBACK_TAPER_REDUCE_MAX    127U
 #define RUNTIME_CONFIG_USER_THEME_COUNT               3U
@@ -94,7 +95,9 @@ typedef struct {
     char name[RUNTIME_CONFIG_DEVICE_NAME_LENGTH + 1U];
     uint8_t channel;
     MidiCC_t active;
+    PresetCCSlot_t active_auto_cc[RUNTIME_CONFIG_DEVICE_AUTO_CC_COUNT];
     MidiCC_t bypass;
+    PresetCCSlot_t bypass_auto_cc[RUNTIME_CONFIG_DEVICE_AUTO_CC_COUNT];
     MidiCC_t tap_tempo;
     MidiCC_t volume1;
     MidiCC_t volume2;
@@ -247,7 +250,9 @@ uint8_t RuntimeConfig_IsDirty(void);
 void RuntimeConfig_ClearDirty(void);
 uint8_t RuntimeConfig_SaveIfDirty(void);
 uint8_t RuntimeConfig_PersistentStoreSaveIsBlocked(void);
+void RuntimeConfig_ClearPersistentStoreSaveBlock(void);
 uint8_t RuntimeConfig_PersistentSnapshotLooksFactoryDefault(const RuntimeConfig_t *snapshot);
+uint8_t RuntimeConfig_PersistentSnapshotCoreLooksFactoryDefault(const RuntimeConfig_t *snapshot);
 void RuntimeConfig_CopyPersistentSaveSnapshot(RuntimeConfig_t *snapshot);
 void RuntimeConfig_FormatPersistentStoreStatusText(char *buffer, size_t buffer_size);
 void RuntimeConfig_FormatPersistentStoreHealthText(char *buffer, size_t buffer_size);

@@ -118,6 +118,21 @@ typedef struct {
 } RuntimeConfigDeviceLegacyV8_t;
 
 typedef struct {
+    char name[RUNTIME_CONFIG_DEVICE_NAME_LENGTH + 1U];
+    uint8_t channel;
+    MidiCC_t active;
+    MidiCC_t bypass;
+    MidiCC_t tap_tempo;
+    MidiCC_t volume1;
+    MidiCC_t volume2;
+    MidiCC_t mix1;
+    MidiCC_t mix2;
+    MidiCC_t decay1;
+    MidiCC_t decay2;
+    uint8_t max_preset;
+} RuntimeConfigDeviceLegacyV9_t;
+
+typedef struct {
     uint8_t startup_delay_seconds;
     uint8_t legacy_idle_timeout_minutes;
     RuntimeConfigSyncStyle_t sync_style;
@@ -258,7 +273,7 @@ typedef struct {
 
 typedef struct {
     RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
-    RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigDeviceLegacyV9_t devices[MIDI_DEVICE_COUNT];
     RuntimeConfigGlobalLegacyV9_t global;
     RuntimeConfigMetronome_t metronome;
     RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
@@ -266,7 +281,7 @@ typedef struct {
 
 typedef struct {
     RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
-    RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigDeviceLegacyV9_t devices[MIDI_DEVICE_COUNT];
     RuntimeConfigGlobalLegacyV12_t global;
     RuntimeConfigMetronome_t metronome;
     RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
@@ -276,7 +291,7 @@ typedef struct {
 
 typedef struct {
     RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
-    RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigDeviceLegacyV9_t devices[MIDI_DEVICE_COUNT];
     RuntimeConfigGlobalLegacyV13_t global;
     RuntimeConfigMetronome_t metronome;
     RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
@@ -286,7 +301,7 @@ typedef struct {
 
 typedef struct {
     RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
-    RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigDeviceLegacyV9_t devices[MIDI_DEVICE_COUNT];
     RuntimeConfigGlobalLegacyV14_t global;
     RuntimeConfigMetronome_t metronome;
     RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
@@ -296,7 +311,7 @@ typedef struct {
 
 typedef struct {
     RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
-    RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigDeviceLegacyV9_t devices[MIDI_DEVICE_COUNT];
     RuntimeConfigGlobalLegacyV11_t global;
     RuntimeConfigMetronome_t metronome;
     RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
@@ -306,7 +321,7 @@ typedef struct {
 
 typedef struct {
     RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
-    RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigDeviceLegacyV9_t devices[MIDI_DEVICE_COUNT];
     RuntimeConfigGlobalLegacyV10_t global;
     RuntimeConfigMetronome_t metronome;
     RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
@@ -326,7 +341,7 @@ typedef struct {
 
 typedef struct {
     RuntimeConfigBankLegacyWithRoles_t banks[PRESET_BANK_COUNT];
-    RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigDeviceLegacyV9_t devices[MIDI_DEVICE_COUNT];
     RuntimeConfigGlobalLegacyV11_t global;
     RuntimeConfigMetronome_t metronome;
     RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
@@ -334,7 +349,7 @@ typedef struct {
 
 typedef struct {
     RuntimeConfigBankLegacyWithRoles_t banks[PRESET_BANK_COUNT];
-    RuntimeConfigDevice_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigDeviceLegacyV9_t devices[MIDI_DEVICE_COUNT];
     RuntimeConfigGlobalLegacyV11_t global;
     RuntimeConfigMetronome_t metronome;
     RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
@@ -366,7 +381,9 @@ typedef struct {
         .name = name_literal, \
         .channel = channel_value, \
         .active = { .cc = active_cc_value, .value = active_data_value }, \
+        .active_auto_cc = RUNTIME_CONFIG_CC_MESSAGE_LIST_EMPTY, \
         .bypass = { .cc = bypass_cc_value, .value = bypass_data_value }, \
+        .bypass_auto_cc = RUNTIME_CONFIG_CC_MESSAGE_LIST_EMPTY, \
         .tap_tempo = { .cc = tap_cc_value, .value = tap_data_value }, \
         .volume1 = RUNTIME_CONFIG_DEVICE_CC_UNUSED, \
         .volume2 = RUNTIME_CONFIG_DEVICE_CC_UNUSED, \
@@ -422,7 +439,9 @@ static const RuntimeConfigDevice_t runtime_config_blank_device = {
     .name = "",
     .channel = 0U,
     .active = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
+    .active_auto_cc = RUNTIME_CONFIG_CC_MESSAGE_LIST_EMPTY,
     .bypass = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
+    .bypass_auto_cc = RUNTIME_CONFIG_CC_MESSAGE_LIST_EMPTY,
     .tap_tempo = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
     .volume1 = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
     .volume2 = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
@@ -659,6 +678,22 @@ static uint8_t RuntimeConfig_PersistentStoreSlotsLookBlank(void)
                  && (RuntimeConfig_PersistentStoreSlotStatus(PERSISTENT_STORE_SLOT1_FLASH_ADDR)[0] == 'e'));
 }
 
+static void RuntimeConfig_InitDeviceAutoCcDefaults(RuntimeConfigDevice_t *device)
+{
+    if (!device)
+        return;
+
+    for (uint8_t slot_index = 0U; slot_index < RUNTIME_CONFIG_DEVICE_AUTO_CC_COUNT; ++slot_index)
+    {
+        device->active_auto_cc[slot_index].channel = PRESET_CC_CHANNEL_UNUSED;
+        device->active_auto_cc[slot_index].cc_number = PRESET_CC_NUMBER_UNUSED;
+        device->active_auto_cc[slot_index].value = PRESET_CC_VALUE_UNUSED;
+        device->bypass_auto_cc[slot_index].channel = PRESET_CC_CHANNEL_UNUSED;
+        device->bypass_auto_cc[slot_index].cc_number = PRESET_CC_NUMBER_UNUSED;
+        device->bypass_auto_cc[slot_index].value = PRESET_CC_VALUE_UNUSED;
+    }
+}
+
 static void RuntimeConfig_CopyLegacyDevice(RuntimeConfigDevice_t *destination,
                                            const RuntimeConfigDeviceLegacyV2_t *source)
 {
@@ -685,6 +720,7 @@ static void RuntimeConfig_CopyLegacyDevice(RuntimeConfigDevice_t *destination,
     destination->decay2.cc = PRESET_CC_NUMBER_UNUSED;
     destination->decay2.value = 0U;
     destination->max_preset = source->max_preset;
+    RuntimeConfig_InitDeviceAutoCcDefaults(destination);
 }
 
 static void RuntimeConfig_CopyLegacyDeviceV4(RuntimeConfigDevice_t *destination,
@@ -731,6 +767,7 @@ static void RuntimeConfig_CopyLegacyDeviceV4(RuntimeConfigDevice_t *destination,
     destination->decay2.cc = PRESET_CC_NUMBER_UNUSED;
     destination->decay2.value = 0U;
     destination->max_preset = source->max_preset;
+    RuntimeConfig_InitDeviceAutoCcDefaults(destination);
 }
 
 static void RuntimeConfig_CopyLegacyDeviceV6(RuntimeConfigDevice_t *destination,
@@ -756,6 +793,7 @@ static void RuntimeConfig_CopyLegacyDeviceV6(RuntimeConfigDevice_t *destination,
     destination->decay2.cc = PRESET_CC_NUMBER_UNUSED;
     destination->decay2.value = 0U;
     destination->max_preset = source->max_preset;
+    RuntimeConfig_InitDeviceAutoCcDefaults(destination);
 }
 
 static void RuntimeConfig_CopyLegacyDeviceV7(RuntimeConfigDevice_t *destination,
@@ -780,6 +818,7 @@ static void RuntimeConfig_CopyLegacyDeviceV7(RuntimeConfigDevice_t *destination,
     destination->decay2.cc = PRESET_CC_NUMBER_UNUSED;
     destination->decay2.value = 0U;
     destination->max_preset = source->max_preset;
+    RuntimeConfig_InitDeviceAutoCcDefaults(destination);
 }
 
 static void RuntimeConfig_CopyLegacyDeviceV8(RuntimeConfigDevice_t *destination,
@@ -801,6 +840,28 @@ static void RuntimeConfig_CopyLegacyDeviceV8(RuntimeConfigDevice_t *destination,
     destination->decay1 = source->decay1;
     destination->decay2 = source->decay2;
     destination->max_preset = source->max_preset;
+    RuntimeConfig_InitDeviceAutoCcDefaults(destination);
+}
+
+static void RuntimeConfig_CopyLegacyDeviceV9(RuntimeConfigDevice_t *destination,
+                                             const RuntimeConfigDeviceLegacyV9_t *source)
+{
+    if (!destination || !source)
+        return;
+
+    memcpy(destination->name, source->name, sizeof(destination->name));
+    destination->channel = source->channel;
+    destination->active = source->active;
+    destination->bypass = source->bypass;
+    destination->tap_tempo = source->tap_tempo;
+    destination->volume1 = source->volume1;
+    destination->volume2 = source->volume2;
+    destination->mix1 = source->mix1;
+    destination->mix2 = source->mix2;
+    destination->decay1 = source->decay1;
+    destination->decay2 = source->decay2;
+    destination->max_preset = source->max_preset;
+    RuntimeConfig_InitDeviceAutoCcDefaults(destination);
 }
 
 uint8_t RuntimeConfig_PersistentConfigSizeIsSupported(uint32_t config_size)
@@ -970,6 +1031,30 @@ static uint8_t RuntimeConfig_NormalizeExpressionPedalCc(uint8_t cc)
 static uint8_t RuntimeConfig_NormalizeExpressionPedalValue(uint8_t value)
 {
     return (value <= 127U) ? value : 127U;
+}
+
+static uint8_t RuntimeConfig_NormalizeMessageChannel(uint8_t channel)
+{
+    return (channel == PRESET_CC_CHANNEL_UNUSED || (channel >= 1U && channel <= 16U))
+        ? channel
+        : PRESET_CC_CHANNEL_UNUSED;
+}
+
+static uint8_t RuntimeConfig_NormalizeMidi7OrUnused(uint8_t value)
+{
+    return (value == PRESET_CC_NUMBER_UNUSED || value <= 127U)
+        ? value
+        : PRESET_CC_NUMBER_UNUSED;
+}
+
+static void RuntimeConfig_NormalizeDeviceAutoCcSlot(PresetCCSlot_t *slot)
+{
+    if (!slot)
+        return;
+
+    slot->channel = RuntimeConfig_NormalizeMessageChannel(slot->channel);
+    slot->cc_number = RuntimeConfig_NormalizeMidi7OrUnused(slot->cc_number);
+    slot->value = RuntimeConfig_NormalizeMidi7OrUnused(slot->value);
 }
 
 static void RuntimeConfig_NormalizeExpressionPedalCcSlots(RuntimeConfigGlobal_t *global)
@@ -1301,6 +1386,17 @@ static void RuntimeConfig_NormalizeLoadedStore(void)
             runtime_config_store.banks[bank_index].midi_clock_bar_count);
     }
 
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+    {
+        RuntimeConfigDevice_t *device = &runtime_config_store.devices[device_index];
+
+        for (uint8_t slot_index = 0U; slot_index < RUNTIME_CONFIG_DEVICE_AUTO_CC_COUNT; ++slot_index)
+        {
+            RuntimeConfig_NormalizeDeviceAutoCcSlot(&device->active_auto_cc[slot_index]);
+            RuntimeConfig_NormalizeDeviceAutoCcSlot(&device->bypass_auto_cc[slot_index]);
+        }
+    }
+
     runtime_config_store.global.backlight_brightness = RuntimeConfig_NormalizeBacklightBrightness(
         runtime_config_store.global.backlight_brightness);
     runtime_config_store.global.legacy_idle_timeout_minutes = RUNTIME_CONFIG_GLOBAL_LEGACY_IDLE_TIMEOUT_DEFAULT;
@@ -1516,9 +1612,9 @@ static void RuntimeConfig_ApplyLegacyV9Snapshot(const RuntimeConfigLegacyV9_t *l
     memcpy(runtime_config_store.banks,
            legacy_store->banks,
            sizeof(runtime_config_store.banks));
-    memcpy(runtime_config_store.devices,
-           legacy_store->devices,
-           sizeof(runtime_config_store.devices));
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDeviceV9(&runtime_config_store.devices[device_index],
+                                         &legacy_store->devices[device_index]);
     RuntimeConfig_ApplyLegacyGlobalV9(&runtime_config_store.global, &legacy_store->global);
     runtime_config_store.metronome = legacy_store->metronome;
     memcpy(runtime_config_store.user_themes,
@@ -1537,9 +1633,9 @@ static void RuntimeConfig_ApplyLegacyV10Snapshot(const RuntimeConfigLegacyV10_t 
     memcpy(runtime_config_store.banks,
            legacy_store->banks,
            sizeof(runtime_config_store.banks));
-    memcpy(runtime_config_store.devices,
-           legacy_store->devices,
-           sizeof(runtime_config_store.devices));
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDeviceV9(&runtime_config_store.devices[device_index],
+                                         &legacy_store->devices[device_index]);
     RuntimeConfig_ApplyLegacyGlobalV10(&runtime_config_store.global, &legacy_store->global);
     runtime_config_store.metronome = legacy_store->metronome;
     memcpy(runtime_config_store.user_themes,
@@ -1558,9 +1654,9 @@ static void RuntimeConfig_ApplyLegacyV11Snapshot(const RuntimeConfigLegacyV11_t 
     memcpy(runtime_config_store.banks,
            legacy_store->banks,
            sizeof(runtime_config_store.banks));
-    memcpy(runtime_config_store.devices,
-           legacy_store->devices,
-           sizeof(runtime_config_store.devices));
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDeviceV9(&runtime_config_store.devices[device_index],
+                                         &legacy_store->devices[device_index]);
     RuntimeConfig_ApplyLegacyGlobalV11(&runtime_config_store.global, &legacy_store->global);
     runtime_config_store.metronome = legacy_store->metronome;
     memcpy(runtime_config_store.user_themes,
@@ -1578,9 +1674,9 @@ static void RuntimeConfig_ApplyLegacyV12Snapshot(const RuntimeConfigLegacyV12_t 
     memcpy(runtime_config_store.banks,
            legacy_store->banks,
            sizeof(runtime_config_store.banks));
-    memcpy(runtime_config_store.devices,
-           legacy_store->devices,
-           sizeof(runtime_config_store.devices));
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDeviceV9(&runtime_config_store.devices[device_index],
+                                         &legacy_store->devices[device_index]);
     RuntimeConfig_ApplyLegacyGlobalV12(&runtime_config_store.global, &legacy_store->global);
     runtime_config_store.metronome = legacy_store->metronome;
     memcpy(runtime_config_store.user_themes,
@@ -1598,9 +1694,9 @@ static void RuntimeConfig_ApplyLegacyV13Snapshot(const RuntimeConfigLegacyV13_t 
     memcpy(runtime_config_store.banks,
            legacy_store->banks,
            sizeof(runtime_config_store.banks));
-    memcpy(runtime_config_store.devices,
-           legacy_store->devices,
-           sizeof(runtime_config_store.devices));
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDeviceV9(&runtime_config_store.devices[device_index],
+                                         &legacy_store->devices[device_index]);
     RuntimeConfig_ApplyLegacyGlobalV13(&runtime_config_store.global, &legacy_store->global);
     runtime_config_store.metronome = legacy_store->metronome;
     memcpy(runtime_config_store.user_themes,
@@ -1618,9 +1714,9 @@ static void RuntimeConfig_ApplyLegacyV14Snapshot(const RuntimeConfigLegacyV14_t 
     memcpy(runtime_config_store.banks,
            legacy_store->banks,
            sizeof(runtime_config_store.banks));
-    memcpy(runtime_config_store.devices,
-           legacy_store->devices,
-           sizeof(runtime_config_store.devices));
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDeviceV9(&runtime_config_store.devices[device_index],
+                                         &legacy_store->devices[device_index]);
     RuntimeConfig_ApplyLegacyGlobalV14(&runtime_config_store.global, &legacy_store->global);
     runtime_config_store.metronome = legacy_store->metronome;
     memcpy(runtime_config_store.user_themes,
@@ -1653,9 +1749,9 @@ static void RuntimeConfig_ApplyLegacyWithRolesSnapshot(
         return;
 
     RuntimeConfig_CopyLegacyBanksWithRoles(legacy_store->banks);
-    memcpy(runtime_config_store.devices,
-           legacy_store->devices,
-           sizeof(runtime_config_store.devices));
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDeviceV9(&runtime_config_store.devices[device_index],
+                                         &legacy_store->devices[device_index]);
     RuntimeConfig_ApplyLegacyGlobalV11(&runtime_config_store.global, &legacy_store->global);
     runtime_config_store.metronome = legacy_store->metronome;
     memcpy(runtime_config_store.user_themes,
@@ -1672,9 +1768,9 @@ static void RuntimeConfig_ApplyLegacyWithRolesNoGlobalPresetsSnapshot(
         return;
 
     RuntimeConfig_CopyLegacyBanksWithRoles(legacy_store->banks);
-    memcpy(runtime_config_store.devices,
-           legacy_store->devices,
-           sizeof(runtime_config_store.devices));
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+        RuntimeConfig_CopyLegacyDeviceV9(&runtime_config_store.devices[device_index],
+                                         &legacy_store->devices[device_index]);
     RuntimeConfig_ApplyLegacyGlobalV11(&runtime_config_store.global, &legacy_store->global);
     runtime_config_store.metronome = legacy_store->metronome;
     memcpy(runtime_config_store.user_themes,
@@ -2360,12 +2456,54 @@ uint8_t RuntimeConfig_PersistentStoreSaveIsBlocked(void)
     return runtime_config_persistent_store_save_blocked;
 }
 
+void RuntimeConfig_ClearPersistentStoreSaveBlock(void)
+{
+    RuntimeConfig_EnsureInitialized();
+    runtime_config_persistent_store_save_blocked = 0U;
+}
+
 uint8_t RuntimeConfig_PersistentSnapshotLooksFactoryDefault(const RuntimeConfig_t *snapshot)
 {
     if (!snapshot)
         return 0U;
 
     return (memcmp(snapshot, &runtime_config_defaults, sizeof(runtime_config_defaults)) == 0) ? 1U : 0U;
+}
+
+uint8_t RuntimeConfig_PersistentSnapshotCoreLooksFactoryDefault(const RuntimeConfig_t *snapshot)
+{
+    if (!snapshot)
+        return 0U;
+
+    if (memcmp(snapshot->banks,
+               runtime_config_defaults.banks,
+               sizeof(runtime_config_defaults.banks)) != 0)
+    {
+        return 0U;
+    }
+
+    if (memcmp(snapshot->devices,
+               runtime_config_defaults.devices,
+               sizeof(runtime_config_defaults.devices)) != 0)
+    {
+        return 0U;
+    }
+
+    if (memcmp(&snapshot->global_bypass_preset,
+               &runtime_config_defaults.global_bypass_preset,
+               sizeof(runtime_config_defaults.global_bypass_preset)) != 0)
+    {
+        return 0U;
+    }
+
+    if (memcmp(&snapshot->global_mute_preset,
+               &runtime_config_defaults.global_mute_preset,
+               sizeof(runtime_config_defaults.global_mute_preset)) != 0)
+    {
+        return 0U;
+    }
+
+    return 1U;
 }
 
 void RuntimeConfig_CopyPersistentSaveSnapshot(RuntimeConfig_t *snapshot)

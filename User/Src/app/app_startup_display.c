@@ -1,15 +1,22 @@
 #include "app/app_startup_display.h"
 
+#include "app/app_sd_card.h"
 #include "app/app_startup_clock.h"
 #include "display_functions.h"
 #include "fonts.h"
-#include "image.h"
 #include "led_functions.h"
 #include "runtime_config.h"
 #include "st7796.h"
 
 #define APP_STARTUP_SPLASH_X 0U
 #define APP_STARTUP_SPLASH_Y 0U
+#define APP_STARTUP_SPLASH_FILE_NAME "startup.rgb"
+#define APP_STARTUP_SPLASH_RGB565_PIXEL_BYTES 2U
+#define APP_STARTUP_SPLASH_RGB888_PIXEL_BYTES 3U
+#define APP_STARTUP_SPLASH_RGB565_ROW_BYTES ((uint32_t)ST7796_WIDTH * APP_STARTUP_SPLASH_RGB565_PIXEL_BYTES)
+#define APP_STARTUP_SPLASH_RGB888_ROW_BYTES ((uint32_t)ST7796_WIDTH * APP_STARTUP_SPLASH_RGB888_PIXEL_BYTES)
+#define APP_STARTUP_SPLASH_RGB565_FILE_BYTES (APP_STARTUP_SPLASH_RGB565_ROW_BYTES * (uint32_t)ST7796_HEIGHT)
+#define APP_STARTUP_SPLASH_RGB888_FILE_BYTES (APP_STARTUP_SPLASH_RGB888_ROW_BYTES * (uint32_t)ST7796_HEIGHT)
 
 #define APP_STARTUP_STATUS_TEXT_X 10U
 #define APP_STARTUP_STATUS_TEXT_Y 10U
@@ -21,6 +28,16 @@
 #define APP_STARTUP_LOADING_BAR_MS_DEFAULT 1000U
 
 #define APP_STARTUP_SYSTEM_CLOCK_PROMOTION_RETRY_MS 50U
+
+typedef enum
+{
+    APP_STARTUP_SPLASH_FORMAT_NONE = 0,
+    APP_STARTUP_SPLASH_FORMAT_RGB565_LE,
+    APP_STARTUP_SPLASH_FORMAT_RGB888
+} AppStartupSplashFormat_t;
+
+static uint16_t app_startup_splash_rgb565_row[ST7796_WIDTH];
+static uint8_t app_startup_splash_rgb888_row[APP_STARTUP_SPLASH_RGB888_ROW_BYTES];
 
 static const char *AppStartupDisplay_GetClockSourceStatusText(void)
 {
@@ -35,6 +52,130 @@ static uint32_t AppStartupDisplay_GetLoadingBarDurationMs(void)
         return APP_STARTUP_LOADING_BAR_MS_DEFAULT;
 
     return (uint32_t)global->startup_delay_seconds * 1000UL;
+}
+
+static AppStartupSplashFormat_t AppStartupDisplay_GetSplashFormat(uint32_t file_size)
+{
+    if (file_size == APP_STARTUP_SPLASH_RGB888_FILE_BYTES)
+        return APP_STARTUP_SPLASH_FORMAT_RGB888;
+
+    if (file_size == APP_STARTUP_SPLASH_RGB565_FILE_BYTES)
+        return APP_STARTUP_SPLASH_FORMAT_RGB565_LE;
+
+    return APP_STARTUP_SPLASH_FORMAT_NONE;
+}
+
+static uint16_t AppStartupDisplay_Rgb888ToRgb565(uint8_t red, uint8_t green, uint8_t blue)
+{
+    return (uint16_t)(((uint16_t)(red & 0xF8U) << 8)
+                    | ((uint16_t)(green & 0xFCU) << 3)
+                    | ((uint16_t)blue >> 3));
+}
+
+static uint16_t AppStartupDisplay_SwapRgb565RedBlue(uint16_t pixel)
+{
+    return (uint16_t)((pixel & 0x07E0U)
+                    | ((pixel & 0xF800U) >> 11)
+                    | ((pixel & 0x001FU) << 11));
+}
+
+static void AppStartupDisplay_PrepareSplashRowForPanel(void)
+{
+    for (uint16_t x = 0U; x < ST7796_WIDTH; ++x)
+        app_startup_splash_rgb565_row[x] =
+            AppStartupDisplay_SwapRgb565RedBlue(app_startup_splash_rgb565_row[x]);
+}
+
+static uint8_t AppStartupDisplay_ReadSplashRowRgb565(AppSdCardFile_t *file)
+{
+    return AppSdCard_ReadFile(file,
+                              (uint8_t *)app_startup_splash_rgb565_row,
+                              APP_STARTUP_SPLASH_RGB565_ROW_BYTES)
+        == APP_STARTUP_SPLASH_RGB565_ROW_BYTES;
+}
+
+static uint8_t AppStartupDisplay_ReadSplashRowRgb888(AppSdCardFile_t *file)
+{
+    if (AppSdCard_ReadFile(file,
+                           app_startup_splash_rgb888_row,
+                           APP_STARTUP_SPLASH_RGB888_ROW_BYTES)
+        != APP_STARTUP_SPLASH_RGB888_ROW_BYTES)
+    {
+        return 0U;
+    }
+
+    for (uint16_t x = 0U; x < ST7796_WIDTH; ++x)
+    {
+        const uint32_t source_index = (uint32_t)x * APP_STARTUP_SPLASH_RGB888_PIXEL_BYTES;
+        app_startup_splash_rgb565_row[x] =
+            AppStartupDisplay_Rgb888ToRgb565(app_startup_splash_rgb888_row[source_index],
+                                             app_startup_splash_rgb888_row[source_index + 1U],
+                                             app_startup_splash_rgb888_row[source_index + 2U]);
+    }
+
+    return 1U;
+}
+
+static uint8_t AppStartupDisplay_ReadSplashRow(AppSdCardFile_t *file,
+                                               AppStartupSplashFormat_t format)
+{
+    uint8_t row_read = 0U;
+
+    if (format == APP_STARTUP_SPLASH_FORMAT_RGB888)
+        row_read = AppStartupDisplay_ReadSplashRowRgb888(file);
+    else if (format == APP_STARTUP_SPLASH_FORMAT_RGB565_LE)
+        row_read = AppStartupDisplay_ReadSplashRowRgb565(file);
+
+    if (row_read)
+        AppStartupDisplay_PrepareSplashRowForPanel();
+
+    return row_read;
+}
+
+static uint8_t AppStartupDisplay_DrawSplashFromSd(void)
+{
+    AppSdCardFile_t file;
+    AppStartupSplashFormat_t format;
+
+    AppSdCard_InitAndProbe();
+
+    if (!AppSdCard_IsFilesystemReady())
+        return 0U;
+
+    if (!AppSdCard_OpenFile(&file, APP_STARTUP_SPLASH_FILE_NAME))
+        return 0U;
+
+    format = AppStartupDisplay_GetSplashFormat(file.file_size);
+    if (format == APP_STARTUP_SPLASH_FORMAT_NONE)
+        return 0U;
+
+    if (!ST7796_BeginImageWrite(APP_STARTUP_SPLASH_X,
+                                APP_STARTUP_SPLASH_Y,
+                                ST7796_WIDTH,
+                                ST7796_HEIGHT))
+    {
+        return 0U;
+    }
+
+    for (uint16_t y = 0U; y < ST7796_HEIGHT; ++y)
+    {
+        if (!AppStartupDisplay_ReadSplashRow(&file, format))
+        {
+            ST7796_EndImageWrite();
+            return 0U;
+        }
+
+        ST7796_WriteImagePixels(app_startup_splash_rgb565_row, ST7796_WIDTH);
+    }
+
+    ST7796_EndImageWrite();
+    return 1U;
+}
+
+static void AppStartupDisplay_DrawSplash(void)
+{
+    if (!AppStartupDisplay_DrawSplashFromSd())
+        ST7796_FillScreen(BLACK);
 }
 
 static void AppStartupDisplay_DrawPersistentStoreStatus(void)
@@ -106,11 +247,7 @@ void AppStartupDisplay_Run(void)
     LED_InitBoardOutputs();
     Display_BL_Init();
     ST7796_Init();
-    ST7796_DrawImageSwapRB(APP_STARTUP_SPLASH_X,
-                           APP_STARTUP_SPLASH_Y,
-                           IMAGE_WIDTH,
-                           IMAGE_HEIGHT,
-                           image_data);
+    AppStartupDisplay_DrawSplash();
     Display_BL_FadeIn();
     AppStartupDisplay_DrawPersistentStoreStatus();
     AppStartupDisplay_DrawClockSource();
