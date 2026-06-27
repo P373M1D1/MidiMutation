@@ -29,6 +29,8 @@ extern "C" {
 #define RUNTIME_CONFIG_METRONOME_VOLUME_MAX           100U
 #define RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_MIN    3U
 #define RUNTIME_CONFIG_METRONOME_BEATS_PER_BAR_MAX    8U
+#define RUNTIME_CONFIG_RANDOM_BYPASS_PERCENT_DEFAULT  25U
+#define RUNTIME_CONFIG_RANDOM_BYPASS_PERCENT_MAX      100U
 
 typedef enum {
     RUNTIME_CONFIG_SYNC_STYLE_MIDI_CLOCK = 0,
@@ -106,6 +108,7 @@ typedef struct {
     MidiCC_t decay1;
     MidiCC_t decay2;
     uint8_t max_preset;
+    uint8_t random_bypass_percent;
 } RuntimeConfigDevice_t;
 
 typedef enum {

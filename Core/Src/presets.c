@@ -4,6 +4,7 @@
 #include "app/app_preset_latency_diag.h"
 #include "led_functions.h"
 #include "midi_devices.h"
+#include "midi_preset_transaction.h"
 #include "midi_functions.h"
 #include "bpm_functions.h"
 #include "persistent_store_layout.h"
@@ -591,6 +592,10 @@ static Preset_t random_preset = {
     .function_button = PRESET_FUNCTION_BUTTON_DEFAULT,
 };
 
+/* Preserves the outgoing random state when Random is pressed repeatedly, so
+ * active/bypass Auto CC transitions can compare old and new program states. */
+static Preset_t previous_random_preset_snapshot;
+
 static uint8_t Presets_CurrentBankUsesWetDry(void)
 {
     const RuntimeConfigBank_t *bank = RuntimeConfig_GetBank(current_bank);
@@ -643,10 +648,12 @@ static const Preset_t *Presets_GetButton11PresetForCurrentBank(void)
 /* Shared activation path for normal presets, random preset, and mute preset.
  * update_index controls whether this activation should become the persisted
  * "current preset" or just temporarily repaint/run an overlay preset. */
-static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index, uint8_t idx, uint8_t urgent_midi)
+static void App_ActivatePresetDataWithPrevious(const Preset_t *previous_preset,
+                                               const Preset_t *preset,
+                                               uint8_t update_index,
+                                               uint8_t idx,
+                                               uint8_t urgent_midi)
 {
-    const Preset_t *previous_preset = AppState_GetActivePreset();
-
     if (!preset)
         return;
 
@@ -665,7 +672,15 @@ static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index,
         AppState_SetActiveOverlayPreset(preset);
     }
 
-    if (urgent_midi)
+    if (update_index)
+    {
+        /* Normal preset activations use the reliable semantic transaction
+         * path. Overlay presets remain on the legacy path until this phase is
+         * validated under real clock and UI pressure. */
+        MidiCancelPendingPresetRetry();
+        (void)MidiPresetTransaction_Schedule(preset, previous_preset, 1U);
+    }
+    else if (urgent_midi)
         Midi_LoadPresetTransitionUrgent(preset, previous_preset);
     else
         Midi_LoadPresetTransition(preset, previous_preset);
@@ -675,7 +690,19 @@ static void App_ActivatePresetData(const Preset_t *preset, uint8_t update_index,
     }
 }
 
-static uint8_t Presets_NextRandomProgram(uint8_t max_preset)
+static void App_ActivatePresetData(const Preset_t *preset,
+                                   uint8_t update_index,
+                                   uint8_t idx,
+                                   uint8_t urgent_midi)
+{
+    App_ActivatePresetDataWithPrevious(AppState_GetActivePreset(),
+                                       preset,
+                                       update_index,
+                                       idx,
+                                       urgent_midi);
+}
+
+static uint32_t Presets_NextRandomWord(void)
 {
     /* Simple on-device LCG mixed with the current HAL tick so successive
      * button presses do not walk the exact same short sequence after boot. */
@@ -684,7 +711,27 @@ static uint8_t Presets_NextRandomProgram(uint8_t max_preset)
     random_state = (random_state * PRESET_RANDOM_LCG_MULTIPLIER)
                  + PRESET_RANDOM_LCG_INCREMENT
                  + HAL_GetTick();
-    return (uint8_t)(random_state % ((uint32_t)max_preset + 1UL));
+    return random_state;
+}
+
+static uint8_t Presets_NextRandomProgram(uint8_t max_preset)
+{
+    return (uint8_t)(Presets_NextRandomWord() % ((uint32_t)max_preset + 1UL));
+}
+
+static uint8_t Presets_NextRandomProgramOrBypass(uint8_t max_preset,
+                                                 uint8_t bypass_percent)
+{
+    if (bypass_percent >= RUNTIME_CONFIG_RANDOM_BYPASS_PERCENT_MAX)
+        return PRESET_PROGRAM_NONE;
+
+    if (bypass_percent > 0U
+     && (uint8_t)(Presets_NextRandomWord() % 100UL) < bypass_percent)
+    {
+        return PRESET_PROGRAM_NONE;
+    }
+
+    return Presets_NextRandomProgram(max_preset);
 }
 
 static const Preset_t *Presets_GetFlat(uint8_t index)
@@ -853,19 +900,31 @@ void App_ActivatePreset(uint8_t idx)
 
 void Presets_ActivateRandom(void)
 {
-    const MidiDevice_t *first_device = MidiDevices_Get(0U);
-    const MidiDevice_t *second_device = MidiDevices_Get(1U);
+    const Preset_t *previous_preset = AppState_GetActivePreset();
 
-    /* Random preset picks one legal program per real device and leaves the
-     * remaining slots intentionally unused. */
-    random_preset.prg[0].program = Presets_NextRandomProgram(first_device->max_preset);
-    random_preset.prg[1].program = Presets_NextRandomProgram(second_device->max_preset);
-    for (uint8_t slot = 2U; slot < PRESET_DEVICE_SLOTS; slot++)
+    if (previous_preset == &random_preset)
     {
-        random_preset.prg[slot].program = PRESET_PROGRAM_UNUSED;
+        previous_random_preset_snapshot = random_preset;
+        previous_preset = &previous_random_preset_snapshot;
     }
 
-    App_ActivatePresetData(&random_preset, 0U, 0U, 0U);
+    /* Each configured device independently gets either a legal program or
+     * "---". The normal MIDI preset path translates "---" into the device's
+     * configured bypass message. */
+    for (uint8_t slot = 0U; slot < PRESET_DEVICE_SLOTS; slot++)
+    {
+        const MidiDevice_t *device = MidiDevices_Get(slot);
+        const RuntimeConfigDevice_t *config_device = RuntimeConfig_GetDevice(slot);
+
+        random_preset.prg[slot].program =
+            (device && device->channel >= 1U && device->channel <= 16U)
+            ? Presets_NextRandomProgramOrBypass(
+                device->max_preset,
+                config_device->random_bypass_percent)
+            : PRESET_PROGRAM_UNUSED;
+    }
+
+    App_ActivatePresetDataWithPrevious(previous_preset, &random_preset, 0U, 0U, 0U);
     LED_SetActiveButtonIndicator(8U);
     AppPresetLatencyDiag_OnLedIndicatorUpdated();
 }

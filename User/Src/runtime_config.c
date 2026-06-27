@@ -132,6 +132,25 @@ typedef struct {
     uint8_t max_preset;
 } RuntimeConfigDeviceLegacyV9_t;
 
+/* Immediate predecessor of RuntimeConfigDevice_t. Keep this layout exact so
+ * configs saved before per-device random bypass was added can be upgraded. */
+typedef struct {
+    char name[RUNTIME_CONFIG_DEVICE_NAME_LENGTH + 1U];
+    uint8_t channel;
+    MidiCC_t active;
+    PresetCCSlot_t active_auto_cc[RUNTIME_CONFIG_DEVICE_AUTO_CC_COUNT];
+    MidiCC_t bypass;
+    PresetCCSlot_t bypass_auto_cc[RUNTIME_CONFIG_DEVICE_AUTO_CC_COUNT];
+    MidiCC_t tap_tempo;
+    MidiCC_t volume1;
+    MidiCC_t volume2;
+    MidiCC_t mix1;
+    MidiCC_t mix2;
+    MidiCC_t decay1;
+    MidiCC_t decay2;
+    uint8_t max_preset;
+} RuntimeConfigDeviceLegacyNoRandomBypass_t;
+
 typedef struct {
     uint8_t startup_delay_seconds;
     uint8_t legacy_idle_timeout_minutes;
@@ -357,6 +376,16 @@ typedef struct {
     Preset_t global_mute_preset;
 } RuntimeConfigLegacyWithRoles_t;
 
+typedef struct {
+    RuntimeConfigBank_t banks[PRESET_BANK_COUNT];
+    RuntimeConfigDeviceLegacyNoRandomBypass_t devices[MIDI_DEVICE_COUNT];
+    RuntimeConfigGlobal_t global;
+    RuntimeConfigMetronome_t metronome;
+    RuntimeConfigUserTheme_t user_themes[RUNTIME_CONFIG_USER_THEME_COUNT];
+    Preset_t global_bypass_preset;
+    Preset_t global_mute_preset;
+} RuntimeConfigLegacyNoRandomBypass_t;
+
 #define RUNTIME_CONFIG_FUNCTION_BUTTON_DEFAULT \
     { \
         .name = "SpcBtn", \
@@ -392,6 +421,7 @@ typedef struct {
         .decay1 = RUNTIME_CONFIG_DEVICE_CC_UNUSED, \
         .decay2 = RUNTIME_CONFIG_DEVICE_CC_UNUSED, \
         .max_preset = max_preset_value, \
+        .random_bypass_percent = RUNTIME_CONFIG_RANDOM_BYPASS_PERCENT_DEFAULT, \
     }
 
 #define RUNTIME_CONFIG_USER_THEME_ENTRY(display_bg_value, footbar_value, footbar_text_value, info_text_value, cursor_text_value, cursor_bg_value, cursor_shared_bg_value, popup_bg_value, popup_text_value, popup_border_value, header_value, header_edit_value, header_edit_bg_value, preset_value, bank_value, wet_dry_value, function_active_value, function_inactive_value, function_active_bg_value, alert_text_value, bpm_internal_value, ext_bpm_value) \
@@ -450,6 +480,7 @@ static const RuntimeConfigDevice_t runtime_config_blank_device = {
     .decay1 = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
     .decay2 = RUNTIME_CONFIG_DEVICE_CC_UNUSED,
     .max_preset = 0U,
+    .random_bypass_percent = RUNTIME_CONFIG_RANDOM_BYPASS_PERCENT_DEFAULT,
 };
 
 static const Preset_t runtime_config_global_bypass_preset_default = {
@@ -692,6 +723,36 @@ static void RuntimeConfig_InitDeviceAutoCcDefaults(RuntimeConfigDevice_t *device
         device->bypass_auto_cc[slot_index].cc_number = PRESET_CC_NUMBER_UNUSED;
         device->bypass_auto_cc[slot_index].value = PRESET_CC_VALUE_UNUSED;
     }
+
+    device->random_bypass_percent = RUNTIME_CONFIG_RANDOM_BYPASS_PERCENT_DEFAULT;
+}
+
+static void RuntimeConfig_CopyLegacyDeviceNoRandomBypass(
+    RuntimeConfigDevice_t *destination,
+    const RuntimeConfigDeviceLegacyNoRandomBypass_t *source)
+{
+    if (!destination || !source)
+        return;
+
+    memcpy(destination->name, source->name, sizeof(destination->name));
+    destination->channel = source->channel;
+    destination->active = source->active;
+    memcpy(destination->active_auto_cc,
+           source->active_auto_cc,
+           sizeof(destination->active_auto_cc));
+    destination->bypass = source->bypass;
+    memcpy(destination->bypass_auto_cc,
+           source->bypass_auto_cc,
+           sizeof(destination->bypass_auto_cc));
+    destination->tap_tempo = source->tap_tempo;
+    destination->volume1 = source->volume1;
+    destination->volume2 = source->volume2;
+    destination->mix1 = source->mix1;
+    destination->mix2 = source->mix2;
+    destination->decay1 = source->decay1;
+    destination->decay2 = source->decay2;
+    destination->max_preset = source->max_preset;
+    destination->random_bypass_percent = RUNTIME_CONFIG_RANDOM_BYPASS_PERCENT_DEFAULT;
 }
 
 static void RuntimeConfig_CopyLegacyDevice(RuntimeConfigDevice_t *destination,
@@ -867,6 +928,7 @@ static void RuntimeConfig_CopyLegacyDeviceV9(RuntimeConfigDevice_t *destination,
 uint8_t RuntimeConfig_PersistentConfigSizeIsSupported(uint32_t config_size)
 {
     return (config_size == sizeof(RuntimeConfig_t)
+            || config_size == sizeof(RuntimeConfigLegacyNoRandomBypass_t)
             || config_size == sizeof(RuntimeConfigLegacyWithRoles_t)
             || config_size == sizeof(RuntimeConfigLegacyWithRolesNoGlobalPresets_t)
             || config_size == sizeof(RuntimeConfigLegacyV14_t)
@@ -963,6 +1025,13 @@ static uint8_t RuntimeConfig_NormalizeMetronomeVolume(uint8_t volume)
     return (volume <= RUNTIME_CONFIG_METRONOME_VOLUME_MAX)
         ? volume
         : RUNTIME_CONFIG_METRONOME_VOLUME_MAX;
+}
+
+static uint8_t RuntimeConfig_NormalizeRandomBypassPercent(uint8_t percent)
+{
+    return (percent <= RUNTIME_CONFIG_RANDOM_BYPASS_PERCENT_MAX)
+        ? percent
+        : RUNTIME_CONFIG_RANDOM_BYPASS_PERCENT_MAX;
 }
 
 static uint8_t RuntimeConfig_NormalizeFeedbackTaperEnabled(uint8_t enabled)
@@ -1390,6 +1459,9 @@ static void RuntimeConfig_NormalizeLoadedStore(void)
     {
         RuntimeConfigDevice_t *device = &runtime_config_store.devices[device_index];
 
+        device->random_bypass_percent =
+            RuntimeConfig_NormalizeRandomBypassPercent(device->random_bypass_percent);
+
         for (uint8_t slot_index = 0U; slot_index < RUNTIME_CONFIG_DEVICE_AUTO_CC_COUNT; ++slot_index)
         {
             RuntimeConfig_NormalizeDeviceAutoCcSlot(&device->active_auto_cc[slot_index]);
@@ -1644,6 +1716,30 @@ static void RuntimeConfig_ApplyLegacyV10Snapshot(const RuntimeConfigLegacyV10_t 
     /* V10 has the modern bank/device/global layout but still predates the two
      * editable global overlay presets, so upgrade them the same way as V9. */
     RuntimeConfig_InitGlobalPresetsForLegacySnapshot();
+}
+
+static void RuntimeConfig_ApplyLegacyNoRandomBypassSnapshot(
+    const RuntimeConfigLegacyNoRandomBypass_t *legacy_store)
+{
+    if (!legacy_store)
+        return;
+
+    memcpy(runtime_config_store.banks,
+           legacy_store->banks,
+           sizeof(runtime_config_store.banks));
+    for (uint8_t device_index = 0U; device_index < MIDI_DEVICE_COUNT; ++device_index)
+    {
+        RuntimeConfig_CopyLegacyDeviceNoRandomBypass(
+            &runtime_config_store.devices[device_index],
+            &legacy_store->devices[device_index]);
+    }
+    runtime_config_store.global = legacy_store->global;
+    runtime_config_store.metronome = legacy_store->metronome;
+    memcpy(runtime_config_store.user_themes,
+           legacy_store->user_themes,
+           sizeof(runtime_config_store.user_themes));
+    runtime_config_store.global_bypass_preset = legacy_store->global_bypass_preset;
+    runtime_config_store.global_mute_preset = legacy_store->global_mute_preset;
 }
 
 static void RuntimeConfig_ApplyLegacyV11Snapshot(const RuntimeConfigLegacyV11_t *legacy_store)
@@ -1914,6 +2010,16 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
                 (uint8_t)runtime_config_store.global.display_mode,
                 header_v3->version);
         }
+        else if (header_v3->config_size == sizeof(RuntimeConfigLegacyNoRandomBypass_t))
+        {
+            RuntimeConfigLegacyNoRandomBypass_t legacy_store;
+
+            memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+            RuntimeConfig_ApplyLegacyNoRandomBypassSnapshot(&legacy_store);
+            runtime_config_store.global.display_mode = RuntimeConfig_DecodePersistedDisplayMode(
+                (uint8_t)runtime_config_store.global.display_mode,
+                header_v3->version);
+        }
         else if (header_v3->config_size == sizeof(RuntimeConfigLegacyWithRoles_t))
         {
             RuntimeConfigLegacyWithRoles_t legacy_store;
@@ -2050,6 +2156,16 @@ static void RuntimeConfig_TryLoadPersistentStore(void)
     if (header->config_size == sizeof(runtime_config_store))
     {
         memcpy(&runtime_config_store, config_payload, sizeof(runtime_config_store));
+        runtime_config_store.global.display_mode = RuntimeConfig_DecodePersistedDisplayMode(
+            (uint8_t)runtime_config_store.global.display_mode,
+            header->version);
+    }
+    else if (header->config_size == sizeof(RuntimeConfigLegacyNoRandomBypass_t))
+    {
+        RuntimeConfigLegacyNoRandomBypass_t legacy_store;
+
+        memcpy(&legacy_store, config_payload, sizeof(legacy_store));
+        RuntimeConfig_ApplyLegacyNoRandomBypassSnapshot(&legacy_store);
         runtime_config_store.global.display_mode = RuntimeConfig_DecodePersistedDisplayMode(
             (uint8_t)runtime_config_store.global.display_mode,
             header->version);

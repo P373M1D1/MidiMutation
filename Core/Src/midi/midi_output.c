@@ -3,6 +3,7 @@
 
 #define MIDI_OUTPUT_CLOCK_QUEUE_SIZE 16U
 #define MIDI_OUTPUT_MESSAGE_QUEUE_SIZE 128U
+#define MIDI_OUTPUT_TRACKED_COMPLETION_QUEUE_SIZE 128U
 #define MIDI_OUTPUT_BYTE_TIME_US 320U
 #define MIDI_OUTPUT_POST_CLOCK_GUARD_US 80U
 #define MIDI_OUTPUT_PRE_CLOCK_GUARD_US 80U
@@ -39,8 +40,14 @@ static uint8_t midi_output_clock_buffer[MIDI_OUTPUT_CLOCK_QUEUE_SIZE];
 static volatile uint8_t midi_output_clock_head = 0U;
 static volatile uint8_t midi_output_clock_tail = 0U;
 static uint8_t midi_output_message_buffer[MIDI_OUTPUT_MESSAGE_QUEUE_SIZE];
+static volatile uint32_t midi_output_message_sequence_buffer[MIDI_OUTPUT_MESSAGE_QUEUE_SIZE];
 static volatile uint8_t midi_output_message_head = 0U;
 static volatile uint8_t midi_output_message_tail = 0U;
+static volatile uint32_t midi_output_tracked_completion_buffer[MIDI_OUTPUT_TRACKED_COMPLETION_QUEUE_SIZE];
+static volatile uint8_t midi_output_tracked_completion_head = 0U;
+static volatile uint8_t midi_output_tracked_completion_tail = 0U;
+static volatile uint8_t midi_output_tracked_completion_peak_depth = 0U;
+static volatile uint32_t midi_output_tracked_completion_overflow_count = 0U;
 static volatile uint32_t midi_output_last_clock_us = 0U;
 static volatile uint32_t midi_output_clock_interval_us = 0U;
 static volatile uint8_t midi_output_timebend_encoder_enabled = 0U;
@@ -104,6 +111,13 @@ __attribute__((section(".RamFunc")))
 static void MidiOutput_KickTx(void);
 __attribute__((section(".RamFunc")))
 static uint8_t MidiOutput_MessageCanStartNow(void);
+static uint8_t MidiOutput_QueueMessageBytesInternal(const uint8_t *bytes,
+                                                     uint16_t length,
+                                                     uint32_t sequence);
+__attribute__((section(".RamFunc")))
+static void MidiOutput_WriteNextMessageByte(void);
+__attribute__((section(".RamFunc")))
+static void MidiOutput_RecordTrackedCompletion(uint32_t sequence);
 static uint8_t MidiOutput_RingFreeSpace(uint8_t head, uint8_t tail, uint8_t size);
 __attribute__((section(".RamFunc")))
 static uint8_t MidiOutput_ClockDepthLocked(void);
@@ -143,6 +157,10 @@ void MidiOutput_SetUart(UART_HandleTypeDef *uart_handle)
     midi_output_clock_tail = 0U;
     midi_output_message_head = 0U;
     midi_output_message_tail = 0U;
+    midi_output_tracked_completion_head = 0U;
+    midi_output_tracked_completion_tail = 0U;
+    midi_output_tracked_completion_peak_depth = 0U;
+    midi_output_tracked_completion_overflow_count = 0U;
     midi_output_last_clock_us = 0U;
     midi_output_clock_interval_us = 0U;
     midi_output_timebend_encoder_enabled = 0U;
@@ -198,8 +216,7 @@ void MidiOutput_HandleTxIrq(void)
     {
         if (MidiOutput_MessageCanStartNow())
         {
-            midi_output_uart->Instance->DR = midi_output_message_buffer[midi_output_message_tail];
-            midi_output_message_tail = (uint8_t)((midi_output_message_tail + 1U) % MIDI_OUTPUT_MESSAGE_QUEUE_SIZE);
+            MidiOutput_WriteNextMessageByte();
             return;
         }
     }
@@ -219,8 +236,7 @@ void MidiOutput_HandleTxIrq(void)
             return;
         }
 
-        midi_output_uart->Instance->DR = midi_output_message_buffer[midi_output_message_tail];
-        midi_output_message_tail = (uint8_t)((midi_output_message_tail + 1U) % MIDI_OUTPUT_MESSAGE_QUEUE_SIZE);
+        MidiOutput_WriteNextMessageByte();
         return;
     }
 
@@ -247,6 +263,23 @@ void UART4_IRQHandler(void)
 }
 
 uint8_t MidiOutput_QueueMessageBytes(const uint8_t *bytes, uint16_t length)
+{
+    return MidiOutput_QueueMessageBytesInternal(bytes, length, 0U);
+}
+
+uint8_t MidiOutput_QueueTrackedMessageBytes(const uint8_t *bytes,
+                                            uint16_t length,
+                                            uint32_t sequence)
+{
+    if (sequence == 0U)
+        return 0U;
+
+    return MidiOutput_QueueMessageBytesInternal(bytes, length, sequence);
+}
+
+static uint8_t MidiOutput_QueueMessageBytesInternal(const uint8_t *bytes,
+                                                     uint16_t length,
+                                                     uint32_t sequence)
 {
     uint32_t primask;
     uint8_t free_space;
@@ -280,6 +313,8 @@ uint8_t MidiOutput_QueueMessageBytes(const uint8_t *bytes, uint16_t length)
     for (uint16_t index = 0U; index < length; index++)
     {
         midi_output_message_buffer[midi_output_message_head] = bytes[index];
+        midi_output_message_sequence_buffer[midi_output_message_head] =
+            ((index + 1U) == length) ? sequence : 0U;
         midi_output_message_head = (uint8_t)((midi_output_message_head + 1U) % MIDI_OUTPUT_MESSAGE_QUEUE_SIZE);
     }
 
@@ -293,6 +328,94 @@ uint8_t MidiOutput_QueueMessageBytes(const uint8_t *bytes, uint16_t length)
     MidiOutput_ExitCritical(primask);
 
     return 1U;
+}
+
+uint8_t MidiOutput_TakeTrackedCompletion(uint32_t *sequence)
+{
+    uint32_t primask;
+
+    if (!sequence)
+        return 0U;
+
+    primask = MidiOutput_EnterCritical();
+    if (midi_output_tracked_completion_tail == midi_output_tracked_completion_head)
+    {
+        MidiOutput_ExitCritical(primask);
+        return 0U;
+    }
+
+    *sequence = midi_output_tracked_completion_buffer[midi_output_tracked_completion_tail];
+    midi_output_tracked_completion_tail =
+        (uint8_t)((midi_output_tracked_completion_tail + 1U)
+                  % MIDI_OUTPUT_TRACKED_COMPLETION_QUEUE_SIZE);
+    MidiOutput_ExitCritical(primask);
+    return 1U;
+}
+
+void MidiOutput_GetTrackedDiagnostics(MidiOutputTrackedDiagnostics_t *diagnostics)
+{
+    uint32_t primask;
+
+    if (!diagnostics)
+        return;
+
+    primask = MidiOutput_EnterCritical();
+    diagnostics->completion_depth =
+        (midi_output_tracked_completion_head >= midi_output_tracked_completion_tail)
+        ? (uint8_t)(midi_output_tracked_completion_head
+                    - midi_output_tracked_completion_tail)
+        : (uint8_t)(MIDI_OUTPUT_TRACKED_COMPLETION_QUEUE_SIZE
+                    - midi_output_tracked_completion_tail
+                    + midi_output_tracked_completion_head);
+    diagnostics->completion_peak_depth = midi_output_tracked_completion_peak_depth;
+    diagnostics->completion_overflow_count = midi_output_tracked_completion_overflow_count;
+    MidiOutput_ExitCritical(primask);
+}
+
+__attribute__((section(".RamFunc")))
+static void MidiOutput_WriteNextMessageByte(void)
+{
+    uint8_t tail = midi_output_message_tail;
+    uint32_t sequence = midi_output_message_sequence_buffer[tail];
+
+    midi_output_uart->Instance->DR = midi_output_message_buffer[tail];
+    midi_output_message_sequence_buffer[tail] = 0U;
+    midi_output_message_tail =
+        (uint8_t)((tail + 1U) % MIDI_OUTPUT_MESSAGE_QUEUE_SIZE);
+
+    if (sequence != 0U)
+        MidiOutput_RecordTrackedCompletion(sequence);
+}
+
+__attribute__((section(".RamFunc")))
+static void MidiOutput_RecordTrackedCompletion(uint32_t sequence)
+{
+    uint8_t next_head =
+        (uint8_t)((midi_output_tracked_completion_head + 1U)
+                  % MIDI_OUTPUT_TRACKED_COMPLETION_QUEUE_SIZE);
+
+    if (next_head == midi_output_tracked_completion_tail)
+    {
+        if (midi_output_tracked_completion_overflow_count < UINT32_MAX)
+            midi_output_tracked_completion_overflow_count++;
+        return;
+    }
+
+    midi_output_tracked_completion_buffer[midi_output_tracked_completion_head] = sequence;
+    midi_output_tracked_completion_head = next_head;
+
+    {
+        uint8_t depth =
+            (midi_output_tracked_completion_head >= midi_output_tracked_completion_tail)
+            ? (uint8_t)(midi_output_tracked_completion_head
+                        - midi_output_tracked_completion_tail)
+            : (uint8_t)(MIDI_OUTPUT_TRACKED_COMPLETION_QUEUE_SIZE
+                        - midi_output_tracked_completion_tail
+                        + midi_output_tracked_completion_head);
+
+        if (depth > midi_output_tracked_completion_peak_depth)
+            midi_output_tracked_completion_peak_depth = depth;
+    }
 }
 
 __attribute__((section(".RamFunc")))

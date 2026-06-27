@@ -27,6 +27,9 @@
 
 static uint8_t midi_channel_is_valid(uint8_t channel);
 static uint8_t midi_output_send_bytes(const uint8_t *bytes, uint16_t length);
+static uint8_t midi_output_send_tracked_bytes(const uint8_t *bytes,
+                                              uint16_t length,
+                                              uint32_t sequence);
 static void Midi_MaybeSendFeedbackTaperCc(uint8_t channel,
                                           uint8_t cc_number,
                                           uint8_t threshold,
@@ -191,6 +194,18 @@ static uint8_t midi_output_send_bytes(const uint8_t *bytes, uint16_t length)
     return MidiOutput_QueueMessageBytes(bytes, length);
 }
 
+void MidiCancelPendingPresetRetry(void)
+{
+    Midi_ClearPendingPresetRetry();
+}
+
+static uint8_t midi_output_send_tracked_bytes(const uint8_t *bytes,
+                                              uint16_t length,
+                                              uint32_t sequence)
+{
+    return MidiOutput_QueueTrackedMessageBytes(bytes, length, sequence);
+}
+
 static void Midi_MaybeSendFeedbackTaperCc(uint8_t channel,
                                           uint8_t cc_number,
                                           uint8_t threshold,
@@ -271,6 +286,21 @@ uint8_t MIDI_SendProgramChange(uint8_t channel, uint8_t program)
     return midi_output_send_bytes(msg, (uint16_t)sizeof(msg));
 }
 
+uint8_t MIDI_SendProgramChangeTracked(uint8_t channel,
+                                      uint8_t program,
+                                      uint32_t sequence)
+{
+    if (!midi_channel_is_valid(channel) || sequence == 0U)
+        return 0U;
+
+    uint8_t msg[2] = {
+        (uint8_t)(MIDI_PROGRAM_CHANGE_STATUS
+                  | ((channel - MIDI_CHANNEL_FIRST) & MIDI_CHANNEL_STATUS_MASK)),
+        (uint8_t)(program & MIDI_DATA_MASK),
+    };
+    return midi_output_send_tracked_bytes(msg, (uint16_t)sizeof(msg), sequence);
+}
+
 /* ── MIDI_SendCC ─────────────────────────────────────────────────────────────
  * Sends a 3-byte Control Change message:
  *   Byte 0:  0xB0 | (channel-1)   — status byte, 0xB = Control Change
@@ -294,6 +324,23 @@ uint8_t MIDI_SendCC(uint8_t channel, uint8_t cc_number, uint8_t value)
         (uint8_t)(value & MIDI_DATA_MASK),
     };
     return midi_output_send_bytes(msg, (uint16_t)sizeof(msg));
+}
+
+uint8_t MIDI_SendCCTracked(uint8_t channel,
+                           uint8_t cc_number,
+                           uint8_t value,
+                           uint32_t sequence)
+{
+    if (!midi_channel_is_valid(channel) || sequence == 0U)
+        return 0U;
+
+    uint8_t msg[3] = {
+        (uint8_t)(MIDI_CONTROL_CHANGE_STATUS
+                  | ((channel - MIDI_CHANNEL_FIRST) & MIDI_CHANNEL_STATUS_MASK)),
+        (uint8_t)(cc_number & MIDI_DATA_MASK),
+        (uint8_t)(value & MIDI_DATA_MASK),
+    };
+    return midi_output_send_tracked_bytes(msg, (uint16_t)sizeof(msg), sequence);
 }
 
 /**

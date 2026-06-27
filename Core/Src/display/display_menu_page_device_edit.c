@@ -54,7 +54,10 @@ static void Display_FormatMenuNumericFieldLocal(char *buffer,
                                                 uint8_t value,
                                                 uint8_t digits)
 {
-    char field_text[5];
+    /* uint8_t values need at most three digits plus the terminator. Keeping
+     * this bound aligned with the destination edit fields also lets the
+     * compiler prove that the copy cannot truncate. */
+    char field_text[4];
 
     if (!buffer || buffer_size == 0U || digits == 0U || digits >= sizeof(field_text))
         return;
@@ -197,6 +200,7 @@ const char *Display_GetMenuDeviceEditLabel(uint8_t item_index,
     static const char * const menu_device_edit_labels[MENU_DEVICE_EDIT_ITEM_COUNT] = {
         "Name",
         "Max Preset",
+        "Random Bypass",
         "Channel",
         "Active CC",
         "Auto1",
@@ -413,6 +417,9 @@ void Display_FormatDeviceEditValue(uint8_t item_index, char *buffer, size_t buff
         break;
     case MENU_DEVICE_EDIT_ITEM_MAX_PRESET:
         (void)snprintf(buffer, buffer_size, "%u", device->max_preset);
+        break;
+    case MENU_DEVICE_EDIT_ITEM_RANDOM_BYPASS:
+        (void)snprintf(buffer, buffer_size, "%u%%", device->random_bypass_percent);
         break;
     case MENU_DEVICE_EDIT_ITEM_CHANNEL:
         (void)snprintf(buffer, buffer_size, "%u", device->channel);

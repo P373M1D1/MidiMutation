@@ -484,9 +484,10 @@ static uint8_t AppConfigBackup_WriteDevices(AppSdCardFile_t *file,
         if (!AppConfigBackup_WriteF(file, "\r\n[device %u]\r\nindex=%u\r\n", (unsigned)(index + 1U), (unsigned)index)
          || !AppConfigBackup_WriteQuotedLine(file, "name", device->name)
          || !AppConfigBackup_WriteF(file,
-                                    "channel=%u\r\nmax_preset=%u\r\n",
+                                    "channel=%u\r\nmax_preset=%u\r\nrandom_bypass_percent=%u\r\n",
                                     (unsigned)device->channel,
-                                    (unsigned)device->max_preset)
+                                    (unsigned)device->max_preset,
+                                    (unsigned)device->random_bypass_percent)
          || !AppConfigBackup_WriteCcPair(file, "active", &device->active))
         {
             return 0U;
@@ -1680,6 +1681,15 @@ static uint8_t AppConfigBackup_ApplyDeviceKey(AppConfigBackupRestoreContext_t *c
         if (!AppConfigBackup_ParseAndMark(context, value_text, &value))
             return 0U;
         device->max_preset = AppConfigBackup_ClampU8(value, 127U);
+        return 1U;
+    }
+
+    if (strcmp(key, "random_bypass_percent") == 0)
+    {
+        if (!AppConfigBackup_ParseAndMark(context, value_text, &value))
+            return 0U;
+        device->random_bypass_percent =
+            AppConfigBackup_ClampU8(value, RUNTIME_CONFIG_RANDOM_BYPASS_PERCENT_MAX);
         return 1U;
     }
 

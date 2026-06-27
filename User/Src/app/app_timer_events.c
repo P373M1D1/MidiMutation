@@ -15,6 +15,8 @@
 #include "button_functions.h"
 #include "display_functions.h"
 #include "led_functions.h"
+#include "midi_dispatch.h"
+#include "midi_preset_transaction.h"
 #include "midi/clock_engine.h"
 #include "midi_functions.h"
 
@@ -200,6 +202,8 @@ static void AppTimerEvents_Handle100MsTick(void)
     switch (app_timer_events_diagnostic_slot)
     {
     case 0U:
+        MidiDispatch_DiagnosticService();
+        MidiPresetTransaction_DiagnosticService();
         if (!diagnostics_guard_active)
             AppRuntime_DiagnosticService();
         break;
@@ -245,7 +249,6 @@ static void AppTimerEvents_Handle100MsTick(void)
             Display_BpmDiagnosticService();
         break;
     case 8U:
-        LED_DiagnosticService();
         if (!diagnostics_guard_active)
             AppMetronome_DiagnosticService();
         break;

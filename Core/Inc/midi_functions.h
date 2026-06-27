@@ -147,6 +147,9 @@ void MidiSetOutputUart(UART_HandleTypeDef *uart_handle);
  * @retval 1 when the message was enqueued, 0 when queue backpressure blocked it.
  */
 uint8_t MIDI_SendProgramChange(uint8_t channel, uint8_t program);
+uint8_t MIDI_SendProgramChangeTracked(uint8_t channel,
+                                      uint8_t program,
+                                      uint32_t sequence);
 
 /**
  * @brief  Send a Control Change (CC) message on the shared MIDI output.
@@ -156,6 +159,10 @@ uint8_t MIDI_SendProgramChange(uint8_t channel, uint8_t program);
  * @retval 1 when the message was enqueued, 0 when queue backpressure blocked it.
  */
 uint8_t MIDI_SendCC(uint8_t channel, uint8_t cc_number, uint8_t value);
+uint8_t MIDI_SendCCTracked(uint8_t channel,
+                           uint8_t cc_number,
+                           uint8_t value,
+                           uint32_t sequence);
 
 /**
  * @brief  Apply one preset program slot to a device.
@@ -431,6 +438,7 @@ uint8_t MidiTransportGetContinuousPhase(MidiTransportPhaseSnapshot_t *phase);
 void MidiOutputSchedulerService(void);
 void MidiProducerService(void);
 void MidiProducer_NoteTapTempoDrop(void);
+void MidiCancelPendingPresetRetry(void);
 void MidiHandleTimingCounterIrq(void);
 void MidiTimebendSetEncoderEnabled(uint8_t enabled);
 void MidiTimebendSetExpressionEnabled(uint8_t enabled);

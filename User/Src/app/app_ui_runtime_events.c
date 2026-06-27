@@ -9,9 +9,10 @@
 #include "display/display_menu_page_midi_monitor.h"
 #include "display_functions.h"
 #include "led_functions.h"
-#include "midi_functions.h"
+#include "midi_dispatch.h"
 #include "midi/midi_monitor.h"
 #include "runtime_config.h"
+#include "stm32f4xx_hal.h"
 
 static void AppUiEvents_SendFunctionButtonProgramMessages(const RuntimeConfigProgramMessage_t *messages,
                                                           uint8_t message_count);
@@ -87,7 +88,12 @@ static void AppUiEvents_SendFunctionButtonProgramMessages(const RuntimeConfigPro
         if (message->channel == PRESET_CC_CHANNEL_UNUSED || message->program == PRESET_PROGRAM_NONE)
             continue;
 
-        MIDI_SendProgramChange(message->channel, message->program);
+        (void)MidiDispatch_SubmitProgramChange(
+            message->channel,
+            message->program,
+            MIDI_COMMAND_POLICY_RELIABLE_ORDERED,
+            0U,
+            NULL);
     }
 }
 
@@ -108,7 +114,13 @@ static void AppUiEvents_SendFunctionButtonCcMessages(const PresetCCSlot_t *messa
             continue;
         }
 
-        MIDI_SendCC(message->channel, message->cc_number, message->value);
+        (void)MidiDispatch_SubmitControlChange(
+            message->channel,
+            message->cc_number,
+            message->value,
+            MIDI_COMMAND_POLICY_RELIABLE_ORDERED,
+            0U,
+            NULL);
     }
 }
 

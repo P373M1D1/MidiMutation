@@ -148,6 +148,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     User/Src/app/app_ui_render.c
     User/Src/app/app_ui_runtime_events.c
     User/Src/app_event.c
+    User/Src/midi_dispatch.c
+    User/Src/midi_preset_transaction.c
     User/Src/runtime_config.c
     # ST7796 display driver
     Drivers/ST7796/st7796.c

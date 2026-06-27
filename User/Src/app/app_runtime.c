@@ -12,6 +12,8 @@
 #include "button_functions.h"
 #include "display_functions.h"
 #include "led_functions.h"
+#include "midi_dispatch.h"
+#include "midi_preset_transaction.h"
 #include "midi_functions.h"
 #include "runtime_config.h"
 
@@ -88,6 +90,8 @@ void AppRuntime_ServiceForeground(void)
 
     AppRuntime_ScheduleTimerEvents();
     queue_was_drained = AppRuntime_PumpEvents();
+    MidiPresetTransaction_Service();
+    MidiDispatch_Service();
     (void)AppUi_ServiceBeatSynchronousStatusStrip();
 
     feedback_active = AppRuntime_IsFeedbackWindowActive();

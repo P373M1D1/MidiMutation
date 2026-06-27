@@ -134,7 +134,7 @@
 #define MENU_FUNCTION_BUTTON_CC_FIRST_INDEX (MENU_FUNCTION_BUTTON_MESSAGE_FIRST_INDEX + RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT) // first logical row index of the CC compare section
 #define MENU_FUNCTION_BUTTON_ITEM_COUNT (MENU_FUNCTION_BUTTON_TEXT_ITEM_COUNT + MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT) // total rows in the combined function-button editor page
 #define MENU_FUNCTION_BUTTON_MESSAGE_ROW_COUNT (RUNTIME_CONFIG_FUNCTION_BUTTON_PROGRAM_COUNT + RUNTIME_CONFIG_FUNCTION_BUTTON_CC_COUNT) // total rows shown on the dense function-button message pages
-#define MENU_DEVICE_EDIT_ITEM_COUNT     (13U + (2U * RUNTIME_CONFIG_DEVICE_AUTO_CC_COUNT)) // number of items on the device edit page
+#define MENU_DEVICE_EDIT_ITEM_COUNT     (14U + (2U * RUNTIME_CONFIG_DEVICE_AUTO_CC_COUNT)) // number of items on the device edit page
 #define MENU_ITEM_X                     24U                  // left edge of the menu row content area
 #define MENU_ITEM_W                     (ST7796_WIDTH - (MENU_ITEM_X * 2U)) // width of the menu row content area
 #define MENU_PLACEHOLDER_TEXT           "COMING SOON"       // placeholder body text for menu branches not implemented yet

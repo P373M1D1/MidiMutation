@@ -505,6 +505,12 @@ uint8_t Display_MenuAdjustValue(int8_t delta)
                 case MENU_DEVICE_EDIT_ITEM_MAX_PRESET:
                     changed = Display_AdjustWrappedU8(&device->max_preset, 1U, 127U, delta);
                     break;
+                case MENU_DEVICE_EDIT_ITEM_RANDOM_BYPASS:
+                    changed = Display_AdjustClampedU8(&device->random_bypass_percent,
+                                                      0U,
+                                                      RUNTIME_CONFIG_RANDOM_BYPASS_PERCENT_MAX,
+                                                      delta);
+                    break;
                 case MENU_DEVICE_EDIT_ITEM_CHANNEL:
                     changed = Display_AdjustWrappedU8(&device->channel, 1U, 16U, delta);
                     break;

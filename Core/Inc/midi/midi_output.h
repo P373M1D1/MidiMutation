@@ -55,11 +55,23 @@ typedef struct
 	uint32_t scheduling_jitter_est_us;
 } MidiOutputTimebendBacklogSnapshot_t;
 
+typedef struct
+{
+	uint8_t completion_depth;
+	uint8_t completion_peak_depth;
+	uint32_t completion_overflow_count;
+} MidiOutputTrackedDiagnostics_t;
+
 void MidiOutput_SetUart(UART_HandleTypeDef *uart_handle);
 void MidiOutput_ServiceScheduler(void);
 void MidiOutput_HandleTxIrq(void);
 void MidiOutput_HandleTimingCounterIrq(void);
 uint8_t MidiOutput_QueueMessageBytes(const uint8_t *bytes, uint16_t length);
+uint8_t MidiOutput_QueueTrackedMessageBytes(const uint8_t *bytes,
+						    uint16_t length,
+						    uint32_t sequence);
+uint8_t MidiOutput_TakeTrackedCompletion(uint32_t *sequence);
+void MidiOutput_GetTrackedDiagnostics(MidiOutputTrackedDiagnostics_t *diagnostics);
 uint8_t MidiOutput_QueueRealtimeByte(uint8_t byte);
 void MidiOutput_ResetRealtimePacingGuard(void);
 void MidiOutput_TimebendSetEncoderEnabled(uint8_t enabled);
