@@ -33,6 +33,7 @@ typedef struct {
 typedef struct {
     uint32_t transaction_id;
     uint32_t created_ms;
+    uint32_t first_submitted_ms;
     uint32_t first_sequence;
     uint32_t last_sequence;
     uint8_t command_count;
@@ -50,6 +51,9 @@ static uint8_t midi_preset_transaction_count = 0U;
 static uint8_t midi_preset_transaction_peak = 0U;
 static uint32_t midi_preset_transaction_next_id = 1U;
 static uint32_t midi_preset_transaction_max_age_ms = 0U;
+static uint32_t midi_preset_transaction_max_start_delay_ms = 0U;
+static uint32_t midi_preset_transaction_last_start_delay_ms = 0U;
+static uint32_t midi_preset_transaction_last_completion_age_ms = 0U;
 static uint32_t midi_preset_transaction_submitted_count = 0U;
 static uint32_t midi_preset_transaction_accepted_count = 0U;
 static uint32_t midi_preset_transaction_completed_count = 0U;
@@ -523,6 +527,12 @@ void MidiPresetTransaction_Service(void)
         midi_preset_transaction_command_completed_count += transaction->command_count;
         midi_preset_transaction_last_completed_id = transaction->transaction_id;
         midi_preset_transaction_last_terminal_sequence = transaction->last_sequence;
+        midi_preset_transaction_last_start_delay_ms =
+            (transaction->first_sequence != 0U)
+            ? transaction->first_submitted_ms - transaction->created_ms
+            : 0U;
+        midi_preset_transaction_last_completion_age_ms =
+            now - transaction->created_ms;
         MidiPresetTransaction_RetireHead();
         MidiPresetTransaction_CheckAccounting();
         return;
@@ -564,7 +574,14 @@ void MidiPresetTransaction_Service(void)
     }
 
     if (transaction->first_sequence == 0U)
+    {
+        uint32_t start_delay_ms = now - transaction->created_ms;
+
         transaction->first_sequence = sequence;
+        transaction->first_submitted_ms = now;
+        if (start_delay_ms > midi_preset_transaction_max_start_delay_ms)
+            midi_preset_transaction_max_start_delay_ms = start_delay_ms;
+    }
     transaction->last_sequence = sequence;
     transaction->command_index++;
     midi_preset_transaction_command_submitted_count++;
@@ -590,6 +607,17 @@ void MidiPresetTransaction_GetDiagnostics(
     diagnostics->active_transaction_id = active ? active->transaction_id : 0U;
     diagnostics->active_age_ms = active ? (now - active->created_ms) : 0U;
     diagnostics->max_age_ms = midi_preset_transaction_max_age_ms;
+    diagnostics->active_start_delay_ms = active
+        ? (active->first_sequence != 0U
+            ? active->first_submitted_ms - active->created_ms
+            : now - active->created_ms)
+        : 0U;
+    diagnostics->max_start_delay_ms =
+        midi_preset_transaction_max_start_delay_ms;
+    diagnostics->last_start_delay_ms =
+        midi_preset_transaction_last_start_delay_ms;
+    diagnostics->last_completion_age_ms =
+        midi_preset_transaction_last_completion_age_ms;
     diagnostics->submitted_count = midi_preset_transaction_submitted_count;
     diagnostics->accepted_count = midi_preset_transaction_accepted_count;
     diagnostics->completed_count = midi_preset_transaction_completed_count;
@@ -636,6 +664,9 @@ void MidiPresetTransaction_DiagnosticService(void)
         || current.rejected_count != last.rejected_count
         || current.failed_count != last.failed_count
         || current.superseded_count != last.superseded_count
+        || current.max_start_delay_ms != last.max_start_delay_ms
+        || current.last_start_delay_ms != last.last_start_delay_ms
+        || current.last_completion_age_ms != last.last_completion_age_ms
         || current.command_submitted_count != last.command_submitted_count
         || current.command_completed_count != last.command_completed_count
         || current.dispatcher_wait_count != last.dispatcher_wait_count
@@ -645,7 +676,10 @@ void MidiPresetTransaction_DiagnosticService(void)
         return;
 
     printf("MIDIPRESETTX depth=%u peak=%u active=%lu retired=%lu active_id=%lu "
-           "cursor=%u/%u age_ms=%lu max_age_ms=%lu submitted=%lu accepted=%lu "
+           "cursor=%u/%u age_ms=%lu max_age_ms=%lu start_delay_ms=%lu "
+           "max_start_delay_ms=%lu last_start_delay_ms=%lu "
+           "last_complete_age_ms=%lu "
+           "submitted=%lu accepted=%lu "
            "completed=%lu rejected=%lu superseded=%lu "
            "failed=%lu cmd_submit=%lu cmd_complete=%lu dispatcher_wait=%lu "
            "ok=%u invariant_fail=%lu last_submit_id=%lu last_complete_id=%lu "
@@ -659,6 +693,10 @@ void MidiPresetTransaction_DiagnosticService(void)
            (unsigned)current.active_command_count,
            (unsigned long)current.active_age_ms,
            (unsigned long)current.max_age_ms,
+           (unsigned long)current.active_start_delay_ms,
+           (unsigned long)current.max_start_delay_ms,
+           (unsigned long)current.last_start_delay_ms,
+           (unsigned long)current.last_completion_age_ms,
            (unsigned long)current.submitted_count,
            (unsigned long)current.accepted_count,
            (unsigned long)current.completed_count,

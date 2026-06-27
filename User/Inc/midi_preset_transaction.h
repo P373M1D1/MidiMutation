@@ -9,7 +9,9 @@
 extern "C" {
 #endif
 
-#define MIDI_PRESET_TRANSACTION_QUEUE_CAPACITY 8U
+/* Presets use active + latest semantics: one transaction may be in progress
+ * and one untouched future transaction may hold the newest user request. */
+#define MIDI_PRESET_TRANSACTION_QUEUE_CAPACITY 2U
 #define MIDI_PRESET_TRANSACTION_MAX_COMMANDS   72U
 #define MIDI_PRESET_TRANSACTION_SERVICE_BUDGET 1U
 
@@ -21,6 +23,10 @@ typedef struct {
     uint32_t active_transaction_id;
     uint32_t active_age_ms;
     uint32_t max_age_ms;
+    uint32_t active_start_delay_ms;
+    uint32_t max_start_delay_ms;
+    uint32_t last_start_delay_ms;
+    uint32_t last_completion_age_ms;
     uint32_t submitted_count;
     uint32_t accepted_count;
     uint32_t completed_count;
