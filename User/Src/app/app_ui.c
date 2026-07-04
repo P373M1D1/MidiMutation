@@ -9,10 +9,20 @@
 #include "midi_functions.h"
 #include "runtime_config.h"
 #include "stm32f4xx_hal.h"
+#include <stdio.h>
 #include <string.h>
 
 static const char AppUi_PresetEditNameCharset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ";
 #define APP_UI_PRESET_LEARN_VALUE_TIMEOUT_MS 3000U
+#define APP_UI_RANDOM_SAVE_POPUP_CHOOSE_SLOT "CHOOSE SAVE SLOT"
+#define APP_UI_RANDOM_SAVE_POPUP_CONFIRM_OVERWRITE "CONFIRM OVERWRITE"
+
+typedef enum
+{
+    APP_UI_RANDOM_SAVE_STATE_IDLE = 0,
+    APP_UI_RANDOM_SAVE_STATE_SLOT_SELECT,
+    APP_UI_RANDOM_SAVE_STATE_CONFIRM_OVERWRITE,
+} AppUiRandomSaveState_t;
 
 typedef struct {
     uint8_t active;
@@ -26,6 +36,16 @@ static AppUiPresetLearnState_t app_ui_preset_learn_state = {
     .field = { DISPLAY_PRESET_EDIT_FIELD_NONE, 0U },
     .last_valid_cc_tick = 0U,
     .last_seen_monitor_revision = 0U,
+};
+
+typedef struct {
+    AppUiRandomSaveState_t state;
+    uint8_t selected_slot;
+} AppUiRandomSaveContext_t;
+
+static AppUiRandomSaveContext_t app_ui_random_save = {
+    .state = APP_UI_RANDOM_SAVE_STATE_IDLE,
+    .selected_slot = 0U,
 };
 
 static uint8_t AppUi_PresetEditAdjustSentinelValue(uint8_t *value,
@@ -43,6 +63,14 @@ static Preset_t *AppUi_GetMutableEditableActivePreset(void);
 static uint8_t AppUi_GetEditableActivePresetIndex(uint8_t *preset_index);
 static uint8_t AppUi_PresetEditFieldSupportsLearning(DisplayPresetEditField_t field);
 static void AppUi_PresetEditStopLearningSession(void);
+static uint8_t AppUi_RandomSaveCurrentPresetIsRandomOverlay(void);
+static uint8_t AppUi_RandomSavePresetHasAnyProgram(const Preset_t *preset);
+static uint8_t AppUi_RandomSavePresetHasAnyCc(const Preset_t *preset);
+static uint8_t AppUi_RandomSavePresetHasAnyRelayState(const Preset_t *preset);
+static uint8_t AppUi_RandomSavePresetSlotLooksEmpty(const Preset_t *preset, uint8_t slot_index);
+static uint8_t AppUi_RandomSaveSlotRequiresOverwrite(uint8_t slot_index);
+static uint8_t AppUi_RandomSaveCommitToSlot(uint8_t slot_index);
+static uint8_t AppUi_RandomSaveEnterNameEditForSlot(uint8_t slot_index);
 
 static uint8_t AppUi_PresetEditFieldSupportsLearning(DisplayPresetEditField_t field)
 {
@@ -419,7 +447,15 @@ uint8_t AppUi_PresetEditToggleLearningSession(void)
     app_ui_preset_learn_state.active = 1U;
     app_ui_preset_learn_state.field = field;
     app_ui_preset_learn_state.last_valid_cc_tick = HAL_GetTick();
-    app_ui_preset_learn_state.last_seen_monitor_revision = MidiMonitor_GetRevision();
+    {
+        MidiMonitorEntry_t latest_received_entry;
+        uint32_t latest_received_revision = 0U;
+
+        (void)MidiMonitor_TryGetLatestEntry(&latest_received_entry,
+                                            &latest_received_revision);
+        app_ui_preset_learn_state.last_seen_monitor_revision =
+            latest_received_revision;
+    }
     Display_ShowLearningPopup();
     return 1U;
 }
@@ -588,5 +624,231 @@ uint8_t AppUi_PresetEditBackOutOneLevel(void)
     }
 
     AppUi_PresetEditExit();
+    return 1U;
+}
+
+static uint8_t AppUi_RandomSaveCurrentPresetIsRandomOverlay(void)
+{
+    const Preset_t *active_preset = AppState_GetActivePreset();
+
+    return Presets_IsRandomPreset(active_preset);
+}
+
+static uint8_t AppUi_RandomSavePresetHasAnyProgram(const Preset_t *preset)
+{
+    if (!preset)
+        return 0U;
+
+    for (uint8_t slot = 0U; slot < PRESET_DEVICE_SLOTS; ++slot)
+    {
+        if (preset->prg[slot].program != PRESET_PROGRAM_NONE)
+            return 1U;
+    }
+
+    return 0U;
+}
+
+static uint8_t AppUi_RandomSavePresetHasAnyCc(const Preset_t *preset)
+{
+    if (!preset)
+        return 0U;
+
+    for (uint8_t slot = 0U; slot < PRESET_CC_SLOT_COUNT; ++slot)
+    {
+        if (preset->cc[slot].channel != PRESET_CC_CHANNEL_UNUSED
+         || preset->cc[slot].cc_number != PRESET_CC_NUMBER_UNUSED
+         || preset->cc[slot].value != PRESET_CC_VALUE_UNUSED)
+        {
+            return 1U;
+        }
+    }
+
+    return 0U;
+}
+
+static uint8_t AppUi_RandomSavePresetHasAnyRelayState(const Preset_t *preset)
+{
+    if (!preset)
+        return 0U;
+
+    for (uint8_t relay = 0U; relay < PRESET_RELAY_COUNT; ++relay)
+    {
+        if (preset->relay[relay] != PRESET_RELAY_OPEN)
+            return 1U;
+    }
+
+    return 0U;
+}
+
+static uint8_t AppUi_RandomSavePresetSlotLooksEmpty(const Preset_t *preset, uint8_t slot_index)
+{
+    char default_name[PRESET_NAME_LENGTH + 1U];
+
+    if (!preset || slot_index >= PRESETS_PER_BANK)
+        return 0U;
+
+    (void)snprintf(default_name, sizeof(default_name), "Preset %u", (unsigned)(slot_index + 1U));
+
+    if (strncmp(preset->name, default_name, PRESET_NAME_LENGTH) != 0)
+        return 0U;
+
+    if (AppUi_RandomSavePresetHasAnyProgram(preset))
+        return 0U;
+
+    if (AppUi_RandomSavePresetHasAnyCc(preset))
+        return 0U;
+
+    if (AppUi_RandomSavePresetHasAnyRelayState(preset))
+        return 0U;
+
+    return 1U;
+}
+
+static uint8_t AppUi_RandomSaveSlotRequiresOverwrite(uint8_t slot_index)
+{
+    uint8_t target_index;
+    const Preset_t *target_preset;
+
+    if (slot_index >= PRESETS_PER_BANK)
+        return 1U;
+
+    target_index = (uint8_t)(AppState_GetCurrentBank() * PRESETS_PER_BANK + slot_index);
+    target_preset = Presets_Get(target_index);
+
+    return AppUi_RandomSavePresetSlotLooksEmpty(target_preset, slot_index) ? 0U : 1U;
+}
+
+static uint8_t AppUi_RandomSaveCommitToSlot(uint8_t slot_index)
+{
+    Preset_t *target_preset;
+    const Preset_t *source_preset = AppState_GetActivePreset();
+    uint8_t target_index;
+
+    if (!source_preset || !Presets_IsRandomPreset(source_preset) || slot_index >= PRESETS_PER_BANK)
+        return 0U;
+
+    target_index = (uint8_t)(AppState_GetCurrentBank() * PRESETS_PER_BANK + slot_index);
+    target_preset = Presets_GetMutable(target_index);
+    if (!target_preset)
+        return 0U;
+
+    /* Random mode currently mutates only program slots, so saving the random
+     * result copies those values into the selected bank slot without wiping
+     * the slot's name, CC rows, relay states, or function-button settings. */
+    for (uint8_t program_slot = 0U; program_slot < PRESET_DEVICE_SLOTS; ++program_slot)
+        target_preset->prg[program_slot] = source_preset->prg[program_slot];
+
+    Presets_MarkDirty();
+    App_QueueSaveRequestEvent(APP_EVENT_SAVE_KIND_PRESETS);
+
+    return 1U;
+}
+
+static uint8_t AppUi_RandomSaveEnterNameEditForSlot(uint8_t slot_index)
+{
+    uint8_t target_index;
+
+    if (slot_index >= PRESETS_PER_BANK)
+        return 0U;
+
+    target_index = (uint8_t)(AppState_GetCurrentBank() * PRESETS_PER_BANK + slot_index);
+
+    /* After storing the random result, jump straight to that slot and place
+     * the user in name-edit mode so naming is part of the same save flow. */
+    App_ActivatePreset(target_index);
+
+    if (!AppUi_PresetEditEnter())
+        return 0U;
+
+    Display_PresetNameEditEnter();
+    AppUi_RequestPresetEditFieldRefresh();
+    return 1U;
+}
+
+uint8_t AppUi_RandomSaveCanStart(void)
+{
+    if (Display_MenuIsActive() || Display_PresetEditIsActive())
+        return 0U;
+
+    if (app_ui_random_save.state != APP_UI_RANDOM_SAVE_STATE_IDLE)
+        return 0U;
+
+    return AppUi_RandomSaveCurrentPresetIsRandomOverlay();
+}
+
+uint8_t AppUi_RandomSaveIsInProgress(void)
+{
+    return (app_ui_random_save.state != APP_UI_RANDOM_SAVE_STATE_IDLE) ? 1U : 0U;
+}
+
+uint8_t AppUi_RandomSaveIsAwaitingOverwriteConfirm(void)
+{
+    return (app_ui_random_save.state == APP_UI_RANDOM_SAVE_STATE_CONFIRM_OVERWRITE) ? 1U : 0U;
+}
+
+uint8_t AppUi_RandomSaveStartSelection(void)
+{
+    if (!AppUi_RandomSaveCanStart())
+        return 0U;
+
+    app_ui_random_save.state = APP_UI_RANDOM_SAVE_STATE_SLOT_SELECT;
+    app_ui_random_save.selected_slot = 0U;
+    Display_ShowBackupPopupMessage(APP_UI_RANDOM_SAVE_POPUP_CHOOSE_SLOT);
+
+    return 1U;
+}
+
+uint8_t AppUi_RandomSaveHandlePresetSlotPress(uint8_t slot_index)
+{
+    if (slot_index >= PRESETS_PER_BANK
+     || app_ui_random_save.state != APP_UI_RANDOM_SAVE_STATE_SLOT_SELECT)
+    {
+        return 0U;
+    }
+
+    app_ui_random_save.selected_slot = slot_index;
+
+    if (AppUi_RandomSaveSlotRequiresOverwrite(slot_index))
+    {
+        app_ui_random_save.state = APP_UI_RANDOM_SAVE_STATE_CONFIRM_OVERWRITE;
+        Display_ShowBackupPopupMessage(APP_UI_RANDOM_SAVE_POPUP_CONFIRM_OVERWRITE);
+        return 1U;
+    }
+
+    app_ui_random_save.state = APP_UI_RANDOM_SAVE_STATE_IDLE;
+    Display_HideBackupPopup(AppUi_GetCurrentDisplayPreset());
+    if (AppUi_RandomSaveCommitToSlot(slot_index))
+    {
+        if (!AppUi_RandomSaveEnterNameEditForSlot(slot_index))
+            AppUi_RequestActiveDisplayRefresh();
+    }
+
+    return 1U;
+}
+
+uint8_t AppUi_RandomSaveConfirmOverwrite(void)
+{
+    if (app_ui_random_save.state != APP_UI_RANDOM_SAVE_STATE_CONFIRM_OVERWRITE)
+        return 0U;
+
+    app_ui_random_save.state = APP_UI_RANDOM_SAVE_STATE_IDLE;
+    Display_HideBackupPopup(AppUi_GetCurrentDisplayPreset());
+    if (AppUi_RandomSaveCommitToSlot(app_ui_random_save.selected_slot))
+    {
+        if (!AppUi_RandomSaveEnterNameEditForSlot(app_ui_random_save.selected_slot))
+            AppUi_RequestActiveDisplayRefresh();
+    }
+
+    return 1U;
+}
+
+uint8_t AppUi_RandomSaveCancel(void)
+{
+    if (app_ui_random_save.state == APP_UI_RANDOM_SAVE_STATE_IDLE)
+        return 0U;
+
+    app_ui_random_save.state = APP_UI_RANDOM_SAVE_STATE_IDLE;
+    Display_HideBackupPopup(AppUi_GetCurrentDisplayPreset());
+    AppUi_RequestActiveDisplayRefresh();
     return 1U;
 }

@@ -1,5 +1,6 @@
 #include "midi_dispatch.h"
 
+#include "midi/midi_monitor.h"
 #include "midi/midi_output.h"
 #include "midi_functions.h"
 #include "stm32f4xx_hal.h"
@@ -12,12 +13,21 @@
 
 /* Reliable semantic queue. It deliberately knows nothing about UART bytes or
  * clock windows; tracked MIDI_Send* calls remain the ownership boundary. */
+typedef struct {
+    uint32_t sequence;
+    uint8_t type;
+    uint8_t channel;
+    uint8_t data1;
+    uint8_t data2;
+} MidiDispatchInflightCommand_t;
+
 static ReliableMidiCommand_t midi_dispatch_queue[MIDI_DISPATCH_QUEUE_CAPACITY];
 static uint8_t midi_dispatch_head = 0U;
 static uint8_t midi_dispatch_tail = 0U;
 static uint8_t midi_dispatch_count = 0U;
 static uint8_t midi_dispatch_pending_peak = 0U;
-static uint32_t midi_dispatch_inflight_sequences[MIDI_DISPATCH_INFLIGHT_CAPACITY];
+static MidiDispatchInflightCommand_t
+    midi_dispatch_inflight_commands[MIDI_DISPATCH_INFLIGHT_CAPACITY];
 static uint8_t midi_dispatch_inflight_head = 0U;
 static uint8_t midi_dispatch_inflight_tail = 0U;
 static uint8_t midi_dispatch_inflight_count = 0U;
@@ -209,9 +219,29 @@ static uint8_t MidiDispatch_TryEnqueue(const ReliableMidiCommand_t *command)
     }
 }
 
-static void MidiDispatch_RecordInflight(uint32_t sequence)
+static void MidiDispatch_RecordInflight(const ReliableMidiCommand_t *command)
 {
-    midi_dispatch_inflight_sequences[midi_dispatch_inflight_head] = sequence;
+    MidiDispatchInflightCommand_t *inflight;
+
+    if (!command)
+        return;
+
+    inflight = &midi_dispatch_inflight_commands[midi_dispatch_inflight_head];
+    inflight->sequence = command->sequence;
+    inflight->channel = command->channel;
+    if (command->type == MIDI_COMMAND_TYPE_PROGRAM_CHANGE)
+    {
+        inflight->type = MIDI_MONITOR_MESSAGE_PROGRAM_CHANGE;
+        inflight->data1 = command->payload.program_change.program;
+        inflight->data2 = MIDI_MONITOR_VALUE_UNUSED;
+    }
+    else
+    {
+        inflight->type = MIDI_MONITOR_MESSAGE_CONTROL_CHANGE;
+        inflight->data1 = command->payload.control_change.controller;
+        inflight->data2 = command->payload.control_change.value;
+    }
+
     midi_dispatch_inflight_head =
         (uint8_t)((midi_dispatch_inflight_head + 1U)
                   % MIDI_DISPATCH_INFLIGHT_CAPACITY);
@@ -225,17 +255,25 @@ static void MidiDispatch_ProcessCompletions(void)
          ++completed)
     {
         uint32_t sequence;
+        uint32_t completed_us;
+        MidiDispatchInflightCommand_t *inflight;
 
-        if (!MidiOutput_TakeTrackedCompletion(&sequence))
+        if (!MidiOutput_TakeTrackedCompletion(&sequence, &completed_us))
             break;
 
+        inflight = &midi_dispatch_inflight_commands[midi_dispatch_inflight_tail];
         if (midi_dispatch_inflight_count == 0U
-         || midi_dispatch_inflight_sequences[midi_dispatch_inflight_tail] != sequence)
+         || inflight->sequence != sequence)
         {
             midi_dispatch_completion_mismatch_count++;
             continue;
         }
 
+        MidiMonitor_RecordSentMessage(inflight->type,
+                                      inflight->channel,
+                                      inflight->data1,
+                                      inflight->data2,
+                                      completed_us);
         midi_dispatch_inflight_tail =
             (uint8_t)((midi_dispatch_inflight_tail + 1U)
                       % MIDI_DISPATCH_INFLIGHT_CAPACITY);
@@ -308,7 +346,7 @@ void MidiDispatch_Service(void)
         midi_dispatch_transport_inflight++;
         midi_dispatch_enqueued_total++;
         midi_dispatch_last_enqueued_sequence = command->sequence;
-        MidiDispatch_RecordInflight(command->sequence);
+        MidiDispatch_RecordInflight(command);
         MidiDispatch_RetirePendingHead();
         midi_dispatch_last_progress_ms = now;
         midi_dispatch_stalled = 0U;

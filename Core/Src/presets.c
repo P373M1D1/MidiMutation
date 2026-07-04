@@ -822,6 +822,11 @@ const RuntimeConfigFunctionButton_t *Presets_GetActiveFunctionButton(void)
     return preset ? &preset->function_button : NULL;
 }
 
+uint8_t Presets_IsRandomPreset(const Preset_t *preset)
+{
+    return (preset && preset == &random_preset) ? 1U : 0U;
+}
+
 void Presets_ResetPresetToDefaults(uint8_t index)
 {
     uint8_t preset_index;

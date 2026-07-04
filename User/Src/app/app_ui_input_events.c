@@ -85,6 +85,9 @@ void AppUiEvents_HandleEncoderTurn(uint8_t encoder_source, int8_t delta)
     if (delta == 0)
         return;
 
+    if (AppUi_RandomSaveIsInProgress())
+        return;
+
     if (Display_MenuPreviewIsActive() && Display_MenuIsActive())
         return;
 
@@ -233,6 +236,29 @@ void AppUiEvents_HandleEncoderPress(uint8_t press_mask)
 
     if (press_mask == 0U)
         return;
+
+    if (AppUi_RandomSaveIsInProgress())
+    {
+        if (press_mask & 0x04U)
+        {
+            (void)AppUi_RandomSaveCancel();
+            return;
+        }
+
+        if ((press_mask & 0x02U) && AppUi_RandomSaveIsAwaitingOverwriteConfirm())
+        {
+            (void)AppUi_RandomSaveConfirmOverwrite();
+            return;
+        }
+
+        return;
+    }
+
+    if ((press_mask & 0x01U) && AppUi_RandomSaveCanStart())
+    {
+        (void)AppUi_RandomSaveStartSelection();
+        return;
+    }
 
     if (Display_MenuPreviewIsActive() && Display_MenuIsActive())
         return;

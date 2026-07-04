@@ -16,10 +16,16 @@ static void AppActivation_HandleBankStepEvent(int8_t delta, uint8_t step_mode);
 static void AppActivation_HandlePresetActivateEvent(uint8_t preset_index, uint8_t source);
 static void AppActivation_HandlePresetActivateRandomEvent(void);
 static void AppActivation_HandlePresetActivateMuteEvent(void);
+static uint8_t AppActivation_IsRandomOverlayActive(void);
 
 static uint32_t app_activation_last_enc2_ui_refresh_tick = 0U;
 static uint32_t app_activation_last_enc2_step_tick = 0U;
 static uint8_t app_activation_enc2_ui_refresh_deferred = 0U;
+
+static uint8_t AppActivation_IsRandomOverlayActive(void)
+{
+    return Presets_IsRandomPreset(AppState_GetActivePreset());
+}
 
 /* Applies preset and bank-step activation events from the central queue. */
 uint8_t AppActivation_HandleEvent(const AppEvent_t *event)
@@ -93,6 +99,8 @@ static void AppActivation_HandleBankStepEvent(int8_t delta, uint8_t step_mode)
 static void AppActivation_HandlePresetActivateEvent(uint8_t preset_index, uint8_t source)
 {
     const Preset_t *preset;
+    uint8_t was_random_overlay;
+    uint8_t is_random_overlay;
     uint32_t now;
 
     if (preset_index >= Presets_Count())
@@ -102,10 +110,17 @@ static void AppActivation_HandlePresetActivateEvent(uint8_t preset_index, uint8_
     if (AppState_IsActivePreset(preset))
         return;
 
+    was_random_overlay = AppActivation_IsRandomOverlayActive();
+
     AppPresetLatencyDiag_OnActivationStart();
     AppUiEvents_PreparePresetActivation(0U);
     App_ActivatePreset(preset_index);
     AppPresetLatencyDiag_OnActivationApplied();
+
+    is_random_overlay = AppActivation_IsRandomOverlayActive();
+
+    if (!is_random_overlay)
+        (void)AppUi_RandomSaveCancel();
 
     if (source == APP_EVENT_SOURCE_ENC2)
     {
@@ -123,6 +138,10 @@ static void AppActivation_HandlePresetActivateEvent(uint8_t preset_index, uint8_
             app_activation_enc2_ui_refresh_deferred = 1U;
         }
     }
+    else if (was_random_overlay != is_random_overlay)
+    {
+        AppUi_RequestActiveDisplayRefresh();
+    }
     else
     {
         AppUi_RequestLiveContentRefresh();
@@ -132,19 +151,34 @@ static void AppActivation_HandlePresetActivateEvent(uint8_t preset_index, uint8_
 /* Activates the random overlay preset and refreshes the live display. */
 static void AppActivation_HandlePresetActivateRandomEvent(void)
 {
+    uint8_t was_random_overlay = AppActivation_IsRandomOverlayActive();
+
     AppPresetLatencyDiag_OnActivationStart();
     AppUiEvents_PreparePresetActivation(1U);
     Presets_ActivateRandom();
     AppPresetLatencyDiag_OnActivationApplied();
-    AppUi_RequestLiveContentRefresh();
+
+    if (!was_random_overlay)
+        AppUi_RequestActiveDisplayRefresh();
+    else
+        AppUi_RequestLiveContentRefresh();
 }
 
 /* Activates the mute overlay preset and refreshes the live display. */
 static void AppActivation_HandlePresetActivateMuteEvent(void)
 {
+    uint8_t was_random_overlay = AppActivation_IsRandomOverlayActive();
+
     AppPresetLatencyDiag_OnActivationStart();
     AppUiEvents_PreparePresetActivation(1U);
     Presets_ActivateMute();
     AppPresetLatencyDiag_OnActivationApplied();
-    AppUi_RequestLiveContentRefresh();
+
+    if (was_random_overlay)
+        (void)AppUi_RandomSaveCancel();
+
+    if (was_random_overlay)
+        AppUi_RequestActiveDisplayRefresh();
+    else
+        AppUi_RequestLiveContentRefresh();
 }

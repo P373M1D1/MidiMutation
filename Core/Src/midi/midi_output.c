@@ -44,6 +44,7 @@ static volatile uint32_t midi_output_message_sequence_buffer[MIDI_OUTPUT_MESSAGE
 static volatile uint8_t midi_output_message_head = 0U;
 static volatile uint8_t midi_output_message_tail = 0U;
 static volatile uint32_t midi_output_tracked_completion_buffer[MIDI_OUTPUT_TRACKED_COMPLETION_QUEUE_SIZE];
+static volatile uint32_t midi_output_tracked_completion_us_buffer[MIDI_OUTPUT_TRACKED_COMPLETION_QUEUE_SIZE];
 static volatile uint8_t midi_output_tracked_completion_head = 0U;
 static volatile uint8_t midi_output_tracked_completion_tail = 0U;
 static volatile uint8_t midi_output_tracked_completion_peak_depth = 0U;
@@ -117,7 +118,8 @@ static uint8_t MidiOutput_QueueMessageBytesInternal(const uint8_t *bytes,
 __attribute__((section(".RamFunc")))
 static void MidiOutput_WriteNextMessageByte(void);
 __attribute__((section(".RamFunc")))
-static void MidiOutput_RecordTrackedCompletion(uint32_t sequence);
+static void MidiOutput_RecordTrackedCompletion(uint32_t sequence,
+                                               uint32_t completed_us);
 static uint8_t MidiOutput_RingFreeSpace(uint8_t head, uint8_t tail, uint8_t size);
 __attribute__((section(".RamFunc")))
 static uint8_t MidiOutput_ClockDepthLocked(void);
@@ -330,11 +332,12 @@ static uint8_t MidiOutput_QueueMessageBytesInternal(const uint8_t *bytes,
     return 1U;
 }
 
-uint8_t MidiOutput_TakeTrackedCompletion(uint32_t *sequence)
+uint8_t MidiOutput_TakeTrackedCompletion(uint32_t *sequence,
+                                         uint32_t *completed_us)
 {
     uint32_t primask;
 
-    if (!sequence)
+    if (!sequence || !completed_us)
         return 0U;
 
     primask = MidiOutput_EnterCritical();
@@ -345,6 +348,8 @@ uint8_t MidiOutput_TakeTrackedCompletion(uint32_t *sequence)
     }
 
     *sequence = midi_output_tracked_completion_buffer[midi_output_tracked_completion_tail];
+    *completed_us =
+        midi_output_tracked_completion_us_buffer[midi_output_tracked_completion_tail];
     midi_output_tracked_completion_tail =
         (uint8_t)((midi_output_tracked_completion_tail + 1U)
                   % MIDI_OUTPUT_TRACKED_COMPLETION_QUEUE_SIZE);
@@ -384,11 +389,12 @@ static void MidiOutput_WriteNextMessageByte(void)
         (uint8_t)((tail + 1U) % MIDI_OUTPUT_MESSAGE_QUEUE_SIZE);
 
     if (sequence != 0U)
-        MidiOutput_RecordTrackedCompletion(sequence);
+        MidiOutput_RecordTrackedCompletion(sequence, TIM2->CNT);
 }
 
 __attribute__((section(".RamFunc")))
-static void MidiOutput_RecordTrackedCompletion(uint32_t sequence)
+static void MidiOutput_RecordTrackedCompletion(uint32_t sequence,
+                                               uint32_t completed_us)
 {
     uint8_t next_head =
         (uint8_t)((midi_output_tracked_completion_head + 1U)
@@ -402,6 +408,8 @@ static void MidiOutput_RecordTrackedCompletion(uint32_t sequence)
     }
 
     midi_output_tracked_completion_buffer[midi_output_tracked_completion_head] = sequence;
+    midi_output_tracked_completion_us_buffer[midi_output_tracked_completion_head] =
+        completed_us;
     midi_output_tracked_completion_head = next_head;
 
     {

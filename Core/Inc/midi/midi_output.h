@@ -70,7 +70,8 @@ uint8_t MidiOutput_QueueMessageBytes(const uint8_t *bytes, uint16_t length);
 uint8_t MidiOutput_QueueTrackedMessageBytes(const uint8_t *bytes,
 						    uint16_t length,
 						    uint32_t sequence);
-uint8_t MidiOutput_TakeTrackedCompletion(uint32_t *sequence);
+uint8_t MidiOutput_TakeTrackedCompletion(uint32_t *sequence,
+                                         uint32_t *completed_us);
 void MidiOutput_GetTrackedDiagnostics(MidiOutputTrackedDiagnostics_t *diagnostics);
 uint8_t MidiOutput_QueueRealtimeByte(uint8_t byte);
 void MidiOutput_ResetRealtimePacingGuard(void);

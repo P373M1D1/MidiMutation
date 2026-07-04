@@ -75,6 +75,11 @@ __attribute__((section(".RamFunc")))
 static void MidiInput_ServiceThruTx(void);
 __attribute__((section(".RamFunc")))
 static void MidiInput_QueueRealtimeByte(uint8_t byte, uint32_t timestamp_us);
+__attribute__((always_inline))
+static inline uint8_t MidiInput_IsClockAuthoritySource(uint8_t source_uart)
+{
+    return (source_uart == MIDI_MONITOR_SOURCE_UART2) ? 1U : 0U;
+}
 
 void MidiInitInput(void)
 {
@@ -269,16 +274,24 @@ static uint32_t MidiInput_HandleRxIrq(USART_TypeDef *instance,
 
         if (status & USART_SR_RXNE)
         {
+            uint8_t clock_authority_source = MidiInput_IsClockAuthoritySource(source_uart);
+
             if (enable_soft_thru)
                 MidiInput_QueueThruByte(byte);
 
             if (byte >= MIDI_REALTIME_STATUS_FIRST)
             {
-                if (byte == MIDI_REALTIME_STATUS_FIRST)
-                    midi_clock_last_captured_pulse_us = now_us;
+                /* Keep external transport timing single-source: only UART2 may
+                 * drive realtime clock/transport bytes into ClockEngine. Other
+                 * MIDI inputs are monitor-only for realtime traffic. */
+                if (clock_authority_source)
+                {
+                    if (byte == MIDI_REALTIME_STATUS_FIRST)
+                        midi_clock_last_captured_pulse_us = now_us;
 
-                if (!ClockEngine_ISR_OnExternalRealtime(byte, now_us))
-                    MidiInput_QueueRealtimeByte(byte, now_us);
+                    if (!ClockEngine_ISR_OnExternalRealtime(byte, now_us))
+                        MidiInput_QueueRealtimeByte(byte, now_us);
+                }
 
                 if (!flash_busy)
                     MidiMonitor_ReceiveByte(source_uart, byte);

@@ -81,6 +81,7 @@ typedef struct DisplayState {
 	uint8_t preset_name_edit_active;
 	uint8_t preset_name_edit_cursor_index;
 	uint8_t saving_popup_visible;
+	uint8_t backup_popup_visible;
 	uint8_t menu_mode_active;
 	uint8_t preset_init_confirm_active;
 	uint8_t menu_preview_active;
@@ -114,6 +115,7 @@ typedef struct DisplayState {
 	uint8_t menu_text_edit_field;
 	uint8_t menu_text_edit_cursor_index;
 	uint8_t menu_draw_state_valid;
+	char backup_popup_text[32];
 } DisplayState;
 
 /* Logical menu pages used by controller, renderer, and redraw modules.

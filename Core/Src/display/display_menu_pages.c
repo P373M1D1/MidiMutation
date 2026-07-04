@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "app/app_ui.h"
+#include "app/app_state.h"
 #include "display/display_compose_helpers.h"
 #include "display/display_layout.h"
 #include "display/display_menu_page_bank_edit.h"
@@ -33,6 +35,11 @@ typedef struct
     void (*draw_body)(void);
     void (*draw_item)(uint8_t item_index);
 } DisplayMenuPageSpec_t;
+
+static uint8_t Display_IsRandomOverlayActive(void)
+{
+    return Presets_IsRandomPreset(AppState_GetActivePreset());
+}
 
 static const char *Display_GetMidiMonitorFootbarLabel(uint8_t section_index)
 {
@@ -81,6 +88,36 @@ static const char *Display_GetUserThemeEditFootbarLabel(uint8_t section_index)
 
 static const char *Display_GetFootbarLabel(uint8_t section_index)
 {
+    if (AppUi_RandomSaveIsInProgress())
+    {
+        if (AppUi_RandomSaveIsAwaitingOverwriteConfirm())
+        {
+            switch (section_index)
+            {
+            case 0U:
+                return MAIN_FOOTBAR_RANDOM_CONFIRM_LEFT_TEXT;
+            case 1U:
+                return MAIN_FOOTBAR_RANDOM_CONFIRM_CENTER_TEXT;
+            case 2U:
+                return MAIN_FOOTBAR_RANDOM_CONFIRM_RIGHT_TEXT;
+            default:
+                return "";
+            }
+        }
+
+        switch (section_index)
+        {
+        case 0U:
+            return MAIN_FOOTBAR_RANDOM_SAVE_LEFT_TEXT;
+        case 1U:
+            return MAIN_FOOTBAR_RANDOM_SAVE_CENTER_TEXT;
+        case 2U:
+            return MAIN_FOOTBAR_RANDOM_SAVE_RIGHT_TEXT;
+        default:
+            return "";
+        }
+    }
+
     if (display_state.menu_mode_active && !display_state.menu_preview_active)
     {
         if ((DisplayMenuPage_t)display_state.menu_page == DISPLAY_MENU_PAGE_MIDI_MONITOR)
@@ -143,6 +180,9 @@ static const char *Display_GetFootbarLabel(uint8_t section_index)
     switch (section_index)
     {
     case 0U:
+        if (Display_IsRandomOverlayActive())
+            return MAIN_FOOTBAR_LEFT_RANDOM_TEXT;
+
         return MAIN_FOOTBAR_LEFT_TEXT;
     case 1U:
     {

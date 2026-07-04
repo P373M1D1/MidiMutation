@@ -52,6 +52,14 @@ static void AppButtonEvents_HandleFootswitchPress(uint8_t index, uint32_t now)
 {
     uint8_t target_preset_index;
 
+    if (index < PRESETS_PER_BANK && AppUi_RandomSaveHandlePresetSlotPress(index))
+        return;
+
+    /* Random-save slot selection is modal: while active, ignore non-slot
+     * footswitches so random/special actions cannot fire under the popup. */
+    if (AppUi_RandomSaveIsInProgress())
+        return;
+
     if (index == APP_BUTTON_EVENTS_RANDOM_BUTTON_INDEX)
     {
         AppPresetLatencyDiag_OnRandomButtonPress(index, now);

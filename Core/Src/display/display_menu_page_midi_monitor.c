@@ -17,11 +17,8 @@
 #define MIDI_MONITOR_BG_COLOUR             BLACK
 #define MIDI_MONITOR_TEXT_COLOUR           WHITE
 #define MIDI_MONITOR_TEXT_X                8U
-#define MIDI_MONITOR_LINE_NUMBER_CHARS     2U
-#define MIDI_MONITOR_LINE_GUTTER_CHARS     (1U + MIDI_MONITOR_LINE_NUMBER_CHARS)
 #define MIDI_MONITOR_DATA_COLUMN_CHARS     4U
 #define MIDI_MONITOR_HEADER_DATA_PAD_CHARS MIDI_MONITOR_DATA_COLUMN_CHARS
-#define MIDI_MONITOR_ROW_DATA_PAD_CHARS    (MIDI_MONITOR_DATA_COLUMN_CHARS - MIDI_MONITOR_LINE_GUTTER_CHARS)
 #define MIDI_MONITOR_LINE_TEXT_CHARS       ((ST7796_WIDTH - MIDI_MONITOR_TEXT_X) / MIDI_MONITOR_FONT_CHAR_WIDTH)
 #define MIDI_MONITOR_CLOCK_Y               (MAIN_PRESET_TEXT_Y - MIDI_MONITOR_FONT_LINE_HEIGHT)
 #define MIDI_MONITOR_COLUMNS_Y             MAIN_PRESET_TEXT_Y
@@ -126,18 +123,44 @@ static void Display_FormatMidiMonitorEntry(const MidiMonitorEntry_t *entry,
                                            char *buffer,
                                            size_t buffer_size)
 {
+    char source_text[5];
     char channel_text[4] = "--";
     char value1_text[8] = "---";
     char value2_text[8] = "---";
+    char delta_text[12] = "--";
     const char *type_text = "--";
 
     if (!entry || !buffer || buffer_size == 0U)
         return;
 
+    if (entry->source_uart == MIDI_MONITOR_SOURCE_OUTPUT)
+        (void)snprintf(source_text, sizeof(source_text), "Tx");
+    else
+        (void)snprintf(source_text, sizeof(source_text), "U%u", entry->source_uart);
+
+    if (entry->delta_us != MIDI_MONITOR_DELTA_UNAVAILABLE)
+    {
+        if (entry->delta_us < 1000000U)
+        {
+            (void)snprintf(delta_text,
+                           sizeof(delta_text),
+                           "%luus",
+                           (unsigned long)entry->delta_us);
+        }
+        else
+        {
+            (void)snprintf(delta_text,
+                           sizeof(delta_text),
+                           "%lu.%02lus",
+                           (unsigned long)(entry->delta_us / 1000000U),
+                           (unsigned long)((entry->delta_us % 1000000U) / 10000U));
+        }
+    }
+
     switch ((MidiMonitorMessageType_t)entry->type)
     {
     case MIDI_MONITOR_MESSAGE_PROGRAM_CHANGE:
-        type_text = "Program";
+        type_text = "PC";
         (void)snprintf(channel_text, sizeof(channel_text), "%02u", entry->channel);
         /* MIDI Program Change is encoded on the wire as 0..127, but most DAWs
          * and patch lists present it as 1..128. Show that user-facing number
@@ -146,22 +169,22 @@ static void Display_FormatMidiMonitorEntry(const MidiMonitorEntry_t *entry,
         break;
 
     case MIDI_MONITOR_MESSAGE_CONTROL_CHANGE:
-        type_text = "Control";
+        type_text = "CC";
         (void)snprintf(channel_text, sizeof(channel_text), "%02u", entry->channel);
         (void)snprintf(value1_text, sizeof(value1_text), "%3u", entry->value1);
         (void)snprintf(value2_text, sizeof(value2_text), "%3u", entry->value2);
         break;
 
     case MIDI_MONITOR_MESSAGE_START:
-        type_text = "Start";
+        type_text = "St";
         break;
 
     case MIDI_MONITOR_MESSAGE_CONTINUE:
-        type_text = "Continue";
+        type_text = "Co";
         break;
 
     case MIDI_MONITOR_MESSAGE_STOP:
-        type_text = "Stop";
+        type_text = "Sp";
         break;
 
     default:
@@ -171,12 +194,13 @@ static void Display_FormatMidiMonitorEntry(const MidiMonitorEntry_t *entry,
 
     (void)snprintf(buffer,
                    buffer_size,
-                   "%u: %s %-8s %3s %3s",
-                   (unsigned)entry->source_uart,
+                   "%-2.2s %.2s %-2.2s %3.3s %3.3s %8.8s",
+                   source_text,
                    channel_text,
                    type_text,
                    value1_text,
-                   value2_text);
+                   value2_text,
+                   delta_text);
 }
 
 static void Display_FormatMidiMonitorMessageLine(const MidiMonitorEntry_t *entry,
@@ -185,7 +209,9 @@ static void Display_FormatMidiMonitorMessageLine(const MidiMonitorEntry_t *entry
                                                  char *buffer,
                                                  size_t buffer_size)
 {
-    char data_text[40];
+    char data_text[MIDI_MONITOR_LINE_TEXT_CHARS
+                   - MIDI_MONITOR_DATA_COLUMN_CHARS
+                   + 1U];
 
     if (!buffer || buffer_size == 0U)
         return;
@@ -199,12 +225,9 @@ static void Display_FormatMidiMonitorMessageLine(const MidiMonitorEntry_t *entry
     Display_FormatMidiMonitorEntry(entry, data_text, sizeof(data_text));
     (void)snprintf(buffer,
                    buffer_size,
-                   "%c%0*u%*s%s",
+                   "%c%02u %.27s",
                    scroll_marker,
-                   MIDI_MONITOR_LINE_NUMBER_CHARS,
-                   (unsigned)line_number,
-                   (int)MIDI_MONITOR_ROW_DATA_PAD_CHARS,
-                   "",
+                   (unsigned)(line_number % 100U),
                    data_text);
 }
 
@@ -348,7 +371,7 @@ void Display_DrawMenuMidiMonitor(void)
 
     (void)snprintf(line,
                    sizeof(line),
-                   "%*sU: Ch Type     V1  V2",
+                   "%*sSrc Ch Ty V1  V2   Delta",
                    (int)MIDI_MONITOR_HEADER_DATA_PAD_CHARS,
                    "");
     Display_MenuMidiMonitorDrawLineIfChanged(MIDI_MONITOR_COLUMNS_Y,

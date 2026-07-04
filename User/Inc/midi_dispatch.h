@@ -7,8 +7,10 @@
 extern "C" {
 #endif
 
-#define MIDI_DISPATCH_BUDGET         3U
-#define MIDI_DISPATCH_COMPLETION_BUDGET 3U
+/* Keep service deterministic but high enough to drain one preset burst inside
+ * a single foreground pass when UI frames are long. */
+#define MIDI_DISPATCH_BUDGET         12U
+#define MIDI_DISPATCH_COMPLETION_BUDGET 12U
 #define MIDI_DISPATCH_QUEUE_CAPACITY 32U
 #define MIDI_DISPATCH_INFLIGHT_CAPACITY 128U
 #define MIDI_DISPATCH_STALL_THRESHOLD_MS 250U

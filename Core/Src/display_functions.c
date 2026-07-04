@@ -176,6 +176,7 @@ static uint32_t display_transport_start_tick_ms = 0U;
 #define preset_name_edit_active                       (display_state.preset_name_edit_active)
 #define preset_name_edit_cursor_index                 (display_state.preset_name_edit_cursor_index)
 #define saving_popup_visible                          (display_state.saving_popup_visible)
+#define backup_popup_visible                          (display_state.backup_popup_visible)
 #define menu_mode_active                              (display_state.menu_mode_active)
 #define menu_preview_active                           (display_state.menu_preview_active)
 #define preset_init_confirm_active                    (display_state.preset_init_confirm_active)
@@ -198,6 +199,7 @@ static uint32_t display_transport_start_tick_ms = 0U;
 #define menu_text_edit_field                          display_state.menu_text_edit_field
 #define menu_text_edit_cursor_index                   (display_state.menu_text_edit_cursor_index)
 #define menu_draw_state_valid                         (display_state.menu_draw_state_valid)
+#define backup_popup_text                             (display_state.backup_popup_text)
 
 void Display_ClearMainLayoutDirty(void)
 {
@@ -372,6 +374,7 @@ static uint16_t Display_GetTimebendPopupWidth(void);
 static uint16_t Display_GetTimebendPopupX(void);
 static uint16_t Display_GetSavingPopupWidth(void);
 static uint16_t Display_GetSavingPopupX(void);
+static void Display_DrawBackupPopupMessage(const char *message);
 static void Display_ComposeSavingPopupAt(uint16_t popup_x);
 static void Display_ComposeTimebendPopupAt(uint16_t popup_x);
 static void Display_DrawMainInfoComposedRow(const Preset_t *preset, uint8_t row_index);
@@ -1044,6 +1047,9 @@ static void Display_DrawMainInfoRows(const Preset_t *preset)
 {
     for (uint8_t index = 0U; index < MAIN_INFO_ROW_COUNT; ++index)
         Display_DrawMainInfoComposedRow(preset, index);
+
+    if (backup_popup_visible && backup_popup_text[0] != '\0')
+        Display_DrawBackupPopupMessage(backup_popup_text);
 }
 
 static void Display_DrawSavingPopup(void)
@@ -1323,7 +1329,25 @@ void Display_ShowBackupPopup(void)
 
 void Display_ShowBackupPopupMessage(const char *message)
 {
-    Display_DrawBackupPopupMessage(message);
+    const char *body = (message && message[0] != '\0') ? message : MAIN_BACKUP_POPUP_TEXT;
+
+    (void)snprintf(backup_popup_text, sizeof(backup_popup_text), " %s ", body);
+    backup_popup_visible = 1U;
+    Display_DrawBackupPopupMessage(backup_popup_text);
+}
+
+void Display_HideBackupPopup(const Preset_t *preset)
+{
+    if (!backup_popup_visible)
+        return;
+
+    backup_popup_visible = 0U;
+    backup_popup_text[0] = '\0';
+
+    if (!preset)
+        return;
+
+    Display_DrawMainInfoRows(preset);
 }
 
 void Display_HideSavingPopup(const Preset_t *preset)

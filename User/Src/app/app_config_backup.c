@@ -41,6 +41,7 @@ typedef struct {
 static uint8_t app_config_backup_sd_probed = 0U;
 static RuntimeConfig_t app_config_backup_restore_config;
 static Preset_t app_config_backup_restore_presets[PRESET_COUNT];
+static Preset_t app_config_backup_verify_presets[PRESET_COUNT];
 static AppSdCardFile_t *app_config_backup_write_file = NULL;
 static uint8_t app_config_backup_write_buffer[APP_CONFIG_BACKUP_IO_BUFFER_SIZE];
 static uint16_t app_config_backup_write_buffer_length = 0U;
@@ -2060,9 +2061,71 @@ static void AppConfigBackup_ApplyRestoredSnapshot(const AppConfigBackupRestoreCo
     App_QueueSaveRequestEvent(APP_EVENT_SAVE_KIND_RUNTIME_CONFIG);
 }
 
-static AppConfigRestoreResult_t AppConfigBackup_RestoreSnapshotFile(const char *filename,
-                                                                    uint32_t *bytes_read,
-                                                                    uint32_t *values_read)
+static void AppConfigBackup_CapturePresetSnapshot(Preset_t *snapshot_presets)
+{
+    if (!snapshot_presets)
+        return;
+
+    for (uint8_t index = 0U; index < PRESET_COUNT; ++index)
+    {
+        const Preset_t *preset = Presets_Get(index);
+
+        if (preset)
+            snapshot_presets[index] = *preset;
+        else
+            memset(&snapshot_presets[index], 0, sizeof(snapshot_presets[index]));
+    }
+}
+
+static uint8_t AppConfigBackup_SnapshotMatchesExpected(
+    const RuntimeConfig_t *expected_config,
+    const Preset_t *expected_presets,
+    const AppConfigBackupRestoreContext_t *actual_context,
+    const char **mismatch_scope,
+    uint8_t *mismatch_index)
+{
+    if (mismatch_scope)
+        *mismatch_scope = "none";
+    if (mismatch_index)
+        *mismatch_index = 0U;
+
+    if (!expected_config || !expected_presets || !actual_context
+     || !actual_context->config || !actual_context->presets)
+    {
+        if (mismatch_scope)
+            *mismatch_scope = "invalid_args";
+        return 0U;
+    }
+
+    if (memcmp(expected_config, actual_context->config, sizeof(*expected_config)) != 0)
+    {
+        if (mismatch_scope)
+            *mismatch_scope = "config";
+        return 0U;
+    }
+
+    for (uint8_t index = 0U; index < PRESET_COUNT; ++index)
+    {
+        if (memcmp(&expected_presets[index],
+                   &actual_context->presets[index],
+                   sizeof(expected_presets[index])) != 0)
+        {
+            if (mismatch_scope)
+                *mismatch_scope = "preset";
+            if (mismatch_index)
+                *mismatch_index = index;
+            return 0U;
+        }
+    }
+
+    return 1U;
+}
+
+static AppConfigRestoreResult_t AppConfigBackup_ParseSnapshotFile(const char *operation,
+                                                                  const char *filename,
+                                                                  AppConfigBackupRestoreContext_t *context_out,
+                                                                  uint32_t *bytes_read,
+                                                                  uint32_t *values_read)
 {
     AppSdCardFile_t file;
     AppConfigBackupRestoreContext_t context;
@@ -2077,17 +2140,19 @@ static AppConfigRestoreResult_t AppConfigBackup_RestoreSnapshotFile(const char *
         *bytes_read = 0UL;
     if (values_read)
         *values_read = 0UL;
+    if (context_out)
+        memset(context_out, 0, sizeof(*context_out));
 
     stage_tick = HAL_GetTick();
     if (!filename || !AppSdCard_OpenFile(&file, filename))
     {
         app_config_backup_read_file = NULL;
         result = APP_CONFIG_RESTORE_RESULT_FILE_NOT_FOUND;
-        AppConfigBackup_LogFileStage("restore", filename, "open_read", stage_tick, 0U);
+        AppConfigBackup_LogFileStage(operation, filename, "open_read", stage_tick, 0U);
         goto finish;
     }
     opened = 1U;
-    AppConfigBackup_LogFileStage("restore", filename, "open_read", stage_tick, 1U);
+    AppConfigBackup_LogFileStage(operation, filename, "open_read", stage_tick, 1U);
 
     if (bytes_read)
         *bytes_read = file.file_size;
@@ -2132,12 +2197,11 @@ static AppConfigRestoreResult_t AppConfigBackup_RestoreSnapshotFile(const char *
     if (values_read)
         *values_read = parsed_values;
 
-    AppConfigBackup_LogFileStage("restore", filename, "read_parse", stage_tick, 1U);
+    AppConfigBackup_LogFileStage(operation, filename, "read_parse", stage_tick, 1U);
     app_config_backup_read_file = NULL;
 
-    stage_tick = HAL_GetTick();
-    AppConfigBackup_ApplyRestoredSnapshot(&context);
-    AppConfigBackup_LogFileStage("restore", filename, "apply", stage_tick, 1U);
+    if (context_out)
+        *context_out = context;
     result = APP_CONFIG_RESTORE_RESULT_OK;
     goto finish;
 
@@ -2145,11 +2209,12 @@ parse_done:
     parsed_values = context.parsed_values;
     if (values_read)
         *values_read = parsed_values;
-    AppConfigBackup_LogFileStage("restore", filename, "read_parse", stage_tick, 0U);
+    AppConfigBackup_LogFileStage(operation, filename, "read_parse", stage_tick, 0U);
 
 finish:
     app_config_backup_read_file = NULL;
-    printf("SDBACKUP_MON op=restore file=%s stage=file_total ms=%lu result=%u bytes=%lu values=%lu opened=%u\r\n",
+    printf("SDBACKUP_MON op=%s file=%s stage=file_total ms=%lu result=%u bytes=%lu values=%lu opened=%u\r\n",
+           operation ? operation : "?",
            filename ? filename : "?",
            (unsigned long)AppConfigBackup_ElapsedMs(file_start_tick),
            (unsigned)result,
@@ -2157,6 +2222,43 @@ finish:
            (unsigned long)parsed_values,
            (unsigned)opened);
     return result;
+}
+
+static uint8_t AppConfigBackup_VerifySnapshotFile(const char *filename,
+                                                  const RuntimeConfig_t *expected_config,
+                                                  const Preset_t *expected_presets)
+{
+    AppConfigBackupRestoreContext_t context;
+    AppConfigRestoreResult_t parse_result;
+    const char *mismatch_scope = "none";
+    uint8_t mismatch_index = 0U;
+    uint32_t bytes_read = 0UL;
+    uint32_t values_read = 0UL;
+    uint8_t matches = 0U;
+
+    parse_result = AppConfigBackup_ParseSnapshotFile("verify",
+                                                     filename,
+                                                     &context,
+                                                     &bytes_read,
+                                                     &values_read);
+    if (parse_result == APP_CONFIG_RESTORE_RESULT_OK)
+    {
+        matches = AppConfigBackup_SnapshotMatchesExpected(expected_config,
+                                                          expected_presets,
+                                                          &context,
+                                                          &mismatch_scope,
+                                                          &mismatch_index);
+    }
+
+    printf("SDBACKUP_MON op=verify file=%s stage=compare ok=%u parse_result=%u bytes=%lu values=%lu scope=%s preset_index=%u\r\n",
+           filename ? filename : "?",
+           (unsigned)matches,
+           (unsigned)parse_result,
+           (unsigned long)bytes_read,
+           (unsigned long)values_read,
+           mismatch_scope ? mismatch_scope : "?",
+           (unsigned)mismatch_index);
+    return matches;
 }
 
 static void AppConfigBackup_InitSdCard(void)
@@ -2207,6 +2309,7 @@ static AppConfigBackupResult_t AppConfigBackup_WriteSdSnapshotInternal(const cha
 
     stage_tick = HAL_GetTick();
     RuntimeConfig_CopyPersistentSaveSnapshot(&snapshot);
+    AppConfigBackup_CapturePresetSnapshot(app_config_backup_verify_presets);
     AppConfigBackup_LogStage("backup", "snapshot_copy", stage_tick);
     if ((RuntimeConfig_PersistentSnapshotLooksFactoryDefault(&snapshot)
       || RuntimeConfig_PersistentSnapshotCoreLooksFactoryDefault(&snapshot))
@@ -2226,11 +2329,27 @@ static AppConfigBackupResult_t AppConfigBackup_WriteSdSnapshotInternal(const cha
     if (fallback_ok)
     {
         stage_tick = HAL_GetTick();
+        fallback_ok = AppConfigBackup_VerifySnapshotFile(APP_CONFIG_BACKUP_FALLBACK_FILE,
+                                                         &snapshot,
+                                                         app_config_backup_verify_presets);
+        AppConfigBackup_LogFileStage("backup", APP_CONFIG_BACKUP_FALLBACK_FILE, "verify", stage_tick, fallback_ok);
+    }
+    if (fallback_ok)
+    {
+        stage_tick = HAL_GetTick();
         primary_ok = AppConfigBackup_WriteSnapshotFile(APP_CONFIG_BACKUP_PRIMARY_FILE,
                                                        &snapshot,
                                                        reason,
                                                        &primary_bytes);
         AppConfigBackup_LogFileStage("backup", APP_CONFIG_BACKUP_PRIMARY_FILE, "file_call", stage_tick, primary_ok);
+        if (primary_ok)
+        {
+            stage_tick = HAL_GetTick();
+            primary_ok = AppConfigBackup_VerifySnapshotFile(APP_CONFIG_BACKUP_PRIMARY_FILE,
+                                                            &snapshot,
+                                                            app_config_backup_verify_presets);
+            AppConfigBackup_LogFileStage("backup", APP_CONFIG_BACKUP_PRIMARY_FILE, "verify", stage_tick, primary_ok);
+        }
     }
 
     printf("SDBACKUP write=%s reason=\"%s\" file=%s bytes=%lu fallback=%s fallback_bytes=%lu\r\n",
@@ -2273,6 +2392,7 @@ static AppConfigRestoreResult_t AppConfigBackup_RestoreSdSnapshotInternal(uint8_
     AppConfigRestoreResult_t primary_result;
     AppConfigRestoreResult_t fallback_result;
     AppConfigRestoreResult_t result;
+    AppConfigBackupRestoreContext_t restore_context;
     uint32_t primary_bytes = 0UL;
     uint32_t fallback_bytes = 0UL;
     uint32_t values_read = 0UL;
@@ -2298,12 +2418,17 @@ static AppConfigRestoreResult_t AppConfigBackup_RestoreSdSnapshotInternal(uint8_
     }
 
     stage_tick = HAL_GetTick();
-    primary_result = AppConfigBackup_RestoreSnapshotFile(APP_CONFIG_BACKUP_PRIMARY_FILE,
-                                                         &primary_bytes,
-                                                         &values_read);
+    primary_result = AppConfigBackup_ParseSnapshotFile("restore",
+                                                       APP_CONFIG_BACKUP_PRIMARY_FILE,
+                                                       &restore_context,
+                                                       &primary_bytes,
+                                                       &values_read);
     AppConfigBackup_LogFileStage("restore", APP_CONFIG_BACKUP_PRIMARY_FILE, "file_call", stage_tick, (primary_result == APP_CONFIG_RESTORE_RESULT_OK) ? 1U : 0U);
     if (primary_result == APP_CONFIG_RESTORE_RESULT_OK)
     {
+        stage_tick = HAL_GetTick();
+        AppConfigBackup_ApplyRestoredSnapshot(&restore_context);
+        AppConfigBackup_LogFileStage("restore", APP_CONFIG_BACKUP_PRIMARY_FILE, "apply", stage_tick, 1U);
         printf("SDBACKUP restore=ok file=%s bytes=%lu values=%lu\r\n",
                APP_CONFIG_BACKUP_PRIMARY_FILE,
                (unsigned long)primary_bytes,
@@ -2313,12 +2438,17 @@ static AppConfigRestoreResult_t AppConfigBackup_RestoreSdSnapshotInternal(uint8_
     }
 
     stage_tick = HAL_GetTick();
-    fallback_result = AppConfigBackup_RestoreSnapshotFile(APP_CONFIG_BACKUP_FALLBACK_FILE,
-                                                          &fallback_bytes,
-                                                          &values_read);
+    fallback_result = AppConfigBackup_ParseSnapshotFile("restore",
+                                                        APP_CONFIG_BACKUP_FALLBACK_FILE,
+                                                        &restore_context,
+                                                        &fallback_bytes,
+                                                        &values_read);
     AppConfigBackup_LogFileStage("restore", APP_CONFIG_BACKUP_FALLBACK_FILE, "file_call", stage_tick, (fallback_result == APP_CONFIG_RESTORE_RESULT_OK) ? 1U : 0U);
     if (fallback_result == APP_CONFIG_RESTORE_RESULT_OK)
     {
+        stage_tick = HAL_GetTick();
+        AppConfigBackup_ApplyRestoredSnapshot(&restore_context);
+        AppConfigBackup_LogFileStage("restore", APP_CONFIG_BACKUP_FALLBACK_FILE, "apply", stage_tick, 1U);
         printf("SDBACKUP restore=ok file=%s bytes=%lu values=%lu primary_result=%u primary_bytes=%lu\r\n",
                APP_CONFIG_BACKUP_FALLBACK_FILE,
                (unsigned long)fallback_bytes,

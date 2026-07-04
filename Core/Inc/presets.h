@@ -128,6 +128,7 @@ Preset_t *Presets_GetMutable(uint8_t index);
 const RuntimeConfigFunctionButton_t *Presets_GetFunctionButton(uint8_t index);
 RuntimeConfigFunctionButton_t *Presets_GetMutableFunctionButton(uint8_t index);
 const RuntimeConfigFunctionButton_t *Presets_GetActiveFunctionButton(void);
+uint8_t Presets_IsRandomPreset(const Preset_t *preset);
 const Preset_t *Presets_GetGlobalBypassPreset(void);
 Preset_t *Presets_GetMutableGlobalBypassPreset(void);
 const Preset_t *Presets_GetGlobalMutePreset(void);

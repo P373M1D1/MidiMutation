@@ -12,11 +12,8 @@
 #include <assert.h>
 #endif
 
-/* Preset expansion is intentionally paced at one semantic command per
- * foreground pass. The dispatcher then applies its own fixed budget. */
-#if MIDI_PRESET_TRANSACTION_SERVICE_BUDGET != 1U
-#error "Preset transaction service budget must remain one command per pass"
-#endif
+/* Preset expansion submits a bounded burst each foreground pass so long UI
+ * frames do not stretch command dispatch latency across many frame intervals. */
 
 typedef enum {
     MIDI_PRESET_TRANSACTION_COMMAND_PROGRAM_CHANGE = 0,
@@ -502,10 +499,7 @@ static void MidiPresetTransaction_RetireHead(void)
 void MidiPresetTransaction_Service(void)
 {
     MidiPresetTransaction_t *transaction;
-    MidiPresetTransactionCommand_t *command;
     uint32_t now;
-    uint32_t sequence = 0U;
-    uint8_t submitted;
 
     if (midi_preset_transaction_count == 0U)
         return;
@@ -538,53 +532,66 @@ void MidiPresetTransaction_Service(void)
         return;
     }
 
-    if (!MidiDispatch_HasSubmissionCapacity())
+    for (uint8_t budget = 0U;
+         budget < MIDI_PRESET_TRANSACTION_SERVICE_BUDGET;
+         ++budget)
     {
-        midi_preset_transaction_dispatcher_wait_count++;
-        return;
-    }
+        MidiPresetTransactionCommand_t *command;
+        uint32_t sequence = 0U;
+        uint8_t submitted;
 
-    command = &transaction->commands[transaction->command_index];
-    if (command->type == MIDI_PRESET_TRANSACTION_COMMAND_PROGRAM_CHANGE)
-    {
-        submitted = MidiDispatch_SubmitProgramChange(
-            command->channel,
-            command->data1,
-            MIDI_COMMAND_POLICY_RELIABLE_ORDERED,
-            0U,
-            &sequence);
-    }
-    else
-    {
-        submitted = MidiDispatch_SubmitControlChange(
-            command->channel,
-            command->data1,
-            command->data2,
-            MIDI_COMMAND_POLICY_RELIABLE_ORDERED,
-            0U,
-            &sequence);
-    }
+        if (transaction->command_index >= transaction->command_count)
+            break;
 
-    if (!submitted)
-    {
-        midi_preset_transaction_failed_count++;
-        MidiPresetTransaction_RetireHead();
-        MidiPresetTransaction_CheckAccounting();
-        return;
-    }
+        if (!MidiDispatch_HasSubmissionCapacity())
+        {
+            midi_preset_transaction_dispatcher_wait_count++;
+            break;
+        }
 
-    if (transaction->first_sequence == 0U)
-    {
-        uint32_t start_delay_ms = now - transaction->created_ms;
+        command = &transaction->commands[transaction->command_index];
+        if (command->type == MIDI_PRESET_TRANSACTION_COMMAND_PROGRAM_CHANGE)
+        {
+            submitted = MidiDispatch_SubmitProgramChange(
+                command->channel,
+                command->data1,
+                MIDI_COMMAND_POLICY_RELIABLE_ORDERED,
+                0U,
+                &sequence);
+        }
+        else
+        {
+            submitted = MidiDispatch_SubmitControlChange(
+                command->channel,
+                command->data1,
+                command->data2,
+                MIDI_COMMAND_POLICY_RELIABLE_ORDERED,
+                0U,
+                &sequence);
+        }
 
-        transaction->first_sequence = sequence;
-        transaction->first_submitted_ms = now;
-        if (start_delay_ms > midi_preset_transaction_max_start_delay_ms)
-            midi_preset_transaction_max_start_delay_ms = start_delay_ms;
+        if (!submitted)
+        {
+            midi_preset_transaction_failed_count++;
+            MidiPresetTransaction_RetireHead();
+            MidiPresetTransaction_CheckAccounting();
+            return;
+        }
+
+        if (transaction->first_sequence == 0U)
+        {
+            uint32_t start_delay_ms = now - transaction->created_ms;
+
+            transaction->first_sequence = sequence;
+            transaction->first_submitted_ms = now;
+            if (start_delay_ms > midi_preset_transaction_max_start_delay_ms)
+                midi_preset_transaction_max_start_delay_ms = start_delay_ms;
+        }
+
+        transaction->last_sequence = sequence;
+        transaction->command_index++;
+        midi_preset_transaction_command_submitted_count++;
     }
-    transaction->last_sequence = sequence;
-    transaction->command_index++;
-    midi_preset_transaction_command_submitted_count++;
 }
 
 void MidiPresetTransaction_GetDiagnostics(

@@ -111,6 +111,8 @@ void Display_HideSavingPopup(const Preset_t *p);
 void Display_ShowBackupPopup(void);
 /** Shows a manual backup status popup using the same badge area. */
 void Display_ShowBackupPopupMessage(const char *message);
+/** Hides the backup/status popup overlay and restores obscured content. */
+void Display_HideBackupPopup(const Preset_t *p);
 /** Shows the timebend popup overlay. */
 void Display_ShowTimebendPopup(void);
 /** Hides the timebend popup overlay and restores the obscured content. */

@@ -9,9 +9,11 @@ extern "C" {
 
 #define MIDI_MONITOR_ENTRY_CAPACITY 50U
 #define MIDI_MONITOR_VALUE_UNUSED   0xFFU
+#define MIDI_MONITOR_DELTA_UNAVAILABLE UINT32_MAX
 
 typedef enum
 {
+    MIDI_MONITOR_SOURCE_OUTPUT = 0,
     MIDI_MONITOR_SOURCE_UART2 = 2,
     MIDI_MONITOR_SOURCE_UART4 = 4,
     MIDI_MONITOR_SOURCE_UART5 = 5,
@@ -35,10 +37,21 @@ typedef struct
     uint8_t type;
     uint8_t value1;
     uint8_t value2;
+    uint32_t timestamp_us;
+    uint32_t delta_us;
+    uint32_t revision;
 } MidiMonitorEntry_t;
 
 void MidiMonitor_Init(void);
 void MidiMonitor_ReceiveByte(uint8_t source_uart, uint8_t byte);
+/* Records a command after its final byte has been handed to the MIDI UART.
+ * timestamp_us must come from the free-running 1 MHz timing counter at that
+ * handoff point. */
+void MidiMonitor_RecordSentMessage(uint8_t type,
+                                   uint8_t channel,
+                                   uint8_t value1,
+                                   uint8_t value2,
+                                   uint32_t timestamp_us);
 void MidiMonitor_Clear(void);
 uint32_t MidiMonitor_GetRevision(void);
 void MidiMonitor_AcknowledgeChangedEvent(void);

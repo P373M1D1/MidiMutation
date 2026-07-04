@@ -81,6 +81,10 @@ static AppSdCardVolume_t app_sd_volume = {0};
 static uint8_t app_sd_sector_buffer[APP_SD_BLOCK_SIZE];
 static uint8_t app_sd_dummy_tx_buffer[APP_SD_BLOCK_SIZE];
 static uint8_t app_sd_dummy_tx_buffer_ready = 0U;
+static uint8_t app_sd_fat_cache_buffer[APP_SD_BLOCK_SIZE];
+static uint32_t app_sd_fat_cache_sector_lba = 0UL;
+static uint8_t app_sd_fat_cache_valid = 0U;
+static uint32_t app_sd_next_free_cluster_hint = 2UL;
 static const char *app_sd_status_text = "not probed";
 static uint8_t app_sd_exclusive_access_depth = 0U;
 static uint32_t app_sd_exclusive_access_restore_prescaler = SPI_BAUDRATEPRESCALER_2;
@@ -88,6 +92,13 @@ static AppSdCardMetrics_t app_sd_metrics;
 
 static uint8_t AppSdCard_SpiTransfer(uint8_t tx_byte);
 static uint8_t AppSdCard_ReadFatEntry(uint32_t cluster, uint32_t *next_cluster);
+static void AppSdCard_InvalidateFatCache(void);
+
+static void AppSdCard_InvalidateFatCache(void)
+{
+    app_sd_fat_cache_valid = 0U;
+    app_sd_fat_cache_sector_lba = 0UL;
+}
 
 static void AppSdCard_RecordMax(uint32_t *value, uint32_t candidate)
 {
@@ -755,10 +766,16 @@ static uint8_t AppSdCard_ReadFatEntry(uint32_t cluster, uint32_t *next_cluster)
     fat_sector_lba = app_sd_volume.fat_start_lba + (fat_offset / APP_SD_BLOCK_SIZE);
     entry_offset = (uint16_t)(fat_offset % APP_SD_BLOCK_SIZE);
 
-    if (!AppSdCard_ReadBlockRaw(fat_sector_lba, app_sd_sector_buffer))
-        return 0U;
+    if (!app_sd_fat_cache_valid || app_sd_fat_cache_sector_lba != fat_sector_lba)
+    {
+        if (!AppSdCard_ReadBlockRaw(fat_sector_lba, app_sd_fat_cache_buffer))
+            return 0U;
 
-    *next_cluster = AppSdCard_ReadLe32(&app_sd_sector_buffer[entry_offset]) & 0x0FFFFFFFUL;
+        app_sd_fat_cache_sector_lba = fat_sector_lba;
+        app_sd_fat_cache_valid = 1U;
+    }
+
+    *next_cluster = AppSdCard_ReadLe32(&app_sd_fat_cache_buffer[entry_offset]) & 0x0FFFFFFFUL;
     app_sd_metrics.fat_entry_reads++;
     return 1U;
 }
@@ -783,12 +800,28 @@ static uint8_t AppSdCard_WriteFatEntry(uint32_t cluster, uint32_t next_cluster)
             + ((uint32_t)fat_index * app_sd_volume.sectors_per_fat)
             + fat_sector_offset;
 
-        if (!AppSdCard_ReadBlockRaw(fat_sector_lba, app_sd_sector_buffer))
-            return 0U;
+        if (fat_index == 0U
+         && app_sd_fat_cache_valid
+         && app_sd_fat_cache_sector_lba == fat_sector_lba)
+        {
+            memcpy(app_sd_sector_buffer, app_sd_fat_cache_buffer, APP_SD_BLOCK_SIZE);
+        }
+        else
+        {
+            if (!AppSdCard_ReadBlockRaw(fat_sector_lba, app_sd_sector_buffer))
+                return 0U;
+        }
 
         AppSdCard_WriteLe32(&app_sd_sector_buffer[entry_offset], next_cluster);
         if (!AppSdCard_WriteBlockRaw(fat_sector_lba, app_sd_sector_buffer))
             return 0U;
+
+        if (fat_index == 0U)
+        {
+            memcpy(app_sd_fat_cache_buffer, app_sd_sector_buffer, APP_SD_BLOCK_SIZE);
+            app_sd_fat_cache_sector_lba = fat_sector_lba;
+            app_sd_fat_cache_valid = 1U;
+        }
     }
 
     app_sd_metrics.fat_entry_writes++;
@@ -798,22 +831,42 @@ static uint8_t AppSdCard_WriteFatEntry(uint32_t cluster, uint32_t next_cluster)
 static uint8_t AppSdCard_FindFreeCluster(uint32_t *cluster_out)
 {
     uint32_t cluster_limit = app_sd_volume.cluster_count + 2UL;
+    uint32_t start_cluster;
 
     if (!cluster_out)
         return 0U;
 
-    for (uint32_t cluster = 2UL; cluster < cluster_limit; ++cluster)
+    if (cluster_limit <= 2UL)
+        return 0U;
+
+    start_cluster = app_sd_next_free_cluster_hint;
+    if (start_cluster < 2UL || start_cluster >= cluster_limit)
+        start_cluster = 2UL;
+
+    for (uint8_t pass = 0U; pass < 2U; ++pass)
     {
-        uint32_t value;
+        uint32_t begin = (pass == 0U) ? start_cluster : 2UL;
+        uint32_t end = (pass == 0U) ? cluster_limit : start_cluster;
 
-        app_sd_metrics.free_cluster_scan_steps++;
-        if (!AppSdCard_ReadFatEntry(cluster, &value))
-            return 0U;
-
-        if (value == 0UL)
+        for (uint32_t cluster = begin; cluster < end; ++cluster)
         {
-            *cluster_out = cluster;
-            return 1U;
+            uint32_t value;
+
+            app_sd_metrics.free_cluster_scan_steps++;
+            if (!AppSdCard_ReadFatEntry(cluster, &value))
+                return 0U;
+
+            if (value == 0UL)
+            {
+                uint32_t next_hint = cluster + 1UL;
+
+                if (next_hint >= cluster_limit)
+                    next_hint = 2UL;
+
+                app_sd_next_free_cluster_hint = next_hint;
+                *cluster_out = cluster;
+                return 1U;
+            }
         }
     }
 
@@ -853,6 +906,8 @@ static uint8_t AppSdCard_FreeClusterChain(uint32_t first_cluster)
             return 0U;
 
         app_sd_metrics.clusters_freed++;
+        if (cluster < app_sd_next_free_cluster_hint)
+            app_sd_next_free_cluster_hint = cluster;
         if (AppSdCard_IsEndOfClusterChain(next_cluster))
             return 1U;
 
@@ -952,7 +1007,12 @@ static uint8_t AppSdCard_MountFat32(void)
         }
     }
 
-    return AppSdCard_ParseBootSector(partition_lba);
+    if (!AppSdCard_ParseBootSector(partition_lba))
+        return 0U;
+
+    AppSdCard_InvalidateFatCache();
+    app_sd_next_free_cluster_hint = 2UL;
+    return 1U;
 }
 
 static uint8_t AppSdCard_FormatFatName(const char *filename, uint8_t fat_name[11])
@@ -1242,6 +1302,8 @@ void AppSdCard_InitAndProbe(void)
     app_sd_high_capacity = 0U;
     memset(&app_sd_volume, 0, sizeof(app_sd_volume));
     app_sd_status_text = "not present";
+    AppSdCard_InvalidateFatCache();
+    app_sd_next_free_cluster_hint = 2UL;
 
     printf("\r\n[sd] TFT-slot SD probe on SPI1 PA5=SCK PA6=MISO PA7=MOSI PG2=CS\r\n");
 

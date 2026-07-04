@@ -13,7 +13,9 @@ extern "C" {
  * and one untouched future transaction may hold the newest user request. */
 #define MIDI_PRESET_TRANSACTION_QUEUE_CAPACITY 2U
 #define MIDI_PRESET_TRANSACTION_MAX_COMMANDS   72U
-#define MIDI_PRESET_TRANSACTION_SERVICE_BUDGET 1U
+/* Submit a bounded command burst each foreground pass so preset recalls are
+ * not stretched by slow UI frames, while still keeping deterministic limits. */
+#define MIDI_PRESET_TRANSACTION_SERVICE_BUDGET 8U
 
 typedef struct {
     uint8_t pending_depth;
