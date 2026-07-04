@@ -375,6 +375,9 @@ static uint16_t Display_GetTimebendPopupX(void);
 static uint16_t Display_GetSavingPopupWidth(void);
 static uint16_t Display_GetSavingPopupX(void);
 static void Display_DrawBackupPopupMessage(const char *message);
+static uint16_t Display_GetBackupPopupWidth(void);
+static uint16_t Display_GetBackupPopupX(void);
+static void Display_ComposeBackupPopupAt(uint16_t popup_x);
 static void Display_ComposeSavingPopupAt(uint16_t popup_x);
 static void Display_ComposeTimebendPopupAt(uint16_t popup_x);
 static void Display_DrawMainInfoComposedRow(const Preset_t *preset, uint8_t row_index);
@@ -532,7 +535,10 @@ static void Display_DrawMainInfoProgramRow(const Preset_t *preset,
         char program_text[MAIN_INFO_PROGRAM_DIGITS + 1U];
         char wet_marker_text[3] = "  ";
         uint8_t program = preset->prg[slot_index].program;
-        uint8_t program_is_shared = (program != MAIN_UNUSED_PROGRAM && Presets_DeviceProgramIsShared(slot_index, program)) ? 1U : 0U;
+        uint8_t program_is_shared = (program != MAIN_UNUSED_PROGRAM
+            && (Presets_IsRandomPreset(preset)
+                ? Presets_DeviceProgramExistsInStore(slot_index, program)
+                : Presets_DeviceProgramIsShared(slot_index, program))) ? 1U : 0U;
         uint16_t program_foreground = MAIN_INFO_TEXT_COLOUR;
         uint16_t program_background = MAIN_INFO_TEXT_BG_COLOUR;
 
@@ -1040,6 +1046,13 @@ static void Display_DrawMainInfoComposedRow(const Preset_t *preset, uint8_t row_
     if (row_index == MAIN_SAVING_POPUP_ROW_INDEX && saving_popup_visible)
         Display_ComposeSavingPopupAt(Display_GetSavingPopupX());
 
+    if (row_index == MAIN_BACKUP_POPUP_ROW_INDEX
+     && backup_popup_visible
+     && backup_popup_text[0] != '\0')
+    {
+        Display_ComposeBackupPopupAt(Display_GetBackupPopupX());
+    }
+
     Display_MenuRowComposeBlit(main_info_row_y[row_index]);
 }
 
@@ -1047,9 +1060,6 @@ static void Display_DrawMainInfoRows(const Preset_t *preset)
 {
     for (uint8_t index = 0U; index < MAIN_INFO_ROW_COUNT; ++index)
         Display_DrawMainInfoComposedRow(preset, index);
-
-    if (backup_popup_visible && backup_popup_text[0] != '\0')
-        Display_DrawBackupPopupMessage(backup_popup_text);
 }
 
 static void Display_DrawSavingPopup(void)
@@ -1257,13 +1267,11 @@ static void Display_DrawLearningPopup(void)
 
 static void Display_DrawBackupPopupMessage(const char *message)
 {
-    char popup_text[32];
-    const char *body = (message && message[0] != '\0') ? message : MAIN_BACKUP_POPUP_TEXT;
+    const char *popup_text = (message && message[0] != '\0') ? message : " backing up ";
     uint16_t popup_w;
     uint16_t popup_x;
     uint16_t popup_y = main_info_row_y[MAIN_BACKUP_POPUP_ROW_INDEX];
 
-    (void)snprintf(popup_text, sizeof(popup_text), " %s ", body);
     popup_w = (uint16_t)(strlen(popup_text) * MAIN_INFO_FONT.width);
     popup_x = (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
 
@@ -1314,6 +1322,70 @@ static void Display_DrawBackupPopupMessage(const char *message)
                         popup_y,
                         popup_w,
                         MAIN_INFO_FONT.height);
+}
+
+static uint16_t Display_GetBackupPopupWidth(void)
+{
+    return (uint16_t)(strlen(backup_popup_text) * MAIN_INFO_FONT.width);
+}
+
+static uint16_t Display_GetBackupPopupX(void)
+{
+    uint16_t popup_w = Display_GetBackupPopupWidth();
+
+    return (uint16_t)((ST7796_WIDTH - popup_w) / 2U);
+}
+
+static void Display_ComposeBackupPopupAt(uint16_t popup_x)
+{
+    uint16_t popup_w = Display_GetBackupPopupWidth();
+
+    if (popup_w == 0U)
+        return;
+
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            popup_x,
+                            0U,
+                            popup_w,
+                            MAIN_INFO_FONT.height,
+                            MAIN_BACKUP_POPUP_BG_COLOUR);
+    Display_ComposeString32(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            popup_x,
+                            0U,
+                            backup_popup_text,
+                            MAIN_INFO_FONT,
+                            MAIN_BACKUP_POPUP_TEXT_COLOUR,
+                            MAIN_BACKUP_POPUP_BG_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            popup_x,
+                            0U,
+                            popup_w,
+                            1U,
+                            MAIN_BACKUP_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            popup_x,
+                            (uint16_t)(MAIN_INFO_FONT.height - 1U),
+                            popup_w,
+                            1U,
+                            MAIN_BACKUP_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            popup_x,
+                            0U,
+                            1U,
+                            MAIN_INFO_FONT.height,
+                            MAIN_BACKUP_POPUP_BORDER_COLOUR);
+    Display_ComposeFillRect(ST7796_WIDTH,
+                            MAIN_INFO_FONT_CELL_HEIGHT,
+                            (uint16_t)(popup_x + popup_w - 1U),
+                            0U,
+                            1U,
+                            MAIN_INFO_FONT.height,
+                            MAIN_BACKUP_POPUP_BORDER_COLOUR);
 }
 
 void Display_ShowSavingPopup(void)
@@ -1980,6 +2052,11 @@ void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm)
     Display_DrawPresetName(p);
     Display_DrawCurrentBankNameLine();
     Display_DrawMainInfoRows(p);
+}
+
+void Display_RefreshFootbar(void)
+{
+    Display_DrawFootbar();
 }
 
 void Display_RefreshMainScreenContent(const Preset_t *p, uint16_t bpm)

@@ -48,6 +48,8 @@ void Display_BL_FadeOut(void);
 
 /** Draws the full main screen for the supplied preset and BPM. */
 void Display_DrawMainScreen(const Preset_t *p, uint16_t bpm);
+/** Refreshes only the footer/soft-button hint bar. */
+void Display_RefreshFootbar(void);
 /** Refreshes only the main-screen content area. */
 void Display_RefreshMainScreenContent(const Preset_t *p, uint16_t bpm);
 /** Updates the BPM area of the main screen. */

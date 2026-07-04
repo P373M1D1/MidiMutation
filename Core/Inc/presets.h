@@ -178,6 +178,7 @@ uint8_t Presets_Count(void);
  * @param  program   Program number to check (0..127).
  */
 bool Presets_DeviceProgramIsShared(uint8_t slot, uint8_t program);
+bool Presets_DeviceProgramExistsInStore(uint8_t slot, uint8_t program);
 
 /**
  * @brief  Activate preset @p idx: update active state and send its MIDI payload.

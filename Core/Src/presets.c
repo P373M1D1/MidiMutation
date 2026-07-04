@@ -768,6 +768,25 @@ bool Presets_DeviceProgramIsShared(uint8_t slot, uint8_t program)
     return false;
 }
 
+/* Returns true when at least one stored preset uses this program on the given
+ * slot. Used by the random overlay so program numbers already taken by any
+ * stored preset are highlighted, even though random_preset is not in the store. */
+bool Presets_DeviceProgramExistsInStore(uint8_t slot, uint8_t program)
+{
+    if (program == PRESET_PROGRAM_UNUSED || slot >= PRESET_DEVICE_SLOTS)
+        return false;
+
+    Presets_EnsureRuntimeStore();
+
+    for (uint8_t index = 0U; index < PRESET_COUNT; index++)
+    {
+        if (preset_store[index].prg[slot].program == program)
+            return true;
+    }
+
+    return false;
+}
+
 /* -------------------------------------------------------------------------- */
 
 const Preset_t *Presets_Get(uint8_t index)

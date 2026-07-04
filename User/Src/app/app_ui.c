@@ -794,6 +794,7 @@ uint8_t AppUi_RandomSaveStartSelection(void)
     app_ui_random_save.state = APP_UI_RANDOM_SAVE_STATE_SLOT_SELECT;
     app_ui_random_save.selected_slot = 0U;
     Display_ShowBackupPopupMessage(APP_UI_RANDOM_SAVE_POPUP_CHOOSE_SLOT);
+    Display_RefreshFootbar();
 
     return 1U;
 }
@@ -812,11 +813,13 @@ uint8_t AppUi_RandomSaveHandlePresetSlotPress(uint8_t slot_index)
     {
         app_ui_random_save.state = APP_UI_RANDOM_SAVE_STATE_CONFIRM_OVERWRITE;
         Display_ShowBackupPopupMessage(APP_UI_RANDOM_SAVE_POPUP_CONFIRM_OVERWRITE);
+        Display_RefreshFootbar();
         return 1U;
     }
 
     app_ui_random_save.state = APP_UI_RANDOM_SAVE_STATE_IDLE;
     Display_HideBackupPopup(AppUi_GetCurrentDisplayPreset());
+    Display_RefreshFootbar();
     if (AppUi_RandomSaveCommitToSlot(slot_index))
     {
         if (!AppUi_RandomSaveEnterNameEditForSlot(slot_index))
@@ -833,6 +836,7 @@ uint8_t AppUi_RandomSaveConfirmOverwrite(void)
 
     app_ui_random_save.state = APP_UI_RANDOM_SAVE_STATE_IDLE;
     Display_HideBackupPopup(AppUi_GetCurrentDisplayPreset());
+    Display_RefreshFootbar();
     if (AppUi_RandomSaveCommitToSlot(app_ui_random_save.selected_slot))
     {
         if (!AppUi_RandomSaveEnterNameEditForSlot(app_ui_random_save.selected_slot))
@@ -849,6 +853,7 @@ uint8_t AppUi_RandomSaveCancel(void)
 
     app_ui_random_save.state = APP_UI_RANDOM_SAVE_STATE_IDLE;
     Display_HideBackupPopup(AppUi_GetCurrentDisplayPreset());
+    Display_RefreshFootbar();
     AppUi_RequestActiveDisplayRefresh();
     return 1U;
 }

@@ -6,6 +6,7 @@
 #include "app/app_ui.h"
 #include "app/app_ui_events.h"
 #include "app/app_preset_latency_diag.h"
+#include "display_functions.h"
 #include "presets.h"
 #include "stm32f4xx_hal.h"
 
@@ -122,6 +123,9 @@ static void AppActivation_HandlePresetActivateEvent(uint8_t preset_index, uint8_
     if (!is_random_overlay)
         (void)AppUi_RandomSaveCancel();
 
+    if (was_random_overlay != is_random_overlay)
+        Display_RefreshFootbar();
+
     if (source == APP_EVENT_SOURCE_ENC2)
     {
         now = HAL_GetTick();
@@ -159,6 +163,9 @@ static void AppActivation_HandlePresetActivateRandomEvent(void)
     AppPresetLatencyDiag_OnActivationApplied();
 
     if (!was_random_overlay)
+        Display_RefreshFootbar();
+
+    if (!was_random_overlay)
         AppUi_RequestActiveDisplayRefresh();
     else
         AppUi_RequestLiveContentRefresh();
@@ -176,6 +183,9 @@ static void AppActivation_HandlePresetActivateMuteEvent(void)
 
     if (was_random_overlay)
         (void)AppUi_RandomSaveCancel();
+
+    if (was_random_overlay)
+        Display_RefreshFootbar();
 
     if (was_random_overlay)
         AppUi_RequestActiveDisplayRefresh();
